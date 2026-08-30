@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1814.0699999999997 376.5" width="1814.0699999999997" height="376.5" style="--bg:#ffffff;--fg:#1f2328;--line:#d1d9e0;--accent:#0969da;--muted:#59636e;background:#ffffff"><rect data-pretty-mermaid-background="true" x="0" y="0" width="100%" height="100%" fill="#ffffff"/>
+<style>
+  text { font-family: 'Inter', system-ui, sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI'; }
+  svg {
+    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
+    --_text:          #1f2328;
+    --_text-sec:      #59636e;
+    --_text-muted:    #59636e;
+    --_text-faint:    #c7c8c9;
+    --_line:          #d1d9e0;
+    --_arrow:         #0969da;
+    --_node-fill:     #f8f8f9;
+    --_node-stroke:   #d2d3d4;
+    --_group-fill:    #ffffff;
+    --_group-hdr:     #f4f4f4;
+    --_inner-stroke:  #e4e5e5;
+    --_key-badge:     #e9e9ea;
+  }
+</style>
+<defs>
+  <marker id="arrowhead" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="#0969da" stroke="#0969da" stroke-width="0.75" stroke-linejoin="round"/>
+  </marker>
+  <marker id="arrowhead-start" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="#0969da" stroke="#0969da" stroke-width="0.75" stroke-linejoin="round"/>
+  </marker>
+</defs>
+<polyline class="edge" data-from="driver" data-to="nvml" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="212.59249999999997,115.66250000000001 239.44324999999998,115.66250000000001 239.44324999999998,58.45 266.294,58.45" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="driver" data-to="gpm" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="212.59249999999997,115.66250000000001 239.44324999999998,115.66250000000001 239.44324999999998,123.35000000000001 266.294,123.35000000000001" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="hostengine" data-to="dcgm" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="282.9874999999999,188.25 327.0559999999999,188.25" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="nvml" data-to="merge" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="508.3139999999999,58.45 513.6449999999999,58.45 513.6449999999999,123.35000000000001 518.9759999999999,123.35000000000001" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="gpm" data-to="merge" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="471.264,123.35000000000001 513.6449999999999,123.35000000000001 513.6449999999999,123.35000000000001 518.9759999999999,123.35000000000001" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="dcgm" data-to="merge" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="493.4939999999999,188.25 513.6449999999999,188.25 513.6449999999999,123.35000000000001 518.9759999999999,123.35000000000001" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="proc" data-to="identity" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="481.6379999999999,253.14999999999998 502.9004999999999,253.14999999999998 502.9004999999999,310.3625 518.9759999999999,310.3625" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="uvm" data-to="identity" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="486.82499999999993,318.05 502.9004999999999,318.05 502.9004999999999,310.3625 518.9759999999999,310.3625" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="merge" data-to="sampler" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="736.5429999999999,123.35000000000001 747.8019999999999,123.35000000000001 747.8019999999999,217.625 759.0609999999999,217.625" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="identity" data-to="sampler" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="733.5789999999998,310.3625 747.8019999999999,310.3625 747.8019999999999,217.625 759.0609999999999,217.625" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="sampler" data-to="current" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="987.0019999999998,217.625 1011.0019999999997,217.625 1011.0019999999997,182.10000000000002 1035.0019999999997,182.10000000000002" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="sampler" data-to="history" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="987.0019999999998,217.625 1011.0019999999997,217.625 1011.0019999999997,251.6125 1035.002,251.6125" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="current" data-to="tui" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1237.0079999999998,182.10000000000002 1261.0079999999998,182.10000000000002 1261.0079999999998,213.0125 1316.1299999999999,213.0125" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="current" data-to="cli" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1237.0079999999998,182.10000000000002 1261.0079999999998,182.10000000000002 1261.0079999999998,148.1125 1285.0079999999998,148.1125" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="current" data-to="api" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1237.0079999999998,182.10000000000002 1261.0079999999998,182.10000000000002 1261.0079999999998,277.9125 1316.1299999999999,277.9125" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="history" data-to="tui" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1268.1299999999999,251.6125 1292.1299999999999,251.6125 1292.1299999999999,213.0125 1316.1299999999999,213.0125" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="history" data-to="api" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1268.1299999999999,251.6125 1292.1299999999999,251.6125 1292.1299999999999,277.9125 1316.1299999999999,277.9125" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="api" data-to="browser" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1518.1359999999997,277.9125 1566.1359999999997,277.9125" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<g class="node" data-id="driver" data-label="NVIDIA driver / NVML" data-shape="rectangle">
+  <rect x="43.93149999999997" y="97.2125" width="168.661" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="128.26199999999997" y="115.66250000000001" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">NVIDIA driver / NVML</text>
+</g>
+<g class="node" data-id="nvml" data-label="NVML hierarchy, profiles, memory" data-shape="rectangle">
+  <rect x="266.294" y="40" width="242.01999999999992" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="387.304" y="58.45" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">NVML hierarchy, profiles, memory</text>
+</g>
+<g class="node" data-id="gpm" data-label="NVML GPM per-GI counters" data-shape="rectangle">
+  <rect x="266.294" y="104.9" width="204.97" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="368.779" y="123.35000000000001" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">NVML GPM per-GI counters</text>
+</g>
+<g class="node" data-id="hostengine" data-label="Local DCGM hostengine (optional)" data-shape="rectangle">
+  <rect x="43.93149999999997" y="169.8" width="239.05599999999995" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="163.45949999999993" y="188.25" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Local DCGM hostengine (optional)</text>
+</g>
+<g class="node" data-id="dcgm" data-label="DCGM per-GI fallback" data-shape="rectangle">
+  <rect x="327.0559999999999" y="169.8" width="166.438" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="410.2749999999999" y="188.25" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">DCGM per-GI fallback</text>
+</g>
+<g class="node" data-id="merge" data-label="Capability-aware metric merge" data-shape="rectangle">
+  <rect x="518.9759999999999" y="104.9" width="217.56699999999995" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="627.7594999999999" y="123.35000000000001" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Capability-aware metric merge</text>
+</g>
+<g class="node" data-id="proc" data-label="Current PID namespace /proc" data-shape="rectangle">
+  <rect x="266.294" y="234.7" width="215.34399999999997" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="373.96599999999995" y="253.14999999999998" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Current PID namespace /proc</text>
+</g>
+<g class="node" data-id="identity" data-label="GPU-connected process filter" data-shape="rectangle">
+  <rect x="518.9759999999999" y="291.9125" width="214.60299999999995" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="626.2774999999999" y="310.3625" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">GPU-connected process filter</text>
+</g>
+<g class="node" data-id="uvm" data-label="/dev/nvidia-uvm device identity" data-shape="rectangle">
+  <rect x="266.294" y="299.6" width="220.53099999999995" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="376.55949999999996" y="318.05" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">/dev/nvidia-uvm device identity</text>
+</g>
+<g class="node" data-id="sampler" data-label="Single non-overlapping sampler" data-shape="rectangle">
+  <rect x="759.0609999999999" y="199.175" width="227.94099999999995" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="873.0314999999999" y="217.625" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Single non-overlapping sampler</text>
+</g>
+<g class="node" data-id="current" data-label="Immutable current snapshot" data-shape="rectangle">
+  <rect x="1035.0019999999997" y="163.65" width="202.00599999999997" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="1136.0049999999997" y="182.10000000000002" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Immutable current snapshot</text>
+</g>
+<g class="node" data-id="history" data-label="Bounded in-memory UUID history" data-shape="rectangle">
+  <rect x="1035.002" y="233.16250000000002" width="233.12799999999996" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="1151.566" y="251.6125" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Bounded in-memory UUID history</text>
+</g>
+<g class="node" data-id="tui" data-label="Bubble Tea TUI" data-shape="rectangle">
+  <rect x="1316.1299999999999" y="194.5625" width="132.352" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="1382.3059999999998" y="213.0125" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Bubble Tea TUI</text>
+</g>
+<g class="node" data-id="cli" data-label="Table / JSON / JSONL" data-shape="rectangle">
+  <rect x="1285.0079999999998" y="129.66250000000002" width="172.36599999999996" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="1371.1909999999998" y="148.1125" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Table / JSON / JSONL</text>
+</g>
+<g class="node" data-id="api" data-label="Loopback HTTP + SSE API" data-shape="rectangle">
+  <rect x="1316.1299999999999" y="259.46250000000003" width="202.00599999999994" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="1417.1329999999998" y="277.9125" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Loopback HTTP + SSE API</text>
+</g>
+<g class="node" data-id="browser" data-label="Embedded React dashboard" data-shape="rectangle">
+  <rect x="1566.1359999999997" y="259.46250000000003" width="207.934" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="1670.1029999999998" y="277.9125" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Embedded React dashboard</text>
+</g>
+</svg>

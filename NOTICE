@@ -1,0 +1,19 @@
+MIGLens
+Copyright 2026 MIGLens contributors
+
+This product includes Inter font software.
+Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter)
+Licensed under the SIL Open Font License, Version 1.1.
+
+This product includes JetBrains Mono font software.
+Copyright 2020 The JetBrains Mono Project Authors
+(https://github.com/JetBrains/JetBrainsMono)
+Licensed under the SIL Open Font License, Version 1.1.
+
+The browser interface includes components adapted from shadcn/ui.
+Copyright 2023 shadcn
+Licensed under the MIT License.
+
+Copies of these licenses are in the licenses directory. Release archives also
+contain machine-generated third-party Go and embedded web dependency notices;
+each release publishes an SPDX SBOM alongside the archives.

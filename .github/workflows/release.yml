@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  actions: read
+  artifact-metadata: write
+  attestations: write
+  contents: write
+  id-token: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            architecture: amd64
+          - runner: ubuntu-24.04-arm
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    env:
+      CGO_CFLAGS: -Wno-deprecated-declarations
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - run: npm ci && npm run build
+        working-directory: web
+      - name: Set reproducible build metadata
+        run: |
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+          echo "COMMIT=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_ENV"
+      - name: Build release archive
+        id: package
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          archive=$(scripts/build-release.sh)
+          echo "archive=${archive}" >> "$GITHUB_OUTPUT"
+          echo "sbom=${archive}.spdx.json" >> "$GITHUB_OUTPUT"
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          file: ${{ steps.package.outputs.archive }}
+          format: spdx-json
+          output-file: ${{ steps.package.outputs.sbom }}
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Attest build provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.package.outputs.archive }}
+      - name: Attest archive SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.package.outputs.archive }}
+          sbom-path: ${{ steps.package.outputs.sbom }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.architecture }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Create checksums
+        working-directory: dist
+        run: |
+          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.spdx.json' \) -printf '%f\n' | LC_ALL=C sort | xargs sha256sum > checksums.txt
+      - name: Attest checksums
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/checksums.txt
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --title "MIGLens $GITHUB_REF_NAME"

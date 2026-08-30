@@ -1,0 +1,15 @@
+# MIGLens v0.1 configuration. CLI flags override MIGLENS_* environment
+# variables, which override this file.
+interval = "1s"                 # 250ms through 60s
+history_window = "1h"           # bounded; not persisted
+topology_interval = "10s"
+provider = "auto"               # auto, nvml, dcgm, or fake
+dcgm_address = "127.0.0.1:5555"
+show_command_line = false
+no_profile = false
+listen = "127.0.0.1:1397"       # non-loopback values are refused
+no_color = false
+ascii = false
+
+# Development only. Any non-empty fixture selects the fake provider.
+# fixture = "multi-ci"

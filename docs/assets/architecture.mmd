@@ -1,0 +1,21 @@
+flowchart LR
+  driver["NVIDIA driver / NVML"] --> nvml["NVML hierarchy, profiles, memory"]
+  driver --> gpm["NVML GPM per-GI counters"]
+  hostengine["Local DCGM hostengine (optional)"] --> dcgm["DCGM per-GI fallback"]
+  nvml --> merge["Capability-aware metric merge"]
+  gpm --> merge
+  dcgm --> merge
+
+  proc["Current PID namespace /proc"] --> identity["GPU-connected process filter"]
+  uvm["/dev/nvidia-uvm device identity"] --> identity
+  merge --> sampler["Single non-overlapping sampler"]
+  identity --> sampler
+
+  sampler --> current["Immutable current snapshot"]
+  sampler --> history["Bounded in-memory UUID history"]
+  current --> tui["Bubble Tea TUI"]
+  current --> cli["Table / JSON / JSONL"]
+  current --> api["Loopback HTTP + SSE API"]
+  history --> tui
+  history --> api
+  api --> browser["Embedded React dashboard"]
