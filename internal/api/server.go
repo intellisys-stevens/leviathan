@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/miglens/miglens/internal/history"
-	"github.com/miglens/miglens/internal/model"
+	"github.com/intellisys-stevens/miglens/internal/history"
+	"github.com/intellisys-stevens/miglens/internal/model"
 )
 
 type DataSource interface {

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/miglens/miglens/internal/model"
+	"github.com/intellisys-stevens/miglens/internal/model"
 )
 
 func TestConfigPrecedenceAndRedactedJSON(t *testing.T) {

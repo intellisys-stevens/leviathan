@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/miglens/miglens/internal/model"
+	"github.com/intellisys-stevens/miglens/internal/model"
 )
 
 type Point struct {

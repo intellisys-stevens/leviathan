@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/miglens/miglens/internal/model"
-	workspaceprocess "github.com/miglens/miglens/internal/process"
-	"github.com/miglens/miglens/internal/provider"
+	"github.com/intellisys-stevens/miglens/internal/model"
+	workspaceprocess "github.com/intellisys-stevens/miglens/internal/process"
+	"github.com/intellisys-stevens/miglens/internal/provider"
 )
 
 type Provider struct {

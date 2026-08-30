@@ -74,3 +74,40 @@ jobs:
         run: go run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/miglens --disallowed_types=forbidden,restricted,unknown
       - name: Check reachable Go vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+
+  distribution:
+    runs-on: ubuntu-24.04
+    env:
+      CGO_CFLAGS: -Wno-deprecated-declarations
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: web
+      - name: Build embedded dashboard
+        run: npm run build
+        working-directory: web
+      - name: Check shell scripts
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes shellcheck
+          shellcheck scripts/*.sh
+      - name: Test installer
+        run: scripts/install_test.sh
+      - name: Build and verify release archive
+        env:
+          ARCHITECTURE: amd64
+          OUTPUT_DIRECTORY: ${{ runner.temp }}/miglens-package
+          VERSION: v0.1.0
+        run: |
+          archive=$(scripts/build-release.sh)
+          scripts/verify-release-archive.sh "$archive" "$VERSION" "$ARCHITECTURE"

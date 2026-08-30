@@ -1,6 +1,6 @@
 package provider
 
-import "github.com/miglens/miglens/internal/model"
+import "github.com/intellisys-stevens/miglens/internal/model"
 
 var sourceRank = map[model.MetricSource]int{
 	model.SourceSynthetic: 0,

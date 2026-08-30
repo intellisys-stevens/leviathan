@@ -1,4 +1,4 @@
-module github.com/miglens/miglens
+module github.com/intellisys-stevens/miglens
 
 go 1.27.0
 

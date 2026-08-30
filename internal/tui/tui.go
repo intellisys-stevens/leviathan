@@ -10,10 +10,10 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/miglens/miglens/internal/config"
-	"github.com/miglens/miglens/internal/history"
-	"github.com/miglens/miglens/internal/model"
-	"github.com/miglens/miglens/internal/render"
+	"github.com/intellisys-stevens/miglens/internal/config"
+	"github.com/intellisys-stevens/miglens/internal/history"
+	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/miglens/internal/render"
 )
 
 type DataSource interface {

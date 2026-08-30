@@ -13,8 +13,8 @@ import (
 	"time"
 
 	ndcgm "github.com/NVIDIA/go-dcgm/pkg/dcgm"
-	"github.com/miglens/miglens/internal/model"
-	"github.com/miglens/miglens/internal/provider"
+	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/miglens/internal/provider"
 )
 
 type Options struct {
