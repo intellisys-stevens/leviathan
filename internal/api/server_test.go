@@ -106,8 +106,14 @@ func TestSnapshotAndSecurityHeaders(t *testing.T) {
 	if response.Header().Get("Content-Security-Policy") == "" {
 		t.Fatal("missing content security policy")
 	}
+	body := response.Body.String()
+	for _, expected := range []string{`"gpus":[]`, `"processes":[]`, `"diagnostics":[]`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("snapshot response does not preserve empty wire container %s: %s", expected, body)
+		}
+	}
 	var snapshot model.Snapshot
-	if err := json.NewDecoder(response.Body).Decode(&snapshot); err != nil || snapshot.Sequence != 9 {
+	if err := json.NewDecoder(strings.NewReader(body)).Decode(&snapshot); err != nil || snapshot.Sequence != 9 {
 		t.Fatalf("invalid snapshot response: %+v, %v", snapshot, err)
 	}
 }

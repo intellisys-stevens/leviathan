@@ -111,6 +111,17 @@ func TestControllerOnlyContactsExactAllowedActiveInstances(t *testing.T) {
 	if observations[0].Agent.Snapshot == nil || observations[0].Agent.Snapshot.SchemaVersion != "v1" {
 		t.Fatalf("nested agent snapshot was changed: %+v", observations[0].Agent.Snapshot)
 	}
+	agentSnapshot := observations[0].Agent.Snapshot
+	if agentSnapshot.GPUs == nil || agentSnapshot.Processes == nil || agentSnapshot.Diagnostics == nil {
+		t.Fatalf("nested agent snapshot contains nil wire containers: %+v", agentSnapshot)
+	}
+	encodedSnapshot, err := json.Marshal(agentSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encodedSnapshot), `"diagnostics":[]`) {
+		t.Fatalf("nested agent snapshot did not preserve an empty diagnostics array: %s", encodedSnapshot)
+	}
 }
 
 func TestControllerDoesNotProbeUnconfiguredAgentAndUsesTrustedCreatorLabel(t *testing.T) {

@@ -113,7 +113,7 @@ func cloneModelSnapshot(input model.Snapshot) model.Snapshot {
 		attribution.Assignments = append([]model.ResourceAssignment(nil), input.Attribution.Assignments...)
 		output.Attribution = &attribution
 	}
-	output.Diagnostics = append([]model.Diagnostic(nil), input.Diagnostics...)
+	output.Diagnostics = append([]model.Diagnostic{}, input.Diagnostics...)
 	return output
 }
 

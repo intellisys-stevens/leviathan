@@ -115,13 +115,13 @@ func (p *Provider) cachedInventory(at time.Time) (workspaceprocess.Inventory, bo
 
 func cloneInventory(inventory workspaceprocess.Inventory) workspaceprocess.Inventory {
 	cloned := inventory
-	cloned.Processes = append([]model.Process(nil), inventory.Processes...)
+	cloned.Processes = append([]model.Process{}, inventory.Processes...)
 	for index := range cloned.Processes {
 		if inventory.Processes[index].StartTime != nil {
 			startedAt := *inventory.Processes[index].StartTime
 			cloned.Processes[index].StartTime = &startedAt
 		}
 	}
-	cloned.Diagnostics = append([]model.Diagnostic(nil), inventory.Diagnostics...)
+	cloned.Diagnostics = append([]model.Diagnostic{}, inventory.Diagnostics...)
 	return cloned
 }

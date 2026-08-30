@@ -157,3 +157,11 @@ func TestInactiveGenerationStateExpiresWithHistoryWindow(t *testing.T) {
 		t.Fatalf("expired generation state retained: %+v", e.generations)
 	}
 }
+
+func TestStaleSnapshotKeepsEmptyProcessesNonNil(t *testing.T) {
+	snapshot := model.Snapshot{Processes: []model.Process{}}
+	stale := staleSnapshot(snapshot, time.Now().UTC(), "sample failed")
+	if stale.Processes == nil {
+		t.Fatal("stale snapshot changed an empty process list to nil")
+	}
+}

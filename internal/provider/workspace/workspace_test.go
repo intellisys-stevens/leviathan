@@ -25,6 +25,18 @@ type countingScanner struct {
 	calls int
 }
 
+type emptyScanner struct{}
+
+func (emptyScanner) Scan() workspaceprocess.Inventory {
+	return workspaceprocess.Inventory{
+		Processes:   []model.Process{},
+		Diagnostics: []model.Diagnostic{},
+		Capability: model.ProviderState{
+			Name: "test process inventory", Available: true, Status: model.StatusAvailable,
+		},
+	}
+}
+
 func (s *countingScanner) Scan() workspaceprocess.Inventory {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -76,6 +88,17 @@ func TestProcessInventoryIntervalDefaultsToTwoSeconds(t *testing.T) {
 	p := New(testProvider{}, &countingScanner{})
 	if p.options.InventoryInterval != 2*time.Second {
 		t.Fatalf("process inventory interval = %s", p.options.InventoryInterval)
+	}
+}
+
+func TestEmptyProcessInventoryRemainsNonNil(t *testing.T) {
+	p := New(testProvider{}, emptyScanner{})
+	snapshot, err := p.Sample(context.Background(), time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Processes == nil || snapshot.Diagnostics == nil {
+		t.Fatalf("empty inventory containers became nil: processes=%v diagnostics=%v", snapshot.Processes, snapshot.Diagnostics)
 	}
 }
 
