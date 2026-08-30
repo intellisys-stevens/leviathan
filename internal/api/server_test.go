@@ -112,6 +112,35 @@ func TestSnapshotAndSecurityHeaders(t *testing.T) {
 	}
 }
 
+func TestSnapshotEncodesNilCollectionsAsArrays(t *testing.T) {
+	source := newStubSource()
+	source.snapshot.GPUs = nil
+	source.snapshot.Processes = nil
+	source.snapshot.Diagnostics = nil
+	source.snapshot.Attribution = &model.Attribution{}
+	server := newTestServer(source, nil)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/snapshot", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d", response.Code)
+	}
+
+	var payload map[string]json.RawMessage
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if string(payload["gpus"]) != "[]" || string(payload["processes"]) != "[]" || string(payload["diagnostics"]) != "[]" {
+		t.Fatalf("empty snapshot collections encoded as gpus=%s processes=%s diagnostics=%s", payload["gpus"], payload["processes"], payload["diagnostics"])
+	}
+	var attribution map[string]json.RawMessage
+	if err := json.Unmarshal(payload["attribution"], &attribution); err != nil {
+		t.Fatal(err)
+	}
+	if string(attribution["workloads"]) != "[]" || string(attribution["assignments"]) != "[]" {
+		t.Fatalf("empty attribution collections encoded as workloads=%s assignments=%s", attribution["workloads"], attribution["assignments"])
+	}
+}
+
 func TestHistoryValidation(t *testing.T) {
 	server := newTestServer(newStubSource(), nil)
 	for _, target := range []string{
@@ -333,7 +362,12 @@ func TestGzipRespectsZeroQuality(t *testing.T) {
 }
 
 func TestSSEProvidesSnapshotOnReconnect(t *testing.T) {
-	server := httptest.NewServer(newTestServer(newStubSource(), nil))
+	source := newStubSource()
+	source.snapshot.GPUs = nil
+	source.snapshot.Processes = nil
+	source.snapshot.Diagnostics = nil
+	source.snapshot.Attribution = &model.Attribution{}
+	server := httptest.NewServer(newTestServer(source, nil))
 	defer server.Close()
 	request, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL+"/api/v1/events", nil)
 	request.Header.Set("Last-Event-ID", "8")
@@ -343,15 +377,33 @@ func TestSSEProvidesSnapshotOnReconnect(t *testing.T) {
 	}
 	defer response.Body.Close()
 	scanner := bufio.NewScanner(response.Body)
-	found := false
+	foundEvent := false
+	var payload map[string]json.RawMessage
 	for scanner.Scan() {
-		if strings.HasPrefix(scanner.Text(), "event: snapshot") {
-			found = true
+		line := scanner.Text()
+		if strings.HasPrefix(line, "event: snapshot") {
+			foundEvent = true
+			continue
+		}
+		if foundEvent && strings.HasPrefix(line, "data: ") {
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &payload); err != nil {
+				t.Fatal(err)
+			}
 			break
 		}
 	}
-	if !found {
+	if payload == nil {
 		t.Fatal("snapshot SSE event not received")
+	}
+	if string(payload["gpus"]) != "[]" || string(payload["processes"]) != "[]" || string(payload["diagnostics"]) != "[]" {
+		t.Fatalf("empty SSE collections encoded as gpus=%s processes=%s diagnostics=%s", payload["gpus"], payload["processes"], payload["diagnostics"])
+	}
+	var attribution map[string]json.RawMessage
+	if err := json.Unmarshal(payload["attribution"], &attribution); err != nil {
+		t.Fatal(err)
+	}
+	if string(attribution["workloads"]) != "[]" || string(attribution["assignments"]) != "[]" {
+		t.Fatalf("empty SSE attribution encoded as workloads=%s assignments=%s", attribution["workloads"], attribution["assignments"])
 	}
 }
 

@@ -1,7 +1,12 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BuildInfo, RuntimeSettings, Snapshot } from './types';
-import { shareStableSnapshot, useMIGLens } from './use-miglens';
+import {
+  normalizeSnapshot,
+  shareStableSnapshot,
+  type SnapshotPayload,
+  useMIGLens,
+} from './use-miglens';
 
 const snapshot: Snapshot = {
   schemaVersion: 'v1',
@@ -270,5 +275,54 @@ describe('useMIGLens runtime settings', () => {
     const updated = shareStableSnapshot(previous, changed);
     expect(updated.processes).not.toBe(previous.processes);
     expect(updated.attribution).not.toBe(previous.attribution);
+  });
+
+  it('normalizes nullable wire collections before snapshots are shared', async () => {
+    const nullablePayload: SnapshotPayload = {
+      ...snapshot,
+      processes: null,
+      diagnostics: null,
+      attribution: {
+        provider: 'kubernetes_dra',
+        status: 'available',
+        workloads: null,
+        assignments: null,
+      },
+    };
+    const normalized = normalizeSnapshot(nullablePayload);
+    expect(normalized.processes).toEqual([]);
+    expect(normalized.diagnostics).toEqual([]);
+    expect(normalized.attribution?.workloads).toEqual([]);
+    expect(normalized.attribution?.assignments).toEqual([]);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        const url = requestURL(input);
+        if (url === '/api/v1/snapshot') return jsonResponse(nullablePayload);
+        if (url === '/api/v1/settings') return jsonResponse(initialSettings);
+        if (url === '/api/v1/version') return jsonResponse(buildInfo);
+        throw new Error(`unexpected request: ${url}`);
+      }),
+    );
+
+    const hook = renderHook(() => useMIGLens());
+    await waitFor(() => {
+      expect(hook.result.current.snapshot?.processes).toEqual([]);
+      expect(hook.result.current.snapshot?.diagnostics).toEqual([]);
+      expect(hook.result.current.snapshot?.attribution?.workloads).toEqual([]);
+      expect(hook.result.current.snapshot?.attribution?.assignments).toEqual(
+        [],
+      );
+    });
+
+    act(() => {
+      FakeEventSource.instances[0].emit('snapshot', {
+        ...nullablePayload,
+        sequence: 2,
+      });
+    });
+    expect(hook.result.current.snapshot?.sequence).toBe(2);
+    expect(hook.result.current.snapshot?.processes).toEqual([]);
   });
 });

@@ -80,7 +80,30 @@ func (s *Server) snapshot(writer http.ResponseWriter, _ *http.Request) {
 		writeError(writer, http.StatusServiceUnavailable, "snapshot not available")
 		return
 	}
-	writeJSON(writer, http.StatusOK, snapshot)
+	writeJSON(writer, http.StatusOK, snapshotForWire(snapshot))
+}
+
+func snapshotForWire(snapshot model.Snapshot) model.Snapshot {
+	if snapshot.GPUs == nil {
+		snapshot.GPUs = []model.GPU{}
+	}
+	if snapshot.Processes == nil {
+		snapshot.Processes = []model.Process{}
+	}
+	if snapshot.Diagnostics == nil {
+		snapshot.Diagnostics = []model.Diagnostic{}
+	}
+	if snapshot.Attribution != nil {
+		attribution := *snapshot.Attribution
+		if attribution.Workloads == nil {
+			attribution.Workloads = []model.WorkloadAttribution{}
+		}
+		if attribution.Assignments == nil {
+			attribution.Assignments = []model.ResourceAssignment{}
+		}
+		snapshot.Attribution = &attribution
+	}
+	return snapshot
 }
 
 func (s *Server) history(writer http.ResponseWriter, request *http.Request) {
@@ -302,6 +325,7 @@ func (s *Server) events(writer http.ResponseWriter, request *http.Request) {
 			if !open {
 				return
 			}
+			snapshot = snapshotForWire(snapshot)
 			data, err := json.Marshal(snapshot)
 			if err != nil {
 				return

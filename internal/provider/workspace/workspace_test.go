@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -17,12 +18,18 @@ func (testProvider) Open(context.Context) error       { return nil }
 func (testProvider) Close() error                     { return nil }
 func (testProvider) Capabilities() model.Capabilities { return model.Capabilities{} }
 func (testProvider) Sample(_ context.Context, at time.Time) (model.Snapshot, error) {
-	return model.Snapshot{SampledAt: at, Processes: []model.Process{}, Diagnostics: []model.Diagnostic{}}, nil
+	return model.Snapshot{SampledAt: at}, nil
 }
 
 type countingScanner struct {
 	mu    sync.Mutex
 	calls int
+}
+
+type emptyScanner struct{}
+
+func (emptyScanner) Scan() workspaceprocess.Inventory {
+	return workspaceprocess.Inventory{}
 }
 
 func (s *countingScanner) Scan() workspaceprocess.Inventory {
@@ -76,6 +83,29 @@ func TestProcessInventoryIntervalDefaultsToTwoSeconds(t *testing.T) {
 	p := New(testProvider{}, &countingScanner{})
 	if p.options.InventoryInterval != 2*time.Second {
 		t.Fatalf("process inventory interval = %s", p.options.InventoryInterval)
+	}
+}
+
+func TestEmptyInventorySerializesSnapshotCollectionsAsArrays(t *testing.T) {
+	p := New(testProvider{}, emptyScanner{})
+	snapshot, err := p.Sample(context.Background(), time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Processes == nil || snapshot.Diagnostics == nil {
+		t.Fatalf("empty collections must be non-nil: processes=%#v diagnostics=%#v", snapshot.Processes, snapshot.Diagnostics)
+	}
+
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if string(payload["processes"]) != "[]" || string(payload["diagnostics"]) != "[]" {
+		t.Fatalf("empty snapshot collections encoded as %s and %s", payload["processes"], payload["diagnostics"])
 	}
 }
 
