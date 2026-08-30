@@ -28,42 +28,12 @@ interactive TUI, scriptable output, and a local React dashboard.
 
 ## 🚀 Install
 
-Prebuilt binaries support Linux `amd64` and `arm64`, glibc 2.34 or newer, and
-require an NVIDIA driver exposing `libnvidia-ml.so.1` for live telemetry.
-
 ```bash
-curl --proto '=https' --tlsv1.2 -fsSL \
-  https://github.com/intellisys-stevens/miglens/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/intellisys-stevens/miglens/releases/latest/download/install.sh | sh
 ```
 
-The installer verifies SHA-256 checksums and writes atomically to
-`~/.local/bin/miglens`. It never uses `sudo`, edits shell profiles, or starts
-MIGLens. If needed, add the directory to your `PATH`:
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-To inspect the installer first or pin a release:
-
-```bash
-curl --proto '=https' --tlsv1.2 -fsSLO \
-  https://github.com/intellisys-stevens/miglens/releases/latest/download/install.sh
-less install.sh
-sh install.sh --version v0.1.1
-```
-
-Use `--install-dir DIR` for another location. Rerun the installer to upgrade;
-remove `~/.local/bin/miglens` to uninstall.
-
-Go users can alternatively install from source:
-
-```bash
-go install github.com/intellisys-stevens/miglens/cmd/miglens@latest
-```
-
-This requires Go 1.27+, a C toolchain, and places the binary in `GOBIN` or
-`$HOME/go/bin`.
+Installs to `~/.local/bin/miglens` without `sudo`. Supports Linux `amd64` and
+`arm64` with glibc 2.34+. The installer prints PATH guidance when needed.
 
 ## Quick start
 
