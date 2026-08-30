@@ -10,16 +10,20 @@ import (
 	"github.com/miglens/miglens/internal/model"
 )
 
-func TestCurrentPIDNamespaceIsHealthy(t *testing.T) {
+func TestCurrentPIDNamespaceReportsProcAvailable(t *testing.T) {
 	diagnostics := checkProc()
 	found := false
 	for _, diagnostic := range diagnostics {
-		if diagnostic.Code == "host_pid_namespace" || strings.Contains(diagnostic.Remedy, "hostPID") {
-			t.Fatalf("doctor still requires the host PID namespace: %+v", diagnostic)
+		if diagnostic.Code == "host_pid_namespace" {
+			t.Fatalf("doctor reported the removed host PID namespace diagnostic: %+v", diagnostic)
 		}
-		if diagnostic.Code == "proc" && diagnostic.Status == model.StatusAvailable {
-			found = true
+		if diagnostic.Code != "proc" {
+			continue
 		}
+		if diagnostic.Status != model.StatusAvailable {
+			t.Fatalf("current PID namespace status = %q, want %q: %+v", diagnostic.Status, model.StatusAvailable, diagnostic)
+		}
+		found = true
 	}
 	if !found {
 		t.Fatalf("current PID namespace was not reported available: %+v", diagnostics)
