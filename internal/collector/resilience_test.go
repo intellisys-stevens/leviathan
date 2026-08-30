@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/miglens/miglens/internal/model"
-	"github.com/miglens/miglens/internal/provider/fake"
+	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/miglens/internal/provider/fake"
 )
 
 type scriptedProvider struct {

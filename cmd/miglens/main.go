@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/miglens/miglens/internal/cli"
+	"github.com/intellisys-stevens/miglens/internal/cli"
 )
 
 func main() {

@@ -13,9 +13,9 @@ import (
 
 	ndcgm "github.com/NVIDIA/go-dcgm/pkg/dcgm"
 	gonvml "github.com/NVIDIA/go-nvml/pkg/nvml"
-	"github.com/miglens/miglens/internal/config"
-	"github.com/miglens/miglens/internal/model"
-	gpuprocess "github.com/miglens/miglens/internal/process"
+	"github.com/intellisys-stevens/miglens/internal/config"
+	"github.com/intellisys-stevens/miglens/internal/model"
+	gpuprocess "github.com/intellisys-stevens/miglens/internal/process"
 )
 
 type Report struct {

@@ -6,8 +6,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/miglens/miglens/internal/doctor"
-	"github.com/miglens/miglens/internal/model"
+	"github.com/intellisys-stevens/miglens/internal/doctor"
+	"github.com/intellisys-stevens/miglens/internal/model"
 )
 
 func SnapshotTable(writer io.Writer, snapshot model.Snapshot, ascii bool) {

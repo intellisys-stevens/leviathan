@@ -4,6 +4,10 @@ on:
   push:
     tags: ["v*"]
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   actions: read
   artifact-metadata: write
@@ -50,8 +54,10 @@ jobs:
           VERSION: ${{ github.ref_name }}
         run: |
           archive=$(scripts/build-release.sh)
+          scripts/verify-release-archive.sh "$archive" "$VERSION" "$ARCHITECTURE"
+          sbom="dist/miglens_linux_${ARCHITECTURE}.spdx.json"
           echo "archive=${archive}" >> "$GITHUB_OUTPUT"
-          echo "sbom=${archive}.spdx.json" >> "$GITHUB_OUTPUT"
+          echo "sbom=${sbom}" >> "$GITHUB_OUTPUT"
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@v0
         with:
@@ -79,15 +85,24 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           pattern: release-*
           path: dist
           merge-multiple: true
+      - name: Stage installer
+        run: |
+          cp scripts/install.sh dist/install.sh
+          chmod 0755 dist/install.sh
       - name: Create checksums
         working-directory: dist
         run: |
-          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.spdx.json' \) -printf '%f\n' | LC_ALL=C sort | xargs sha256sum > checksums.txt
+          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.spdx.json' -o -name 'install.sh' \) -printf '%f\n' | LC_ALL=C sort | xargs sha256sum > checksums.txt
+      - name: Attest installer
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/install.sh
       - name: Attest checksums
         uses: actions/attest@v4
         with:
@@ -95,4 +110,4 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --title "MIGLens $GITHUB_REF_NAME"
+        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --latest --title "MIGLens $GITHUB_REF_NAME"

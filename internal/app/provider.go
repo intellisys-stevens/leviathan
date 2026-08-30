@@ -1,13 +1,13 @@
 package app
 
 import (
-	"github.com/miglens/miglens/internal/config"
-	workspaceprocess "github.com/miglens/miglens/internal/process"
-	"github.com/miglens/miglens/internal/provider"
-	"github.com/miglens/miglens/internal/provider/dcgm"
-	"github.com/miglens/miglens/internal/provider/fake"
-	"github.com/miglens/miglens/internal/provider/nvml"
-	"github.com/miglens/miglens/internal/provider/workspace"
+	"github.com/intellisys-stevens/miglens/internal/config"
+	workspaceprocess "github.com/intellisys-stevens/miglens/internal/process"
+	"github.com/intellisys-stevens/miglens/internal/provider"
+	"github.com/intellisys-stevens/miglens/internal/provider/dcgm"
+	"github.com/intellisys-stevens/miglens/internal/provider/fake"
+	"github.com/intellisys-stevens/miglens/internal/provider/nvml"
+	"github.com/intellisys-stevens/miglens/internal/provider/workspace"
 )
 
 func Provider(cfg config.Config) (provider.Provider, error) {

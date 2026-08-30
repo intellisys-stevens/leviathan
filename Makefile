@@ -4,9 +4,9 @@ VERSION ?= dev
 COMMIT ?= unknown
 BUILD_DATE ?= unknown
 CGO_CFLAGS ?= -Wno-deprecated-declarations
-LDFLAGS := -s -w -X github.com/miglens/miglens/internal/cli.Version=$(VERSION) -X github.com/miglens/miglens/internal/cli.Commit=$(COMMIT) -X github.com/miglens/miglens/internal/cli.BuildDate=$(BUILD_DATE)
+LDFLAGS := -s -w -X github.com/intellisys-stevens/miglens/internal/cli.Version=$(VERSION) -X github.com/intellisys-stevens/miglens/internal/cli.Commit=$(COMMIT) -X github.com/intellisys-stevens/miglens/internal/cli.BuildDate=$(BUILD_DATE)
 
-.PHONY: bootstrap generate fmt frontend build test test-go test-race license-check vulncheck soak soak-one-hour clean
+.PHONY: bootstrap generate fmt frontend build test test-go test-race test-install license-check vulncheck soak soak-one-hour clean
 
 bootstrap:
 	cd web && $(NPM) ci
@@ -38,11 +38,14 @@ test-go:
 test-race:
 	CGO_CFLAGS='$(CGO_CFLAGS)' $(GO) test -race ./...
 
+test-install:
+	scripts/install_test.sh
+
 license-check:
 	CGO_CFLAGS='$(CGO_CFLAGS)' $(GO) run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/miglens --disallowed_types=forbidden,restricted,unknown
 	cd web && $(NPM) run license:check
 
-test: test-go test-race frontend license-check
+test: test-go test-race test-install frontend license-check
 
 vulncheck:
 	CGO_CFLAGS='$(CGO_CFLAGS)' $(GO) run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...

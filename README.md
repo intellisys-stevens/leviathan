@@ -5,7 +5,7 @@
 **MIG-first NVIDIA GPU monitoring for the terminal and browser.**
 
 [![CI](https://github.com/intellisys-stevens/miglens/actions/workflows/ci.yml/badge.svg)](https://github.com/intellisys-stevens/miglens/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-v0.1.0-14b8a6)
+[![Release](https://img.shields.io/github/v/release/intellisys-stevens/miglens?display_name=tag&color=14b8a6)](https://github.com/intellisys-stevens/miglens/releases/latest)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
 ![Linux](https://img.shields.io/badge/Linux-amd64%20%7C%20arm64-334155?logo=linux&logoColor=white)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
@@ -26,25 +26,56 @@ interactive TUI, scriptable output, and a local React dashboard.
 - One-hour in-memory history, smooth overview charts, and live `0.5s`, `1s`, or
   `2s` dashboard sampling.
 
-## 🚀 Quick start
+## 🚀 Install
 
-Requirements: Linux, Go 1.27+, Node.js 22.13+, and an NVIDIA driver exposing
-`libnvidia-ml.so.1`. NVIDIA hardware is optional when using fixtures.
+Prebuilt binaries support Linux `amd64` and `arm64`, glibc 2.34 or newer, and
+require an NVIDIA driver exposing `libnvidia-ml.so.1` for live telemetry.
 
 ```bash
-git clone https://github.com/intellisys-stevens/miglens.git
-cd miglens
-make bootstrap
-make build
+curl --proto '=https' --tlsv1.2 -fsSL \
+  https://github.com/intellisys-stevens/miglens/releases/latest/download/install.sh | sh
+```
 
-./bin/miglens doctor
-./bin/miglens serve
+The installer verifies SHA-256 checksums and writes atomically to
+`~/.local/bin/miglens`. It never uses `sudo`, edits shell profiles, or starts
+MIGLens. If needed, add the directory to your `PATH`:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+To inspect the installer first or pin a release:
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSLO \
+  https://github.com/intellisys-stevens/miglens/releases/latest/download/install.sh
+less install.sh
+sh install.sh --version v0.1.0
+```
+
+Use `--install-dir DIR` for another location. Rerun the installer to upgrade;
+remove `~/.local/bin/miglens` to uninstall.
+
+Go users can alternatively install from source:
+
+```bash
+go install github.com/intellisys-stevens/miglens/cmd/miglens@latest
+```
+
+This requires Go 1.27+, a C toolchain, and places the binary in `GOBIN` or
+`$HOME/go/bin`.
+
+## Quick start
+
+```bash
+miglens doctor
+miglens serve
 ```
 
 Open [http://127.0.0.1:1397](http://127.0.0.1:1397). To explore without a GPU:
 
 ```bash
-./bin/miglens --fixture blackwell serve
+miglens --fixture blackwell serve
 ```
 
 ## 🧭 Interfaces
@@ -103,6 +134,9 @@ profiler such as Nsight owns the profiling hardware.
 ## Development
 
 ```bash
+git clone https://github.com/intellisys-stevens/miglens.git
+cd miglens
+make bootstrap
 make generate       # regenerate Go and TypeScript API types
 make test           # Go, race, vet, frontend, and license checks
 make vulncheck      # Go and npm vulnerability checks
