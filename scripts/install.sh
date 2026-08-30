@@ -191,11 +191,11 @@ case ":${PATH:-}:" in
     case "$shell_name" in
       bash)
         printf 'For future Bash sessions, run:\n'
-        printf "  printf '%%s\\n' 'export PATH=\"%s:\$PATH\"' >> ~/.bashrc\n" "$install_directory"
+        printf "  printf '%%s\\\\n' 'export PATH=\"%s:\$PATH\"' >> ~/.bashrc\n" "$install_directory"
         ;;
       zsh)
         printf 'For future Zsh sessions, run:\n'
-        printf "  printf '%%s\\n' 'export PATH=\"%s:\$PATH\"' >> ~/.zshrc\n" "$install_directory"
+        printf "  printf '%%s\\\\n' 'export PATH=\"%s:\$PATH\"' >> ~/.zshrc\n" "$install_directory"
         ;;
       fish)
         printf 'For future Fish sessions, run:\n'

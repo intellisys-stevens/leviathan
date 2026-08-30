@@ -129,6 +129,7 @@ assert_contains "${case_directory}/home/.local/bin/miglens" fixture-amd64
 assert_contains "${case_directory}/curl.log" '/releases/latest/download/miglens_linux_amd64.tar.gz'
 assert_contains "${case_directory}/output" 'is not on PATH'
 assert_contains "${case_directory}/output" '.bashrc'
+assert_contains "${case_directory}/output" "printf '%s\\n' 'export PATH=\""
 [[ ! -e "${case_directory}/home/.bashrc" ]] || fail "installer edited .bashrc"
 
 # CLI flags override environment values, normalize versions, support arm64, and preserve spaces.
@@ -143,6 +144,7 @@ env PATH="${fake_bin}:/usr/bin:/bin" HOME="${case_directory}/home" SHELL=/bin/zs
 assert_contains "${case_directory}/install path/miglens" fixture-arm64
 assert_contains "${case_directory}/curl.log" '/releases/download/v0.1.0/miglens_linux_arm64.tar.gz'
 assert_contains "${case_directory}/output" '.zshrc'
+assert_contains "${case_directory}/output" "printf '%s\\n' 'export PATH=\""
 [[ ! -e "${case_directory}/home/.zshrc" ]] || fail "installer edited .zshrc"
 [[ ! -e "${case_directory}/wrong" ]] || fail "environment install directory overrode CLI"
 

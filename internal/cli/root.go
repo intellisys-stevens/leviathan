@@ -9,6 +9,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/intellisys-stevens/miglens/internal/api"
@@ -303,10 +305,28 @@ func tunnelHint(address net.Addr) string {
 
 func buildInfo() model.BuildInfo {
 	return model.BuildInfo{
-		Version:   Version,
+		Version:   effectiveVersion(),
 		Commit:    Commit,
 		BuildDate: BuildDate,
 	}
+}
+
+func effectiveVersion() string {
+	if Version != "dev" {
+		return Version
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return Version
+	}
+	return resolveVersion(Version, info.Main.Version)
+}
+
+func resolveVersion(linkerVersion, moduleVersion string) string {
+	if linkerVersion != "dev" || moduleVersion == "" || moduleVersion == "(devel)" {
+		return linkerVersion
+	}
+	return strings.TrimPrefix(moduleVersion, "v")
 }
 
 func (a *application) doctorCommand() *cobra.Command {
@@ -336,13 +356,14 @@ func versionCommand(stdout io.Writer) *cobra.Command {
 	command := &cobra.Command{
 		Use: "version", Short: "Print build version", Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
+			version := effectiveVersion()
 			if format == "json" {
-				return json.NewEncoder(stdout).Encode(map[string]string{"version": Version, "commit": Commit, "buildDate": BuildDate})
+				return json.NewEncoder(stdout).Encode(map[string]string{"version": version, "commit": Commit, "buildDate": BuildDate})
 			}
 			if format != "text" {
 				return fmt.Errorf("format must be text or json")
 			}
-			_, err := fmt.Fprintf(stdout, "miglens %s (%s, %s)\n", Version, Commit, BuildDate)
+			_, err := fmt.Fprintf(stdout, "miglens %s (%s, %s)\n", version, Commit, BuildDate)
 			return err
 		},
 	}

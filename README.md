@@ -50,7 +50,7 @@ To inspect the installer first or pin a release:
 curl --proto '=https' --tlsv1.2 -fsSLO \
   https://github.com/intellisys-stevens/miglens/releases/latest/download/install.sh
 less install.sh
-sh install.sh --version v0.1.0
+sh install.sh --version v0.1.1
 ```
 
 Use `--install-dir DIR` for another location. Rerun the installer to upgrade;
