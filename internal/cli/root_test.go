@@ -142,3 +142,24 @@ func TestBuildInfoUsesLinkerMetadata(t *testing.T) {
 		t.Fatalf("build info = %+v", got)
 	}
 }
+
+func TestResolveVersion(t *testing.T) {
+	tests := []struct {
+		name          string
+		linkerVersion string
+		moduleVersion string
+		want          string
+	}{
+		{name: "linker metadata wins", linkerVersion: "0.1.0", moduleVersion: "v9.9.9", want: "0.1.0"},
+		{name: "tagged module", linkerVersion: "dev", moduleVersion: "v0.1.1", want: "0.1.1"},
+		{name: "development build", linkerVersion: "dev", moduleVersion: "(devel)", want: "dev"},
+		{name: "missing build info", linkerVersion: "dev", want: "dev"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := resolveVersion(test.linkerVersion, test.moduleVersion); got != test.want {
+				t.Fatalf("resolveVersion(%q, %q) = %q, want %q", test.linkerVersion, test.moduleVersion, got, test.want)
+			}
+		})
+	}
+}
