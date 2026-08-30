@@ -4,8 +4,8 @@ info:
   version: 0.1.0
   description: Single-host NVIDIA GPU and MIG telemetry with a process-local sampling control.
   license:
-    name: Apache-2.0
-    identifier: Apache-2.0
+    name: MIT
+    identifier: MIT
 servers:
   - url: http://127.0.0.1:1397
 paths:
