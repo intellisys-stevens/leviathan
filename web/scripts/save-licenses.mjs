@@ -27,9 +27,15 @@ for (const [packagePath, metadata] of Object.entries(lock.packages ?? {})) {
   if (packagePath === '' || metadata.dev || !metadata.version) continue;
 
   const packageDirectory = path.join(webRoot, packagePath);
-  const packageJSON = JSON.parse(
-    await readFile(path.join(packageDirectory, 'package.json'), 'utf8'),
-  );
+  let packageJSON;
+  try {
+    packageJSON = JSON.parse(
+      await readFile(path.join(packageDirectory, 'package.json'), 'utf8'),
+    );
+  } catch (error) {
+    if (error?.code === 'ENOENT' && metadata.optional) continue;
+    throw error;
+  }
   const name = packageJSON.name;
   const identity = `${name}@${metadata.version}`;
   if (copied.has(identity)) continue;
