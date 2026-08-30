@@ -26,23 +26,17 @@ interactive TUI, scriptable output, and a local React dashboard.
 - One-hour in-memory history, smooth overview charts, and live `0.5s`, `1s`, or
   `2s` dashboard sampling.
 
-## 🚀 Install
+## 🚀 Quick start
 
 ```bash
 curl -fsSL https://github.com/intellisys-stevens/miglens/releases/latest/download/install.sh | sh
-```
-
-Installs to `~/.local/bin/miglens` without `sudo`. Supports Linux `amd64` and
-`arm64` with glibc 2.34+. The installer prints PATH guidance when needed.
-
-## Quick start
-
-```bash
-miglens doctor
 miglens serve
 ```
 
-Open [http://127.0.0.1:1397](http://127.0.0.1:1397). To explore without a GPU:
+Open [http://127.0.0.1:1397](http://127.0.0.1:1397). The installer uses
+`~/.local/bin` without `sudo` and prints PATH guidance when needed.
+
+No GPU available? Preview the dashboard with fixture data:
 
 ```bash
 miglens --fixture blackwell serve
