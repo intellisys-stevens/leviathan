@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Box, Cpu, Gauge, Thermometer, Zap } from 'lucide-react';
+import { Box, ChevronRight, Cpu, Gauge, Thermometer, Zap } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
   Card,
@@ -121,7 +121,9 @@ function MigBlock({
             <button
               key={ci.uuid}
               type="button"
-              onClick={() => onSelect({ gpu, gi, ci })}
+              onClick={() =>
+                onSelect({ kind: 'compute_instance', gpu, gi, ci })
+              }
               className="flex w-full items-center justify-between gap-3 rounded border border-transparent px-1.5 py-1.5 text-left hover:border-primary/30 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <span className="font-mono text-[10px] text-primary">
@@ -144,7 +146,14 @@ function MigBlock({
         <button
           type="button"
           className={`${className} h-full w-full`}
-          onClick={() => onSelect({ gpu, gi, ci: gi.computeInstances[0] })}
+          onClick={() =>
+            onSelect({
+              kind: 'compute_instance',
+              gpu,
+              gi,
+              ci: gi.computeInstances[0],
+            })
+          }
         >
           {content}
         </button>
@@ -206,11 +215,26 @@ function GPUCardComponent({ gpu, onSelect }: Props) {
           </span>
         </div>
         {gpu.gpuInstances.length === 0 ? (
-          <div className="border border-dashed border-border p-5 text-sm text-muted-foreground">
-            {gpu.migEnabled
-              ? 'No active MIG instances.'
-              : `Full GPU memory: ${formatBytes(gpu.memory.usedBytes)} / ${formatBytes(gpu.memory.totalBytes)}`}
-          </div>
+          gpu.migEnabled ? (
+            <div className="border border-dashed border-border p-5 text-sm text-muted-foreground">
+              No active MIG instances.
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-4 border border-dashed border-border p-5 text-left text-sm text-muted-foreground transition-[border-color,background-color,color] hover:border-primary/45 hover:bg-primary/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label={`Open GPU ${gpu.index} full GPU details`}
+              onClick={() => onSelect({ kind: 'physical_gpu', gpu })}
+            >
+              <span>
+                Full GPU memory: {formatBytes(gpu.memory.usedBytes)} /{' '}
+                {formatBytes(gpu.memory.totalBytes)}
+              </span>
+              <span className="flex shrink-0 items-center gap-1 font-mono text-[10px] uppercase tracking-[0.1em] text-primary">
+                Details <ChevronRight className="size-3.5" />
+              </span>
+            </button>
+          )
         ) : (
           <div className="flex flex-wrap gap-2">
             {gpu.gpuInstances.map((gi) => (

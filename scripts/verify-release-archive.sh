@@ -36,6 +36,8 @@ for required_path in \
   "${archive_root}/LICENSE" \
   "${archive_root}/NOTICE" \
   "${archive_root}/README.md" \
+  "${archive_root}/miglens@.service" \
+  "${archive_root}/miglens@root.service.d/10-hardening.conf" \
   "${archive_root}/openapi.yaml" \
   "${archive_root}/THIRD_PARTY_LICENSES/assets/OFL-1.1.txt" \
   "${archive_root}/THIRD_PARTY_LICENSES/assets/SHADCN-MIT.txt" \
@@ -49,6 +51,23 @@ done
 tar -xzf "${archive}" -C "${temporary_directory}"
 root="${temporary_directory}/${archive_root}"
 [[ -x "${root}/miglens" ]] || { echo "miglens is not executable" >&2; exit 1; }
+grep -Fx 'User=%i' "${root}/miglens@.service" >/dev/null
+grep -Fx 'ExecStart=/usr/local/bin/miglens --listen 127.0.0.1:1397 serve' "${root}/miglens@.service" >/dev/null
+root_hardening="${root}/miglens@root.service.d/10-hardening.conf"
+for directive in \
+  'CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_SYS_PTRACE' \
+  'ProtectProc=default' \
+  'ProcSubset=all' \
+  'ProtectSystem=strict' \
+  'ProtectHome=true' \
+  'IPAddressDeny=any' \
+  'IPAddressAllow=localhost'; do
+  grep -Fx "${directive}" "${root_hardening}" >/dev/null
+done
+if grep -F -- '--show-command-line' "${root_hardening}" >/dev/null; then
+  echo "root systemd drop-in must not expose process command lines" >&2
+  exit 1
+fi
 grep -Fx 'MIT License' "${root}/LICENSE" >/dev/null
 grep -F 'Copyright 2026 MIGLens contributors' "${root}/NOTICE" >/dev/null
 

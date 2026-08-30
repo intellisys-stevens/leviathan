@@ -1,4 +1,5 @@
 export const chartWindowStorageKey = 'miglens.chartWindow.v1';
+export const detailChartWindowStorageKey = 'miglens.detailChartWindow.v1';
 export const defaultChartWindowMs = 30 * 60 * 1000;
 export const defaultHistoryWindowMs = 60 * 60 * 1000;
 
@@ -9,11 +10,19 @@ export const chartWindowPresets = [
   { label: '1h', milliseconds: 60 * 60 * 1000 },
 ] as const;
 
-export function storedChartWindow(): number {
-  const value = Number(localStorage.getItem(chartWindowStorageKey));
+function storedWindow(key: string): number {
+  const value = Number(localStorage.getItem(key));
   return chartWindowPresets.some(({ milliseconds }) => milliseconds === value)
     ? value
     : defaultChartWindowMs;
+}
+
+export function storedChartWindow(): number {
+  return storedWindow(chartWindowStorageKey);
+}
+
+export function storedDetailChartWindow(): number {
+  return storedWindow(detailChartWindowStorageKey);
 }
 
 export function effectiveChartWindow(

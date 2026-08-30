@@ -8,7 +8,7 @@ import {
   RefreshCw,
   Sun,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatSamplingInterval } from '../chart-window';
@@ -17,7 +17,6 @@ import type { ConnectionState } from '../use-miglens';
 
 type Props = {
   hostname: string;
-  sampledAt: string;
   capabilities: Capabilities;
   connection: ConnectionState;
   degraded: boolean;
@@ -91,7 +90,6 @@ function SamplingChoices({
 
 export function StatusHeader({
   hostname,
-  sampledAt,
   capabilities,
   connection,
   degraded,
@@ -102,6 +100,7 @@ export function StatusHeader({
 }: Props) {
   const [pendingSampling, setPendingSampling] = useState<number | null>(null);
   const [samplingError, setSamplingError] = useState<string | null>(null);
+  const pendingSamplingRef = useRef<number | null>(null);
   const live = connection === 'live';
   const reconnecting =
     connection === 'reconnecting' || connection === 'connecting';
@@ -112,20 +111,20 @@ export function StatusHeader({
     : titleCase(connection);
   const healthy = live && !degraded;
   const currentSampling = settings?.samplingIntervalMs ?? null;
+  const displayedSampling = pendingSampling ?? currentSampling;
   const allowedSampling =
     settings?.allowedSamplingIntervalsMs ?? defaultSamplingIntervals;
   const customSampling =
     currentSampling != null && !allowedSampling.includes(currentSampling);
   const samplingText =
     currentSampling == null ? '—' : formatSamplingInterval(currentSampling);
-  const time = new Intl.DateTimeFormat(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).format(new Date(sampledAt));
+  const displayedSamplingText =
+    displayedSampling == null ? '—' : formatSamplingInterval(displayedSampling);
 
   async function applySampling(milliseconds: number) {
-    if (milliseconds === currentSampling || pendingSampling != null) return;
+    if (milliseconds === currentSampling || pendingSamplingRef.current != null)
+      return;
+    pendingSamplingRef.current = milliseconds;
     setPendingSampling(milliseconds);
     setSamplingError(null);
     try {
@@ -135,6 +134,7 @@ export function StatusHeader({
         reason instanceof Error ? reason.message : 'Sampling update failed.',
       );
     } finally {
+      pendingSamplingRef.current = null;
       setPendingSampling(null);
     }
   }
@@ -190,6 +190,7 @@ export function StatusHeader({
                   : 'border-amber-500/30 bg-amber-500/[0.08]'
               }`}
               aria-label="Live status and sampling"
+              aria-busy={pendingSampling != null}
             >
               <div
                 className={`flex h-full items-center gap-1.5 px-3 font-mono text-[10px] font-semibold ${healthy ? 'text-primary' : 'text-amber-500'}`}
@@ -204,26 +205,36 @@ export function StatusHeader({
               </span>
               <SamplingChoices
                 allowed={allowedSampling}
-                current={currentSampling}
+                current={displayedSampling}
                 pending={pendingSampling}
                 onSelect={(milliseconds) => void applySampling(milliseconds)}
               />
-              {customSampling ? (
-                <span className="whitespace-nowrap px-2 font-mono text-[9px] text-muted-foreground">
-                  Custom {samplingText}
-                </span>
-              ) : null}
-              {pendingSampling != null ? (
-                <span className="flex items-center gap-1 whitespace-nowrap px-2 font-mono text-[9px] text-muted-foreground">
-                  <RefreshCw className="size-2.5 animate-spin" />
-                  Applying {formatSamplingInterval(pendingSampling)}…
-                </span>
-              ) : samplingError ? (
-                <AlertTriangle
-                  className="mx-2 size-3.5 text-amber-500"
-                  aria-label="Sampling update failed"
-                />
-              ) : null}
+              <span
+                className="grid h-full w-24 shrink-0 place-items-center px-1 font-mono text-[9px] text-muted-foreground"
+                data-testid="sampling-update-status"
+                aria-live="polite"
+              >
+                {pendingSampling != null ? (
+                  <RefreshCw
+                    className="size-3 animate-spin text-muted-foreground"
+                    aria-label={`Applying ${formatSamplingInterval(pendingSampling)}`}
+                  />
+                ) : samplingError ? (
+                  <span className="flex items-center gap-1 whitespace-nowrap">
+                    <AlertTriangle
+                      className="size-3.5 text-amber-500"
+                      aria-label="Sampling update failed"
+                    />
+                    {customSampling ? `Custom ${samplingText}` : samplingText}
+                  </span>
+                ) : customSampling ? (
+                  <span className="whitespace-nowrap">
+                    Custom {samplingText}
+                  </span>
+                ) : (
+                  <Check className="size-3 opacity-0" aria-hidden="true" />
+                )}
+              </span>
             </div>
             {samplingError ? (
               <output className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-max max-w-72 rounded-md border border-amber-500/30 bg-popover px-3 py-2 font-mono text-[10px] text-amber-600 shadow-xl dark:text-amber-300">
@@ -240,11 +251,11 @@ export function StatusHeader({
                     ? 'border-primary/25 bg-primary/[0.08] text-primary'
                     : 'border-amber-500/30 bg-amber-500/[0.09] text-amber-500'
                 }`}
-                aria-label={`${statusName} status, sampling ${samplingText}`}
+                aria-label={`${statusName} status, sampling ${displayedSamplingText}`}
               >
                 {indicator}
                 <span className="whitespace-nowrap">
-                  {statusName} · {samplingText}
+                  {statusName} · {displayedSamplingText}
                 </span>
                 <ChevronDown className="size-3" aria-hidden="true" />
               </PopoverPrimitive.Trigger>
@@ -274,7 +285,7 @@ export function StatusHeader({
                     </div>
                     <SamplingChoices
                       allowed={allowedSampling}
-                      current={currentSampling}
+                      current={displayedSampling}
                       pending={pendingSampling}
                       mobile
                       onSelect={(milliseconds) =>
@@ -301,9 +312,6 @@ export function StatusHeader({
             </PopoverPrimitive.Root>
           </div>
 
-          <span className="hidden font-mono text-[10px] text-muted-foreground xl:inline">
-            {time}
-          </span>
           <Button
             type="button"
             variant="ghost"

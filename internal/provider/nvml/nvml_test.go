@@ -79,6 +79,26 @@ func TestNonMIGUtilizationProvidesPhysicalGPUActivity(t *testing.T) {
 	}
 }
 
+func TestNonMIGUtilizationPreservesParentMetrics(t *testing.T) {
+	at := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
+	temperature := model.AvailableMetric(82, "celsius", model.SourceNVML, model.ScopePhysicalGPU, at)
+	metrics := mergeDeviceUtilizationMetrics(
+		model.MetricSet{"temperature": temperature},
+		gonvml.Utilization{Gpu: 100, Memory: 89},
+		gonvml.SUCCESS,
+		at,
+	)
+
+	if got, ok := metrics["temperature"]; !ok || got.Value == nil || *got.Value != 82 {
+		t.Fatalf("temperature was discarded while adding utilization: %+v", got)
+	}
+	for _, name := range []string{"gpu_activity", "sm_activity", "memory_activity"} {
+		if _, ok := metrics[name]; !ok {
+			t.Fatalf("%s was not added: %+v", name, metrics)
+		}
+	}
+}
+
 func TestGPMMetricClampsFinitePercentage(t *testing.T) {
 	at := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
 	metric := gpmMetric(gonvml.GpmMetric{NvmlReturn: uint32(gonvml.SUCCESS), Value: 117}, at)

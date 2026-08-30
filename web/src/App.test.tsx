@@ -121,6 +121,14 @@ function populatedGPU(index = 0): GPU {
             sampledAt,
             status: 'available',
           },
+          dram_activity: {
+            value: 54,
+            unit: 'percent',
+            source: 'nvml_gpm',
+            scope: 'gpu_instance',
+            sampledAt,
+            status: 'available',
+          },
         },
         computeInstances: [
           {
@@ -170,12 +178,77 @@ function GPUWithoutMetrics(): GPU {
     value: null,
     status: 'unsupported',
   };
+  gi.metrics.dram_activity = {
+    ...gi.metrics.dram_activity,
+    value: null,
+    status: 'unsupported',
+  };
   gi.memory = {
     ...gi.memory,
     totalBytes: null,
     usedBytes: null,
     freeBytes: null,
     status: 'unsupported',
+  };
+  return gpu;
+}
+
+function fullGPU(index = 2): GPU {
+  const gpu = populatedGPU(index);
+  gpu.name = 'NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition';
+  gpu.pciBusId = '0000:42:00.0';
+  gpu.migEnabled = false;
+  gpu.maxMigDevices = 0;
+  gpu.gpuInstances = [];
+  gpu.metrics = {
+    temperature: {
+      ...gpu.metrics.temperature,
+      value: 82,
+    },
+    power: {
+      ...gpu.metrics.power,
+      value: 300,
+    },
+    gpu_activity: {
+      value: 100,
+      unit: 'percent',
+      source: 'nvml',
+      scope: 'physical_gpu',
+      sampledAt,
+      status: 'available',
+    },
+    sm_activity: {
+      value: 98.4,
+      unit: 'percent',
+      source: 'nvml',
+      scope: 'physical_gpu',
+      sampledAt,
+      status: 'available',
+    },
+    memory_activity: {
+      value: 89,
+      unit: 'percent',
+      source: 'nvml',
+      scope: 'physical_gpu',
+      sampledAt,
+      status: 'available',
+    },
+    sm_clock: {
+      value: 1807,
+      unit: 'mhz',
+      source: 'nvml',
+      scope: 'physical_gpu',
+      sampledAt,
+      status: 'available',
+    },
+    memory_clock: {
+      value: 13365,
+      unit: 'mhz',
+      source: 'nvml',
+      scope: 'physical_gpu',
+      sampledAt,
+      status: 'available',
+    },
   };
   return gpu;
 }
@@ -222,6 +295,8 @@ function result(
             temperature: 47,
             gpu_activity: 61,
             sm_activity: 60,
+            memory_activity: 32,
+            dram_activity: 31,
             memory_used_bytes: 4_294_967_296,
             memory_total_bytes: 25_769_803_776,
           },
@@ -296,6 +371,9 @@ describe('MIGLens dashboard states', () => {
     expect(within(capsule).getByRole('button', { name: '1s' })).toHaveAttribute(
       'aria-pressed',
       'true',
+    );
+    expect(screen.getByRole('banner')).not.toHaveTextContent(
+      /\d{1,2}:\d{2}:\d{2}/,
     );
   });
 
@@ -377,7 +455,12 @@ describe('MIGLens dashboard states', () => {
   it('renders all four overview chart panels with scoped series labels', async () => {
     mockUseMIGLens.mockReturnValue(result(snapshot()));
     render(<App />);
-    for (const name of ['Temperature', 'Utilization', 'Memory', 'SM Active']) {
+    for (const name of [
+      'Temperature',
+      'Utilization',
+      'Memory',
+      'Memory Activity',
+    ]) {
       expect(await screen.findByRole('heading', { name })).toBeInTheDocument();
     }
     expect(screen.getAllByText('GPU 0').length).toBeGreaterThan(0);
@@ -413,9 +496,9 @@ describe('MIGLens dashboard states', () => {
 
     for (const copy of [
       '30m · Physical GPUs',
-      '30m · GPU activity by GI',
-      '30m · GI memory used',
-      '30m · SM activity by GI',
+      '30m · SM activity by GI · GPU activity for full GPUs',
+      '30m · Instance memory used',
+      '30m · DRAM activity by GI · memory activity for full GPUs',
     ]) {
       expect(await screen.findByText(copy)).toBeInTheDocument();
     }
@@ -427,7 +510,7 @@ describe('MIGLens dashboard states', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('persists one chart range and applies it to overview and detail charts', async () => {
+  it('persists independent overview and detail chart ranges', async () => {
     const dashboard = result(snapshot());
     mockUseMIGLens.mockReturnValue(dashboard);
     render(<App />);
@@ -440,12 +523,21 @@ describe('MIGLens dashboard states', () => {
     expect(await screen.findByText('15m · Physical GPUs')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /GI 1 \/ CI 0/ }));
-    expect(await screen.findByText('15m activity')).toBeInTheDocument();
+    expect(await screen.findByText('30m activity')).toBeInTheDocument();
+    const detailWindow = screen.getByRole('group', {
+      name: 'Detail chart window',
+    });
+    fireEvent.click(within(detailWindow).getByRole('button', { name: '5m' }));
+    expect(localStorage.getItem('miglens.detailChartWindow.v1')).toBe(
+      String(5 * 60 * 1000),
+    );
+    expect(await screen.findByText('5m activity')).toBeInTheDocument();
+    expect(screen.getByText('15m · Physical GPUs')).toBeInTheDocument();
     await waitFor(() =>
       expect(dashboard.history).toHaveBeenCalledWith(
         expect.any(String),
         expect.any(Array),
-        '15m',
+        '5m',
       ),
     );
   });
@@ -486,6 +578,16 @@ describe('MIGLens dashboard states', () => {
     }
     expect(await screen.findByText('4m · Physical GPUs')).toBeInTheDocument();
     expect(screen.getByRole('contentinfo')).toHaveTextContent('MIGLens v0.1.0');
+    fireEvent.click(screen.getByRole('button', { name: /GI 1 \/ CI 0/ }));
+    expect(await screen.findByText('4m activity')).toBeInTheDocument();
+    const detailWindow = screen.getByRole('group', {
+      name: 'Detail chart window',
+    });
+    for (const label of ['5m', '15m', '30m', '1h']) {
+      expect(
+        within(detailWindow).getByRole('button', { name: label }),
+      ).toBeDisabled();
+    }
   });
 
   it('applies sampling changes and keeps custom startup cadences visible', async () => {
@@ -506,8 +608,21 @@ describe('MIGLens dashboard states', () => {
     render(<App />);
 
     expect(await screen.findByText('Custom 0.25s')).toBeInTheDocument();
+    const statusSlot = screen.getByTestId('sampling-update-status');
     fireEvent.click(screen.getByRole('button', { name: '0.5s' }));
-    expect(screen.getByText('Applying 0.5s…')).toBeInTheDocument();
+    expect(screen.getByLabelText('Applying 0.5s')).toBeInTheDocument();
+    expect(screen.getByTestId('sampling-update-status')).toBe(statusSlot);
+    expect(
+      within(screen.getByTestId('desktop-live-sampling')).getByRole('button', {
+        name: '0.5s',
+      }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByLabelText('Live status and sampling')).toHaveAttribute(
+      'aria-busy',
+      'true',
+    );
+    fireEvent.click(screen.getByRole('button', { name: '0.5s' }));
+    expect(dashboard.updateSamplingInterval).toHaveBeenCalledTimes(1);
     expect(dashboard.updateSamplingInterval).toHaveBeenCalledWith(500);
 
     rejectUpdate?.(new Error('Sampling update failed.'));
@@ -669,6 +784,57 @@ describe('MIGLens dashboard states', () => {
     );
     expect(screen.queryByText('Placement')).not.toBeInTheDocument();
     expect(screen.queryByText('Ownership')).not.toBeInTheDocument();
+    expect(screen.queryByText('in-memory')).not.toBeInTheDocument();
+  });
+
+  it('opens a live full-GPU detail view with physical telemetry and history', async () => {
+    let current = snapshot([fullGPU()]);
+    const dashboard = result(current);
+    mockUseMIGLens.mockImplementation(() => ({
+      ...dashboard,
+      snapshot: current,
+    }));
+    const view = render(<App />);
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Open GPU 2 full GPU details',
+      }),
+    );
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('GPU 2 · Full GPU')).toBeInTheDocument();
+    for (const value of [
+      '100.0%',
+      '98.4%',
+      '89.0%',
+      '82°C',
+      '300 W',
+      '1807 MHz',
+      '13365 MHz',
+    ]) {
+      expect(within(dialog).getByText(value)).toBeInTheDocument();
+    }
+    expect(
+      within(dialog).getByRole('group', { name: 'Detail chart window' }),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByText('in-memory')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(dashboard.history).toHaveBeenCalledWith(
+        'GPU-fixture-2',
+        ['gpu_activity', 'sm_activity', 'memory_activity'],
+        '30m',
+      ),
+    );
+
+    current = snapshot([fullGPU()]);
+    current.sequence = 13;
+    current.sampledAt = '2026-08-29T12:00:01Z';
+    current.gpus[0].metrics.gpu_activity.value = 44;
+    view.rerender(<App />);
+    expect(await within(dialog).findByText('44.0%')).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
   it('uses the concise shared-metric notice for multi-CI instances', async () => {

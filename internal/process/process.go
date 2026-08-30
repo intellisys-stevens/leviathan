@@ -133,7 +133,7 @@ func (s *Scanner) Scan() Inventory {
 	}
 	diagnostics := []model.Diagnostic{}
 	if uninspectable > 0 {
-		remedy := "run MIGLens as the same workspace user as the GPU workload so /proc/<pid>/fd can be inspected"
+		remedy := "run MIGLens in the workload's PID namespace as the same user; a host-level service cannot inspect other users' processes without broader /proc privileges"
 		diagnostics = append(diagnostics, model.Diagnostic{
 			Code: "gpu_process_fds", Severity: "warning", Component: root,
 			Summary: fmt.Sprintf("%d process(es) could not be checked for GPU device access", uninspectable),

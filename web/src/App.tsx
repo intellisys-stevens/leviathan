@@ -16,10 +16,12 @@ import { StatusHeader } from './components/status-header';
 import {
   chartWindowStorageKey,
   defaultHistoryWindowMs,
+  detailChartWindowStorageKey,
   effectiveChartWindow,
   storedChartWindow,
+  storedDetailChartWindow,
 } from './chart-window';
-import type { BuildInfo, Selection, Snapshot } from './types';
+import type { BuildInfo, Selection, SelectionKey, Snapshot } from './types';
 import { useMIGLens } from './use-miglens';
 
 const DetailSheet = lazy(() => import('./components/detail-sheet'));
@@ -41,13 +43,18 @@ export function formatBuildVersion(
 
 function selectedEntity(
   snapshot: Snapshot,
-  uuid: string | null,
+  key: SelectionKey | null,
 ): Selection | null {
-  if (!uuid) return null;
+  if (!key) return null;
+  if (key.kind === 'physical_gpu') {
+    const gpu = snapshot.gpus.find((candidate) => candidate.uuid === key.uuid);
+    return gpu ? { kind: 'physical_gpu', gpu } : null;
+  }
   for (const gpu of snapshot.gpus) {
     for (const gi of gpu.gpuInstances) {
       for (const ci of gi.computeInstances) {
-        if (ci.uuid === uuid) return { gpu, gi, ci };
+        if (ci.uuid === key.uuid)
+          return { kind: 'compute_instance', gpu, gi, ci };
       }
     }
   }
@@ -82,9 +89,11 @@ export function App() {
     buildInfo,
     updateSamplingInterval,
   } = useMIGLens();
-  const [selectedUUID, setSelectedUUID] = useState<string | null>(null);
+  const [selectedKey, setSelectedKey] = useState<SelectionKey | null>(null);
   const [requestedChartWindowMs, setRequestedChartWindowMs] =
     useState(storedChartWindow);
+  const [requestedDetailChartWindowMs, setRequestedDetailChartWindowMs] =
+    useState(storedDetailChartWindow);
   const [theme, setTheme] = useState<'dark' | 'light'>(() =>
     localStorage.getItem(themeKey) === 'light' ? 'light' : 'dark',
   );
@@ -102,10 +111,19 @@ export function App() {
     requestedChartWindowMs,
     retentionMs,
   );
+  const detailChartWindowMs = effectiveChartWindow(
+    requestedDetailChartWindowMs,
+    retentionMs,
+  );
 
   function selectChartWindow(milliseconds: number) {
     setRequestedChartWindowMs(milliseconds);
     localStorage.setItem(chartWindowStorageKey, String(milliseconds));
+  }
+
+  function selectDetailChartWindow(milliseconds: number) {
+    setRequestedDetailChartWindowMs(milliseconds);
+    localStorage.setItem(detailChartWindowStorageKey, String(milliseconds));
   }
 
   const summary = useMemo(() => {
@@ -127,7 +145,7 @@ export function App() {
   }, [snapshot]);
 
   if (!snapshot) return <LoadingView error={error} />;
-  const selection = selectedEntity(snapshot, selectedUUID);
+  const selection = selectedEntity(snapshot, selectedKey);
   const degraded = snapshot.diagnostics.some(
     (diagnostic) => diagnostic.severity !== 'info',
   );
@@ -146,7 +164,6 @@ export function App() {
     <div className="min-h-screen bg-background text-foreground">
       <StatusHeader
         hostname={snapshot.host.hostname}
-        sampledAt={snapshot.sampledAt}
         capabilities={snapshot.capabilities}
         connection={connection}
         degraded={degraded}
@@ -211,7 +228,13 @@ export function App() {
               <GPUCard
                 key={gpu.uuid}
                 gpu={gpu}
-                onSelect={(next) => setSelectedUUID(next.ci.uuid)}
+                onSelect={(next) =>
+                  setSelectedKey(
+                    next.kind === 'physical_gpu'
+                      ? { kind: next.kind, uuid: next.gpu.uuid }
+                      : { kind: next.kind, uuid: next.ci.uuid },
+                  )
+                }
               />
             ))
           )}
@@ -268,10 +291,12 @@ export function App() {
             selection={selection}
             open
             onOpenChange={(open) => {
-              if (!open) setSelectedUUID(null);
+              if (!open) setSelectedKey(null);
             }}
             loadHistory={history}
-            chartWindowMs={chartWindowMs}
+            chartWindowMs={detailChartWindowMs}
+            retentionMs={retentionMs}
+            onChartWindowChange={selectDetailChartWindow}
           />
         </Suspense>
       ) : null}

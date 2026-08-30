@@ -16,6 +16,7 @@ import (
 
 	gonvml "github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/miglens/internal/provider"
 )
 
 type Options struct {
@@ -156,7 +157,7 @@ func (p *Provider) sampleGPU(device gonvml.Device, index int, at time.Time, seen
 
 	if !gpu.MIGEnabled {
 		utilization, ret := device.GetUtilizationRates()
-		gpu.Metrics = deviceUtilizationMetrics(utilization, ret, at)
+		gpu.Metrics = mergeDeviceUtilizationMetrics(gpu.Metrics, utilization, ret, at)
 		return gpu, diagnostics
 	}
 
@@ -352,6 +353,10 @@ func deviceUtilizationMetrics(utilization gonvml.Utilization, ret gonvml.Return,
 		metrics[name] = unavailableFor(ret, "percent", model.SourceNVML, model.ScopePhysicalGPU, at)
 	}
 	return metrics
+}
+
+func mergeDeviceUtilizationMetrics(target model.MetricSet, utilization gonvml.Utilization, ret gonvml.Return, at time.Time) model.MetricSet {
+	return provider.MergeMetricSets(target, deviceUtilizationMetrics(utilization, ret, at))
 }
 
 func gpmSampleKey(gpuUUID string, instance model.GPUInstance) string {

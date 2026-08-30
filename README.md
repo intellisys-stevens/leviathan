@@ -62,6 +62,43 @@ For remote access, keep MIGLens on loopback and use SSH tunnelling:
 ssh -N -L 1397:127.0.0.1:1397 gpu-host.example
 ```
 
+Tailscale users can publish the same loopback service privately on the
+tailnet's standard HTTPS port:
+
+```bash
+sudo tailscale serve --yes --bg --https=443 http://127.0.0.1:1397
+```
+
+### systemd
+
+Release archives include a service template. Install it with the binary, then
+start an instance named for the GPU workload user:
+
+```bash
+sudo install -m 0755 miglens /usr/local/bin/miglens
+sudo install -m 0644 miglens@.service /etc/systemd/system/miglens@.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now "miglens@${USER}.service"
+```
+
+This limits process discovery to workloads that user can inspect.
+
+For host-wide process discovery, install the packaged hardened root drop-in and
+switch instances:
+
+```bash
+sudo install -D -m 0644 \
+  miglens@root.service.d/10-hardening.conf \
+  /etc/systemd/system/miglens@root.service.d/10-hardening.conf
+sudo systemctl daemon-reload
+sudo systemctl disable --now "miglens@${USER}.service"
+sudo systemctl enable --now miglens@root.service
+```
+
+Root mode makes cross-user process metadata visible to every dashboard viewer;
+command lines stay hidden unless explicitly enabled. See
+[permissions](docs/permissions.md#hardened-host-wide-root-mode) for details.
+
 ## 🔒 Providers and privacy
 
 MIGLens uses NVML for discovery and device metrics, NVML GPM for supported
@@ -107,8 +144,9 @@ make vulncheck      # Go and npm vulnerability checks
 make soak           # accelerated collector soak
 ```
 
-Release archives include Linux `amd64` and `arm64` binaries, checksums, SPDX
-SBOMs, provenance attestations, and dependency notices.
+Release archives include Linux `amd64` and `arm64` binaries, the systemd
+template and hardened root drop-in, checksums, SPDX SBOMs, provenance
+attestations, and dependency notices.
 
 ## License
 

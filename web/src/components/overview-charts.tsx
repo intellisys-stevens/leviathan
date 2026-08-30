@@ -9,7 +9,7 @@ import {
   YAxis,
 } from 'recharts';
 import { Badge } from '@/components/ui/badge';
-import { chartWindowPresets, formatDuration } from '../chart-window';
+import { formatDuration } from '../chart-window';
 import {
   downsampleChartRows,
   movingAverageChartRows,
@@ -20,6 +20,7 @@ import {
 } from '../overview-history';
 import type { HistorySeries, Snapshot } from '../types';
 import type { ConnectionState } from '../use-miglens';
+import { ChartWindowControl } from './chart-window-control';
 
 const colors = [
   'var(--chart-1)',
@@ -33,9 +34,9 @@ export { movingAverageChartRows } from '../overview-history';
 
 type ChartMetric =
   | 'temperature'
-  | 'gpu_activity'
+  | 'utilization'
   | 'memory_percent'
-  | 'sm_activity';
+  | 'memory_activity';
 
 type PanelDefinition = {
   id: string;
@@ -131,6 +132,7 @@ export function SeriesTooltip({
 export function overviewMetricValue(
   point: OverviewPoint,
   metric: ChartMetric,
+  scope: OverviewEntity['scope'],
 ): number | null {
   if (metric === 'memory_percent') {
     const used = point.values.memory_used_bytes;
@@ -139,7 +141,15 @@ export function overviewMetricValue(
       return null;
     return Math.max(0, Math.min(100, (used / total) * 100));
   }
-  const value = point.values[metric];
+  const sourceMetric =
+    metric === 'utilization'
+      ? scope === 'gpu_instance'
+        ? 'sm_activity'
+        : 'gpu_activity'
+      : metric === 'memory_activity' && scope === 'gpu_instance'
+        ? 'dram_activity'
+        : metric;
+  const value = point.values[sourceMetric];
   return Number.isFinite(value) ? value : null;
 }
 
@@ -162,7 +172,7 @@ export function chartRows(
         for (const key of valueKeys) row[key] = null;
         rowsByTime.set(time, row);
       }
-      const value = overviewMetricValue(point, metric);
+      const value = overviewMetricValue(point, metric, entity.scope);
       row[valueKeys[index]] = value;
       if (value != null) seriesWithValues.add(index);
     }
@@ -455,50 +465,6 @@ function ChartPanel({
   );
 }
 
-function WindowControl({
-  chartWindowMs,
-  retentionMs,
-  onChartWindowChange,
-}: Pick<Props, 'chartWindowMs' | 'retentionMs' | 'onChartWindowChange'>) {
-  const customWindow = !chartWindowPresets.some(
-    ({ milliseconds }) => milliseconds === chartWindowMs,
-  );
-
-  return (
-    <fieldset
-      className="mt-4 flex min-w-0 items-center gap-2 border-0 p-0"
-      aria-label="Chart window"
-    >
-      <legend className="float-left font-mono text-[8px] uppercase tracking-[0.14em] text-muted-foreground">
-        Window
-      </legend>
-      <div className="flex rounded-md bg-muted/45 p-0.5">
-        {chartWindowPresets.map(({ label, milliseconds }) => (
-          <button
-            key={label}
-            type="button"
-            className={`h-6 rounded px-2 font-mono text-[9px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-              chartWindowMs === milliseconds
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-            }`}
-            disabled={milliseconds > retentionMs}
-            aria-pressed={chartWindowMs === milliseconds}
-            onClick={() => onChartWindowChange(milliseconds)}
-          >
-            {label}
-          </button>
-        ))}
-        {customWindow ? (
-          <span className="flex h-6 items-center rounded bg-background px-2 font-mono text-[9px] text-foreground shadow-sm">
-            {formatDuration(chartWindowMs)}
-          </span>
-        ) : null}
-      </div>
-    </fieldset>
-  );
-}
-
 export function OverviewCharts({
   snapshot,
   connection,
@@ -543,8 +509,8 @@ export function OverviewCharts({
       {
         id: 'utilization-chart',
         title: 'Utilization',
-        metric: 'gpu_activity',
-        description: `${rangeLabel} · GPU activity by GI`,
+        metric: 'utilization',
+        description: `${rangeLabel} · SM activity by GI · GPU activity for full GPUs`,
         unit: '%',
         entities: activityEntities,
       },
@@ -552,15 +518,15 @@ export function OverviewCharts({
         id: 'memory-chart',
         title: 'Memory',
         metric: 'memory_percent',
-        description: `${rangeLabel} · GI memory used`,
+        description: `${rangeLabel} · Instance memory used`,
         unit: '%',
         entities: activityEntities,
       },
       {
-        id: 'sm-active-chart',
-        title: 'SM Active',
-        metric: 'sm_activity',
-        description: `${rangeLabel} · SM activity by GI`,
+        id: 'memory-activity-chart',
+        title: 'Memory Activity',
+        metric: 'memory_activity',
+        description: `${rangeLabel} · DRAM activity by GI · memory activity for full GPUs`,
         unit: '%',
         entities: activityEntities,
       },
@@ -570,10 +536,11 @@ export function OverviewCharts({
 
   return (
     <>
-      <WindowControl
+      <ChartWindowControl
         chartWindowMs={chartWindowMs}
         retentionMs={retentionMs}
         onChartWindowChange={onChartWindowChange}
+        className="mt-4"
       />
       <div
         className="mt-2 grid grid-cols-1 gap-4 md:grid-cols-2"

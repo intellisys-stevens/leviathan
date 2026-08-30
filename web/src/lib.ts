@@ -23,6 +23,10 @@ export function formatMetric(metric?: Metric): string {
   }
 }
 
+export function formatRoundedPercent(value: number): string {
+  return `${Math.round(value)}%`;
+}
+
 export function formatBytes(value: number | null | undefined): string {
   if (value == null) return '—';
   const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];

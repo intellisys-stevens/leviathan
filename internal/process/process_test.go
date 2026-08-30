@@ -130,6 +130,9 @@ func TestScannerReportsUnreadableDescriptorDirectories(t *testing.T) {
 	if len(inventory.Processes) != 0 || len(inventory.Diagnostics) != 1 || inventory.Diagnostics[0].Code != "gpu_process_fds" || inventory.Diagnostics[0].Status != model.StatusPermissionDenied {
 		t.Fatalf("unreadable descriptor inventory = %+v", inventory)
 	}
+	if !strings.Contains(inventory.Diagnostics[0].Remedy, "PID namespace") || !strings.Contains(inventory.Diagnostics[0].Remedy, "host-level service") {
+		t.Fatalf("unreadable descriptor remedy = %q", inventory.Diagnostics[0].Remedy)
+	}
 }
 
 func TestIdentityKeyDetectsPIDReuse(t *testing.T) {

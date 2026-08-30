@@ -35,13 +35,13 @@ type LoadHistory = (
 const gpuMetrics = [
   'temperature',
   'gpu_activity',
-  'sm_activity',
+  'memory_activity',
   'memory_used_bytes',
   'memory_total_bytes',
 ];
 const giMetrics = [
-  'gpu_activity',
   'sm_activity',
+  'dram_activity',
   'memory_used_bytes',
   'memory_total_bytes',
 ];
@@ -102,7 +102,13 @@ export function pointFromSnapshot(
     : gpu;
   if (!source) return null;
   const values: Record<string, number> = {};
-  for (const name of ['temperature', 'gpu_activity', 'sm_activity']) {
+  for (const name of [
+    'temperature',
+    'gpu_activity',
+    'sm_activity',
+    'memory_activity',
+    'dram_activity',
+  ]) {
     const metric = source.metrics[name];
     if (metric?.status === 'available' && metric.value != null)
       values[name] = metric.value;

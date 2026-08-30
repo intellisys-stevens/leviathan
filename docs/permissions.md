@@ -29,6 +29,24 @@ Process environments are never read. Full command arguments remain disabled
 unless `--show-command-line` or its equivalent configuration setting is
 explicitly enabled.
 
+## Hardened host-wide root mode
+
+On a multi-user host, an ordinary service account cannot inspect other users'
+`/proc/<pid>/fd` directories. MIGLens can intentionally run as the
+`miglens@root.service` template instance when host-wide GPU-process metadata is
+required. The packaged root drop-in retains only `CAP_DAC_READ_SEARCH` and
+`CAP_SYS_PTRACE`, makes the host and home filesystems unavailable for writes,
+and limits networking to localhost so the loopback dashboard and optional
+local DCGM connection continue to work.
+
+Root mode expands process visibility for every dashboard viewer: PID, Unix
+user, executable path, start time, and record status may cross workload-user
+boundaries. It still reads only processes with a matching open NVIDIA UVM
+handle, never reads process environments, and does not enable command-line
+collection. Genuine provider or collector failures remain visible as
+diagnostics; root mode only removes permission failures that it can actually
+resolve.
+
 ## NVIDIA visibility
 
 GPU and MIG discovery uses only the device handles, attributes, memory calls,

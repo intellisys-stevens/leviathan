@@ -13,8 +13,18 @@ export type HistorySeries = components['schemas']['HistorySeries'];
 export type RuntimeSettings = components['schemas']['RuntimeSettings'];
 export type BuildInfo = components['schemas']['BuildInfo'];
 
-export type Selection = {
-  gpu: GPU;
-  gi: GpuInstance;
-  ci: ComputeInstance;
-};
+export type Selection =
+  | {
+      kind: 'physical_gpu';
+      gpu: GPU;
+    }
+  | {
+      kind: 'compute_instance';
+      gpu: GPU;
+      gi: GpuInstance;
+      ci: ComputeInstance;
+    };
+
+export type SelectionKey =
+  | { kind: 'physical_gpu'; uuid: string }
+  | { kind: 'compute_instance'; uuid: string };

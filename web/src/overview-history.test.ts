@@ -53,6 +53,22 @@ function fixture(): Snapshot {
             sampledAt,
             status: 'available',
           },
+          gpu_activity: {
+            value: 37,
+            unit: 'percent',
+            source: 'nvml',
+            scope: 'physical_gpu',
+            sampledAt,
+            status: 'available',
+          },
+          memory_activity: {
+            value: 22,
+            unit: 'percent',
+            source: 'nvml',
+            scope: 'physical_gpu',
+            sampledAt,
+            status: 'available',
+          },
         },
         gpuInstances: [
           {
@@ -71,15 +87,23 @@ function fixture(): Snapshot {
             },
             metrics: {
               gpu_activity: {
-                value: null,
+                value: 0,
                 unit: 'percent',
                 source: 'nvml_gpm',
                 scope: 'gpu_instance',
                 sampledAt,
-                status: 'stale',
+                status: 'available',
               },
               sm_activity: {
                 value: 65,
+                unit: 'percent',
+                source: 'nvml_gpm',
+                scope: 'gpu_instance',
+                sampledAt,
+                status: 'available',
+              },
+              dram_activity: {
+                value: 41,
                 unit: 'percent',
                 source: 'nvml_gpm',
                 scope: 'gpu_instance',
@@ -108,21 +132,50 @@ describe('overview history', () => {
     expect(overviewTopologyKey(snapshot)).not.toBe(key);
   });
 
-  it('turns unavailable samples into gaps and converts memory to percent', () => {
+  it('uses SM activity for GI utilization and device activity for full GPUs', () => {
     const snapshot = fixture();
-    const gi = buildOverviewEntities(snapshot)[1];
+    const [gpu, gi] = buildOverviewEntities(snapshot);
     const point = pointFromSnapshot(snapshot, gi);
     expect(point?.values).toEqual({
+      gpu_activity: 0,
       sm_activity: 65,
+      dram_activity: 41,
       memory_used_bytes: 20,
       memory_total_bytes: 80,
     });
-    expect(point && overviewMetricValue(point, 'gpu_activity')).toBeNull();
-    expect(point && overviewMetricValue(point, 'memory_percent')).toBe(25);
+    expect(point && overviewMetricValue(point, 'utilization', gi.scope)).toBe(
+      65,
+    );
+    expect(
+      point && overviewMetricValue(point, 'memory_activity', gi.scope),
+    ).toBe(41);
+    expect(
+      point && overviewMetricValue(point, 'memory_percent', gi.scope),
+    ).toBe(25);
+
+    const gpuPoint = pointFromSnapshot(snapshot, gpu);
+    expect(
+      gpuPoint && overviewMetricValue(gpuPoint, 'utilization', gpu.scope),
+    ).toBe(37);
+    expect(
+      gpuPoint && overviewMetricValue(gpuPoint, 'memory_activity', gpu.scope),
+    ).toBe(22);
+
     const data = chartRows(
       [gi],
       { [gi.key]: point ? [point] : [] },
-      'gpu_activity',
+      'utilization',
+    );
+    expect(data.rows[0].series_0).toBe(65);
+    expect(data.availableSeries).toBe(1);
+  });
+
+  it('turns unavailable samples into chart gaps', () => {
+    const gi = buildOverviewEntities(fixture())[1];
+    const data = chartRows(
+      [gi],
+      { [gi.key]: [{ sampledAt, values: {} }] },
+      'utilization',
     );
     expect(data.rows[0].series_0).toBeNull();
     expect(data.availableSeries).toBe(0);
@@ -135,7 +188,7 @@ describe('overview history', () => {
       sampledAt: `2026-08-29T11:59:${String(index).padStart(2, '0')}Z`,
       values: { sm_activity: value },
     }));
-    const data = chartRows([gi], { [gi.key]: points }, 'sm_activity');
+    const data = chartRows([gi], { [gi.key]: points }, 'utilization');
 
     expect(data.rows.map((row) => row.series_0)).toEqual([
       10, 15, 20, 25, 30, 40,
