@@ -1,0 +1,330 @@
+openapi: 3.1.0
+info:
+  title: MIGLens local API
+  version: 0.1.0
+  description: Single-host NVIDIA GPU and MIG telemetry with a process-local sampling control.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: http://127.0.0.1:1397
+paths:
+  /api/v1/snapshot:
+    get:
+      operationId: getSnapshot
+      summary: Return the latest immutable host snapshot.
+      responses:
+        "200":
+          description: Current snapshot.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Snapshot" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /api/v1/history:
+    get:
+      operationId: getHistory
+      summary: Return retained metrics for one entity UUID.
+      parameters:
+        - name: entity
+          in: query
+          required: true
+          schema: { type: string, minLength: 1 }
+        - name: metrics
+          in: query
+          required: false
+          description: Comma-separated canonical metric names.
+          schema: { type: string }
+        - name: window
+          in: query
+          required: false
+          schema: { type: string, default: 30m }
+      responses:
+        "200":
+          description: Bounded in-memory series.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HistorySeries" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+  /api/v1/events:
+    get:
+      operationId: getEvents
+      summary: Stream snapshot and runtime-settings server-sent events.
+      responses:
+        "200":
+          description: A stream of snapshot and settings events. Clients should reconnect using standard SSE semantics.
+          content:
+            text/event-stream:
+              schema: { type: string }
+  /api/v1/capabilities:
+    get:
+      operationId: getCapabilities
+      summary: Return telemetry and local GPU-process capabilities.
+      responses:
+        "200":
+          description: Provider capabilities.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Capabilities" }
+  /api/v1/settings:
+    get:
+      operationId: getRuntimeSettings
+      summary: Return effective process-local runtime settings.
+      responses:
+        "200":
+          description: Effective runtime settings and dashboard sampling choices.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RuntimeSettings" }
+    patch:
+      operationId: updateRuntimeSettings
+      summary: Change the process-local collector sampling interval.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RuntimeSettingsPatch" }
+      responses:
+        "200":
+          description: Effective runtime settings after the update.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RuntimeSettings" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "415":
+          description: The mutation body is not JSON.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/v1/version:
+    get:
+      operationId: getBuildInfo
+      summary: Return build metadata for the running MIGLens binary.
+      responses:
+        "200":
+          description: Immutable build metadata.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BuildInfo" }
+  /healthz:
+    get:
+      operationId: healthz
+      summary: Report whether a snapshot is available.
+      responses:
+        "200":
+          description: Healthy.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+components:
+  responses:
+    BadRequest:
+      description: Invalid request.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unavailable:
+      description: A live snapshot is not available.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    MetricStatus:
+      type: string
+      enum: [available, unsupported, permission_denied, stale, error]
+    MetricSource:
+      type: string
+      enum: [nvml, nvml_gpm, dcgm, proc, synthetic]
+    MetricScope:
+      type: string
+      enum: [host, physical_gpu, gpu_instance, compute_instance]
+    Metric:
+      type: object
+      required: [value, unit, source, scope, sampledAt, status]
+      properties:
+        value: { type: [number, "null"] }
+        unit: { type: string }
+        source: { $ref: "#/components/schemas/MetricSource" }
+        scope: { $ref: "#/components/schemas/MetricScope" }
+        sampledAt: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/MetricStatus" }
+        message: { type: string }
+    MetricSet:
+      type: object
+      description: Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy.
+      additionalProperties: { $ref: "#/components/schemas/Metric" }
+    Memory:
+      type: object
+      required: [totalBytes, usedBytes, freeBytes, source, scope, sampledAt, status]
+      properties:
+        totalBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        usedBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        freeBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        source: { $ref: "#/components/schemas/MetricSource" }
+        scope: { $ref: "#/components/schemas/MetricScope" }
+        sampledAt: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/MetricStatus" }
+        message: { type: string }
+    Process:
+      type: object
+      description: A GPU-connected process visible in MIGLens' current PID namespace. An open NVIDIA UVM handle includes idle CUDA contexts and does not imply active kernels, GPU memory use, or GI/CI ownership.
+      required: [pid, status]
+      properties:
+        pid: { type: integer, format: uint32, minimum: 0 }
+        user: { type: string }
+        executable: { type: string, description: Resolved executable path, with comm as a fallback. }
+        commandLine: { type: string, description: Present only when explicitly enabled. }
+        startTime: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/MetricStatus" }
+        message: { type: string }
+    ComputeInstance:
+      type: object
+      required: [uuid, id, profile, memory, metrics, generation]
+      properties:
+        uuid: { type: string }
+        id: { type: integer, format: uint32, minimum: 0 }
+        profile: { type: string }
+        memory: { $ref: "#/components/schemas/Memory" }
+        metrics: { $ref: "#/components/schemas/MetricSet" }
+        generation: { type: string }
+        diagnostics: { type: array, items: { $ref: "#/components/schemas/Diagnostic" } }
+    GpuInstance:
+      type: object
+      required: [uuid, id, profile, generation, memory, metrics, computeInstances]
+      properties:
+        uuid: { type: string }
+        id: { type: integer, format: uint32, minimum: 0 }
+        profile: { type: string }
+        generation: { type: string }
+        memory: { $ref: "#/components/schemas/Memory" }
+        metrics: { $ref: "#/components/schemas/MetricSet" }
+        computeInstances: { type: array, items: { $ref: "#/components/schemas/ComputeInstance" } }
+    GPU:
+      type: object
+      required: [uuid, index, name, migEnabled, maxMigDevices, memory, metrics, gpuInstances]
+      properties:
+        uuid: { type: string }
+        index: { type: integer, minimum: 0 }
+        name: { type: string }
+        pciBusId: { type: string }
+        migEnabled: { type: boolean }
+        maxMigDevices: { type: integer, minimum: 0 }
+        memory: { $ref: "#/components/schemas/Memory" }
+        metrics: { $ref: "#/components/schemas/MetricSet" }
+        gpuInstances: { type: array, items: { $ref: "#/components/schemas/GpuInstance" } }
+    ProviderState:
+      type: object
+      required: [name, available, status]
+      properties:
+        name: { type: string }
+        available: { type: boolean }
+        status: { $ref: "#/components/schemas/MetricStatus" }
+        message: { type: string }
+    Capabilities:
+      type: object
+      required: [nvml, gpm, dcgm, proc, profileMetrics]
+      properties:
+        nvml: { $ref: "#/components/schemas/ProviderState" }
+        gpm: { $ref: "#/components/schemas/ProviderState" }
+        dcgm: { $ref: "#/components/schemas/ProviderState" }
+        proc: { $ref: "#/components/schemas/ProviderState" }
+        profileMetrics: { type: boolean }
+    RuntimeSettings:
+      type: object
+      required: [samplingIntervalMs, historyWindowMs, allowedSamplingIntervalsMs]
+      properties:
+        samplingIntervalMs:
+          type: integer
+          format: int64
+          minimum: 250
+          description: Effective process-local collector cadence in milliseconds.
+        historyWindowMs:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Maximum in-memory retention in milliseconds.
+        allowedSamplingIntervalsMs:
+          type: array
+          items: { type: integer, format: int64, enum: [500, 1000, 2000] }
+    RuntimeSettingsPatch:
+      type: object
+      required: [samplingIntervalMs]
+      additionalProperties: false
+      properties:
+        samplingIntervalMs:
+          type: integer
+          format: int64
+          enum: [500, 1000, 2000]
+    BuildInfo:
+      type: object
+      required: [version, commit, buildDate]
+      properties:
+        version:
+          type: string
+          description: Semantic version or dev for a development build.
+        commit:
+          type: string
+          description: Source revision supplied by the linker.
+        buildDate:
+          type: string
+          description: Build timestamp supplied by the linker.
+    Diagnostic:
+      type: object
+      required: [code, severity, component, summary, status]
+      properties:
+        code: { type: string }
+        severity: { type: string, enum: [info, warning, error] }
+        component: { type: string }
+        summary: { type: string }
+        detail: { type: string }
+        remedy: { type: string }
+        status: { $ref: "#/components/schemas/MetricStatus" }
+    Host:
+      type: object
+      required: [hostname, os, arch]
+      properties:
+        hostname: { type: string }
+        os: { type: string }
+        arch: { type: string }
+    Snapshot:
+      type: object
+      required: [schemaVersion, sequence, sampledAt, host, gpus, processes, capabilities, diagnostics]
+      properties:
+        schemaVersion: { type: string, const: v1 }
+        sequence: { type: integer, format: uint64, minimum: 0 }
+        sampledAt: { type: string, format: date-time }
+        host: { $ref: "#/components/schemas/Host" }
+        gpus: { type: array, items: { $ref: "#/components/schemas/GPU" } }
+        processes:
+          type: array
+          description: GPU-connected processes detected through open NVIDIA UVM device handles in the current PID namespace. MIGLens itself is excluded.
+          items: { $ref: "#/components/schemas/Process" }
+        capabilities: { $ref: "#/components/schemas/Capabilities" }
+        diagnostics: { type: array, items: { $ref: "#/components/schemas/Diagnostic" } }
+    HistoryPoint:
+      type: object
+      required: [sampledAt, values]
+      properties:
+        sampledAt: { type: string, format: date-time }
+        values:
+          type: object
+          additionalProperties: { type: number }
+    HistorySeries:
+      type: object
+      required: [entity, metrics, window, points]
+      properties:
+        entity: { type: string }
+        metrics: { type: array, items: { type: string } }
+        window: { type: string }
+        points: { type: array, items: { $ref: "#/components/schemas/HistoryPoint" } }
+    Health:
+      type: object
+      required: [status, sampledAt]
+      properties:
+        status: { type: string, const: ok }
+        sampledAt: { type: string, format: date-time }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }

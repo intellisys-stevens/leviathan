@@ -1,0 +1,13 @@
+/bin/
+/dist/
+/coverage/
+*.coverprofile
+*.test
+*.out
+.DS_Store
+.env
+.env.*
+.playwright-cli/
+
+# The dashboard build under internal/webui/dist is intentionally committed:
+# go:embed needs it to build MIGLens without Node.
