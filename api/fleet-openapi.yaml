@@ -1,0 +1,170 @@
+openapi: 3.1.0
+info:
+  title: MIGLens fleet API
+  version: 0.1.0
+  description: Read-only multi-instance inventory and sanitized MIGLens agent observations.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://127.0.0.1:1398
+paths:
+  /api/fleet/v1/state:
+    get:
+      operationId: getFleetState
+      summary: Return the latest complete fleet observation.
+      responses:
+        "200":
+          description: Current fleet state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FleetSnapshot" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /api/fleet/v1/events:
+    get:
+      operationId: getFleetEvents
+      summary: Stream complete fleet observations as fleet server-sent events.
+      responses:
+        "200":
+          description: A latest-state stream. Slow consumers may skip superseded observations.
+          content:
+            text/event-stream:
+              schema: { type: string }
+  /api/fleet/v1/version:
+    get:
+      operationId: getFleetBuildInfo
+      summary: Return build metadata for the fleet controller.
+      responses:
+        "200":
+          description: Immutable build metadata.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BuildInfo" }
+  /healthz:
+    get:
+      operationId: fleetHealthz
+      summary: Report controller readiness and inventory freshness.
+      responses:
+        "200":
+          description: A current or cached fleet state is available.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+        "503":
+          description: No fleet state has been published yet.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+components:
+  responses:
+    Unavailable:
+      description: No complete fleet state has been published yet.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    FleetSnapshot:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, sequence, observedAt, platforms]
+      properties:
+        schemaVersion: { type: string, const: fleet-v1 }
+        sequence: { type: integer, format: uint64, minimum: 0 }
+        observedAt: { type: string, format: date-time }
+        platforms:
+          type: array
+          items: { $ref: "#/components/schemas/PlatformObservation" }
+    PlatformObservation:
+      type: object
+      additionalProperties: false
+      required: [platform, inventory, instances]
+      properties:
+        platform: { $ref: "#/components/schemas/Platform" }
+        inventory: { $ref: "#/components/schemas/InventoryHealth" }
+        instances:
+          type: array
+          items: { $ref: "#/components/schemas/InstanceObservation" }
+    Platform:
+      type: object
+      additionalProperties: false
+      required: [id, displayName, kind]
+      properties:
+        id: { type: string, pattern: "^[a-z][a-z0-9_-]{0,63}$" }
+        displayName: { type: string, minLength: 1, maxLength: 128 }
+        kind: { type: string, enum: [host, openstack] }
+        dashboardUrl:
+          type: string
+          description: An HTTPS URL or same-origin absolute path without credentials, query, or fragment.
+    InventoryHealth:
+      type: object
+      additionalProperties: false
+      required: [status, lastAttemptAt]
+      properties:
+        status: { type: string, enum: [available, stale, unavailable] }
+        observedAt: { type: string, format: date-time }
+        lastAttemptAt: { type: string, format: date-time }
+        lastSuccessAt: { type: string, format: date-time }
+        message: { type: string }
+    Instance:
+      type: object
+      additionalProperties: false
+      required: [uuid, name, creatorUsername, cloudState]
+      description: Sanitized OpenStack inventory; metadata, tags, passwords, tokens, keypairs, and endpoints are never included.
+      properties:
+        uuid: { type: string, format: uuid }
+        name: { type: string }
+        creatorUsername: { type: string }
+        cloudState:
+          type: string
+          enum: [active, shelved, shelved_offloaded, shutoff, building, paused, suspended, error, unknown]
+        rawCloudState: { type: string }
+        flavor: { type: string }
+    InstanceObservation:
+      type: object
+      additionalProperties: false
+      required: [instance, managed, agentProbeEligible, policyReason, agent]
+      properties:
+        instance: { $ref: "#/components/schemas/Instance" }
+        managed:
+          type: boolean
+          description: UUID and creator username exactly match the controller allowlist.
+        agentProbeEligible:
+          type: boolean
+          description: The exact allowlist matched and the cloud state permits a read-only agent request.
+        policyReason:
+          type: string
+          enum: [allowed, not_allowlisted, creator_mismatch, cloud_not_active]
+        agent: { $ref: "#/components/schemas/AgentObservation" }
+    AgentObservation:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, enum: [not_managed, available, unreachable, stale, incompatible] }
+        lastAttemptAt: { type: string, format: date-time }
+        lastSuccessAt: { type: string, format: date-time }
+        observedAt: { type: string, format: date-time }
+        buildInfo: { $ref: "#/components/schemas/BuildInfo" }
+        snapshot:
+          allOf:
+            - $ref: "./openapi.yaml#/components/schemas/Snapshot"
+          description: A schema-v1 single-host snapshot with command lines and raw provider error details removed by the fleet controller.
+        message: { type: string }
+    BuildInfo:
+      type: object
+      required: [version, commit, buildDate]
+      properties:
+        version: { type: string }
+        commit: { type: string }
+        buildDate: { type: string }
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [starting, ok, degraded] }
+        sequence: { type: integer, format: uint64, minimum: 0 }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
