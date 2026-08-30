@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
+  AlignedHistory,
+  AlignedHistoryRequest,
+  Attribution,
   BuildInfo,
+  Capabilities,
+  Diagnostic,
   HistorySeries,
+  Process,
   RuntimeSettings,
   Snapshot,
 } from './types';
@@ -11,6 +17,124 @@ export type ConnectionState =
   | 'live'
   | 'reconnecting'
   | 'disconnected';
+
+function sameArray<T>(
+  left: readonly T[],
+  right: readonly T[],
+  equal: (left: T, right: T) => boolean,
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((value, index) => equal(value, right[index]))
+  );
+}
+
+function sameProcess(left: Process, right: Process): boolean {
+  return (
+    left.pid === right.pid &&
+    left.user === right.user &&
+    left.executable === right.executable &&
+    left.commandLine === right.commandLine &&
+    left.startTime === right.startTime &&
+    left.status === right.status &&
+    left.message === right.message
+  );
+}
+
+function sameDiagnostic(left: Diagnostic, right: Diagnostic): boolean {
+  return (
+    left.code === right.code &&
+    left.severity === right.severity &&
+    left.component === right.component &&
+    left.summary === right.summary &&
+    left.detail === right.detail &&
+    left.remedy === right.remedy &&
+    left.status === right.status
+  );
+}
+
+function sameCapabilities(left: Capabilities, right: Capabilities): boolean {
+  const providers = ['nvml', 'gpm', 'dcgm', 'proc'] as const;
+  return (
+    left.profileMetrics === right.profileMetrics &&
+    providers.every((name) => {
+      const current = left[name];
+      const next = right[name];
+      return (
+        current.name === next.name &&
+        current.available === next.available &&
+        current.status === next.status &&
+        current.message === next.message
+      );
+    })
+  );
+}
+
+function sameAttribution(
+  left: Attribution | undefined,
+  right: Attribution | undefined,
+): boolean {
+  if (!left || !right) return left === right;
+  return (
+    left.provider === right.provider &&
+    left.status === right.status &&
+    left.observedAt === right.observedAt &&
+    sameArray(
+      left.workloads,
+      right.workloads,
+      (current, next) =>
+        current.ref === next.ref &&
+        current.platform === next.platform &&
+        current.kind === next.kind &&
+        current.name === next.name &&
+        current.ownerName === next.ownerName,
+    ) &&
+    sameArray(
+      left.assignments,
+      right.assignments,
+      (current, next) =>
+        current.workloadRef === next.workloadRef &&
+        current.entityType === next.entityType &&
+        current.entityUuid === next.entityUuid &&
+        current.state === next.state,
+    )
+  );
+}
+
+// Preserve slow-changing slices across full snapshot SSE events so memoized
+// process, diagnostic, capability, and attribution views do not repaint at the
+// GPU telemetry cadence.
+export function shareStableSnapshot(
+  previous: Snapshot | null,
+  next: Snapshot,
+): Snapshot {
+  if (!previous) return next;
+  return {
+    ...next,
+    host:
+      previous.host.hostname === next.host.hostname &&
+      previous.host.os === next.host.os &&
+      previous.host.arch === next.host.arch
+        ? previous.host
+        : next.host,
+    processes: sameArray(previous.processes, next.processes, sameProcess)
+      ? previous.processes
+      : next.processes,
+    diagnostics: sameArray(
+      previous.diagnostics,
+      next.diagnostics,
+      sameDiagnostic,
+    )
+      ? previous.diagnostics
+      : next.diagnostics,
+    capabilities: sameCapabilities(previous.capabilities, next.capabilities)
+      ? previous.capabilities
+      : next.capabilities,
+    attribution: sameAttribution(previous.attribution, next.attribution)
+      ? previous.attribution
+      : next.attribution,
+  };
+}
 
 export function useMIGLens() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -32,7 +156,7 @@ export function useMIGLens() {
       })
       .then((data) => {
         if (!active) return;
-        setSnapshot(data);
+        setSnapshot((current) => shareStableSnapshot(current, data));
         setError(null);
       });
     const settingsRequest = fetch('/api/v1/settings', { cache: 'no-store' })
@@ -79,7 +203,7 @@ export function useMIGLens() {
         const next = JSON.parse(
           (event as MessageEvent<string>).data,
         ) as Snapshot;
-        setSnapshot(next);
+        setSnapshot((current) => shareStableSnapshot(current, next));
         setConnection('live');
         setError(null);
       } catch {
@@ -116,6 +240,7 @@ export function useMIGLens() {
         entity,
         metrics: metrics.join(','),
         window,
+        maxPoints: '720',
       });
       const response = await fetch(`/api/v1/history?${query}`, {
         cache: 'no-store',
@@ -123,6 +248,21 @@ export function useMIGLens() {
       if (!response.ok)
         throw new Error(`History request failed (${response.status})`);
       return response.json() as Promise<HistorySeries>;
+    },
+    [],
+  );
+
+  const alignedHistory = useCallback(
+    async (request: AlignedHistoryRequest): Promise<AlignedHistory> => {
+      const response = await fetch('/api/v1/history/aligned', {
+        method: 'POST',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      if (!response.ok)
+        throw new Error(`Aligned history request failed (${response.status})`);
+      return response.json() as Promise<AlignedHistory>;
     },
     [],
   );
@@ -156,6 +296,7 @@ export function useMIGLens() {
     connection,
     error,
     history,
+    alignedHistory,
     settings,
     buildInfo,
     updateSamplingInterval,

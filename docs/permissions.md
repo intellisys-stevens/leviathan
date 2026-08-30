@@ -22,8 +22,8 @@ MIGLens does not mount or traverse a host `/proc`, query NVML for host GPU PIDs,
 or infer container and pod ownership. If it is intentionally launched directly
 on a host or in a pod with `hostPID: true`, the visible process scope expands to
 that namespace. The dashboard labels this boundary as the current PID
-namespace rather than promising a Kubernetes workspace boundary. Expanding the
-namespace may reveal more GPU clients, but still does not provide attribution.
+namespace. Optional DRA attribution describes scheduler assignments separately;
+it does not attach processes to devices or workspaces.
 
 Process environments are never read. Full command arguments remain disabled
 unless `--show-command-line` or its equivalent configuration setting is
@@ -60,7 +60,7 @@ The container still needs its intended NVIDIA GPU or MIG device allocation,
 provided by the NVIDIA runtime or device plugin. MIGLens never requests MIG
 configuration access and provides no GPU mutation endpoint.
 
-## Coder workspace
+## Coder workspaces
 
 No Coder template integration is required when the existing workspace already
 exposes the target GPUs and NVML library. Run the server normally:
@@ -74,3 +74,10 @@ Run `miglens doctor` to verify GPU discovery, GPM support, readable MIG memory,
 UVM visibility, and `/proc/<pid>/fd` inspection. Aggregated FD permission
 failures mean some visible processes cannot be checked; they do not require
 host PID access.
+
+On a host-level deployment, the optional Kubernetes bridge can add Coder
+workspace assignments from DRA ResourceClaims. It is deliberately independent
+of `/proc`: an idle claim remains assigned, and an observed GPU process is not
+claimed to use a particular GPU, GI, CI, or workspace. See
+[Kubernetes attribution](kubernetes-attribution.md) for its separate RBAC and
+privacy boundary.

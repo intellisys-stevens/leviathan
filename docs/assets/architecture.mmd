@@ -1,6 +1,6 @@
 flowchart LR
   driver["NVIDIA driver / NVML"] --> nvml["NVML hierarchy, profiles, memory"]
-  driver --> gpm["NVML GPM per-GI counters"]
+  driver --> gpm["NVML GPM activity and PCIe counters"]
   hostengine["Local DCGM hostengine (optional)"] --> dcgm["DCGM per-GI fallback"]
   nvml --> merge["Capability-aware metric merge"]
   gpm --> merge
@@ -10,6 +10,12 @@ flowchart LR
   uvm["/dev/nvidia-uvm device identity"] --> identity
   merge --> sampler["Single non-overlapping sampler"]
   identity --> sampler
+
+  claims["DRA ResourceClaims (optional)"] --> bridge["Kubernetes attribution bridge"]
+  slices["NVIDIA ResourceSlices (optional)"] --> bridge
+  bridge --> socket["Root-only Unix socket"]
+  socket --> attribution["Sanitized workspace assignments"]
+  attribution --> sampler
 
   sampler --> current["Immutable current snapshot"]
   sampler --> history["Bounded in-memory UUID history"]

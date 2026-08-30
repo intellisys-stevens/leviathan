@@ -15,14 +15,87 @@ import {
   formatMetric,
   memoryPercent,
   metricValue,
+  powerLevel,
   shortUUID,
+  temperatureLevel,
 } from '../lib';
-import type { GPU, GpuInstance, Selection } from '../types';
+import { gpuAttributionTargets } from '../attribution';
+import type { Attribution, GPU, GpuInstance, Selection } from '../types';
+import { WorkspaceBadges } from './workspace-attribution';
 
 type Props = {
   gpu: GPU;
+  attribution?: Attribution;
   onSelect: (selection: Selection) => void;
 };
+
+const temperatureTone = {
+  unavailable: 'border-border bg-muted/40 text-muted-foreground',
+  cool: 'border-sky-500/25 bg-sky-500/[0.08] text-sky-600 dark:text-sky-300',
+  normal: 'border-primary/25 bg-primary/[0.08] text-primary',
+  warm: 'border-amber-500/30 bg-amber-500/[0.09] text-amber-600 dark:text-amber-300',
+  hot: 'border-destructive/35 bg-destructive/[0.09] text-destructive',
+} as const;
+
+const powerTone = {
+  unavailable: 'border-border bg-muted/40 text-muted-foreground',
+  unknown: 'border-border bg-muted/40 text-muted-foreground',
+  low: 'border-sky-500/25 bg-sky-500/[0.08] text-sky-600 dark:text-sky-300',
+  normal: 'border-primary/25 bg-primary/[0.08] text-primary',
+  high: 'border-amber-500/25 bg-amber-500/[0.07] text-amber-600 dark:text-amber-300',
+  near_limit:
+    'border-orange-500/40 bg-orange-500/[0.12] text-orange-700 dark:text-orange-200',
+} as const;
+
+const powerLevelLabel = {
+  unavailable: 'unavailable',
+  unknown: 'limit unavailable',
+  low: 'low',
+  normal: 'normal',
+  high: 'high',
+  near_limit: 'near limit',
+} as const;
+
+function TemperatureChip({ gpu }: { gpu: GPU }) {
+  const metric = gpu.metrics.temperature;
+  const level = temperatureLevel(metric);
+  const formatted = formatMetric(metric);
+  return (
+    <span
+      className={`flex min-w-[4.7rem] items-center justify-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[11px] tabular-nums transition-colors duration-300 ${temperatureTone[level]}`}
+      title={`Physical GPU temperature · ${level}`}
+      aria-label={`Physical GPU temperature ${formatted}, ${level}`}
+    >
+      <Thermometer className="size-3.5" aria-hidden="true" /> {formatted}
+    </span>
+  );
+}
+
+function PowerChip({ gpu }: { gpu: GPU }) {
+  const metric = gpu.metrics.power;
+  const limit = gpu.metrics.power_limit;
+  const level = powerLevel(metric, limit);
+  const formatted = formatMetric(metric);
+  const value = metricValue(metric);
+  const limitValue = metricValue(limit);
+  const ratio =
+    value != null && limitValue != null && limitValue > 0
+      ? Math.round((value / limitValue) * 100)
+      : null;
+  const context =
+    ratio == null
+      ? powerLevelLabel[level]
+      : `${ratio}% of power limit, ${powerLevelLabel[level]}`;
+  return (
+    <span
+      className={`flex min-w-[4.7rem] items-center justify-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[11px] tabular-nums transition-colors duration-300 ${powerTone[level]}`}
+      title={`Physical GPU power · ${context}`}
+      aria-label={`Physical GPU power ${formatted}, ${context}`}
+    >
+      <Zap className="size-3.5" aria-hidden="true" /> {formatted}
+    </span>
+  );
+}
 
 function instanceStatus(gi: GpuInstance): 'normal' | 'warning' | 'error' {
   const metrics = Object.values(gi.metrics);
@@ -42,10 +115,12 @@ function instanceStatus(gi: GpuInstance): 'normal' | 'warning' | 'error' {
 function MigBlock({
   gpu,
   gi,
+  attribution,
   onSelect,
 }: {
   gpu: GPU;
   gi: GpuInstance;
+  attribution?: Attribution;
   onSelect: Props['onSelect'];
 }) {
   const memory = memoryPercent(gi.memory);
@@ -106,6 +181,18 @@ function MigBlock({
         </div>
       </div>
 
+      <div className="mt-3">
+        <WorkspaceBadges
+          attribution={attribution}
+          targets={gi.computeInstances.map((ci) => ({
+            entityType: 'compute_instance',
+            entityUuid: ci.uuid,
+          }))}
+          limit={3}
+          showUnassigned
+        />
+      </div>
+
       {single ? (
         <div className="mt-4 border-t border-border/70 pt-3">
           <p className="font-mono text-[10px] text-muted-foreground">
@@ -129,8 +216,21 @@ function MigBlock({
               <span className="font-mono text-[10px] text-primary">
                 CI {ci.id}
               </span>
-              <span className="truncate font-mono text-[10px] text-muted-foreground">
-                {ci.profile}
+              <span className="flex min-w-0 flex-1 items-center justify-end gap-2">
+                <span className="truncate font-mono text-[10px] text-muted-foreground">
+                  {ci.profile}
+                </span>
+                <WorkspaceBadges
+                  attribution={attribution}
+                  targets={[
+                    {
+                      entityType: 'compute_instance',
+                      entityUuid: ci.uuid,
+                    },
+                  ]}
+                  limit={1}
+                  showUnassigned
+                />
               </span>
             </button>
           ))}
@@ -164,7 +264,7 @@ function MigBlock({
   );
 }
 
-function GPUCardComponent({ gpu, onSelect }: Props) {
+function GPUCardComponent({ gpu, attribution, onSelect }: Props) {
   return (
     <Card className="gpu-card border-border/75 bg-card/90 py-0 shadow-[0_14px_35px_rgb(0_0_0/13%)] ring-0">
       <CardHeader className="border-b border-border/70 py-4">
@@ -184,21 +284,17 @@ function GPUCardComponent({ gpu, onSelect }: Props) {
             </CardDescription>
           </div>
         </div>
-        <CardAction className="flex gap-4 text-xs text-muted-foreground">
-          <span
-            className="flex items-center gap-1.5"
-            title="Physical GPU temperature"
-          >
-            <Thermometer className="size-3.5" />{' '}
-            {formatMetric(gpu.metrics.temperature)}
-          </span>
-          <span
-            className="flex items-center gap-1.5"
-            title="Physical GPU power"
-          >
-            <Zap className="size-3.5" /> {formatMetric(gpu.metrics.power)}
-          </span>
+        <CardAction className="col-span-full col-start-1 row-span-1 row-start-2 mt-2 flex flex-wrap justify-end gap-2 text-xs text-muted-foreground sm:col-span-1 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:mt-0 sm:flex-nowrap">
+          <TemperatureChip gpu={gpu} />
+          <PowerChip gpu={gpu} />
         </CardAction>
+        <div className="col-span-full mt-1 min-w-0">
+          <WorkspaceBadges
+            attribution={attribution}
+            targets={gpuAttributionTargets(gpu)}
+            limit={3}
+          />
+        </div>
       </CardHeader>
       <CardContent className="py-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -238,7 +334,13 @@ function GPUCardComponent({ gpu, onSelect }: Props) {
         ) : (
           <div className="flex flex-wrap gap-2">
             {gpu.gpuInstances.map((gi) => (
-              <MigBlock key={gi.uuid} gpu={gpu} gi={gi} onSelect={onSelect} />
+              <MigBlock
+                key={gi.uuid}
+                gpu={gpu}
+                gi={gi}
+                attribution={attribution}
+                onSelect={onSelect}
+              />
             ))}
           </div>
         )}

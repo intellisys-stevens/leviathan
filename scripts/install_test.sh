@@ -45,7 +45,7 @@ mkdir -p "${release_directory}" "${fixture_root}" "${fake_bin}"
 create_archive() {
   local architecture=$1
   local marker=$2
-  local version=${3:-0.1.0}
+  local version=${3:-0.2.0}
   local root="${fixture_root}/miglens_${version}_linux_${architecture}"
   rm -rf -- "${root}"
   mkdir -p "${root}"
@@ -139,10 +139,10 @@ env PATH="${fake_bin}:/usr/bin:/bin" HOME="${case_directory}/home" SHELL=/bin/zs
   FAKE_CURL_LOG="${case_directory}/curl.log" FAKE_RELEASE_DIR="${release_directory}" \
   FAKE_UNAME_S=Linux FAKE_UNAME_M=aarch64 FAKE_GLIBC_INFO='glibc 2.39' \
   MIGLENS_VERSION=9.9.9 MIGLENS_INSTALL_DIR="${case_directory}/wrong" \
-  /bin/sh "${installer}" --version 0.1.0 --install-dir "${case_directory}/install path" \
+  /bin/sh "${installer}" --version 0.2.0 --install-dir "${case_directory}/install path" \
   >"${case_directory}/output" 2>&1
 assert_contains "${case_directory}/install path/miglens" fixture-arm64
-assert_contains "${case_directory}/curl.log" '/releases/download/v0.1.0/miglens_linux_arm64.tar.gz'
+assert_contains "${case_directory}/curl.log" '/releases/download/v0.2.0/miglens_linux_arm64.tar.gz'
 assert_contains "${case_directory}/output" '.zshrc'
 assert_contains "${case_directory}/output" "printf '%s\\n' 'export PATH=\""
 [[ ! -e "${case_directory}/home/.zshrc" ]] || fail "installer edited .zshrc"
@@ -154,10 +154,10 @@ mkdir -p "${case_directory}/home"
 env PATH="${fake_bin}:/usr/bin:/bin" HOME="${case_directory}/home" SHELL=/bin/sh \
   FAKE_CURL_LOG="${case_directory}/curl.log" FAKE_RELEASE_DIR="${release_directory}" \
   FAKE_UNAME_S=Linux FAKE_UNAME_M=x86_64 FAKE_GLIBC_INFO='glibc 2.34' \
-  MIGLENS_VERSION=v0.1.0 MIGLENS_INSTALL_DIR="${case_directory}/install" \
+  MIGLENS_VERSION=v0.2.0 MIGLENS_INSTALL_DIR="${case_directory}/install" \
   /bin/sh "${installer}" >"${case_directory}/output" 2>&1
 assert_contains "${case_directory}/install/miglens" fixture-amd64
-assert_contains "${case_directory}/curl.log" '/releases/download/v0.1.0/miglens_linux_amd64.tar.gz'
+assert_contains "${case_directory}/curl.log" '/releases/download/v0.2.0/miglens_linux_amd64.tar.gz'
 
 # No PATH warning when the effective install directory is already present.
 case_directory="${test_root}/on-path"

@@ -1,0 +1,102 @@
+{{- if not .Values.workspaceNamespaces }}
+{{- fail "at least one workspaceNamespaces entry is required" }}
+{{- end }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "miglens-attribution.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "miglens-attribution.labels" . | nindent 4 }}
+spec:
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      {{- include "miglens-attribution.selectorLabels" . | nindent 6 }}
+  updateStrategy:
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
+  template:
+    metadata:
+      labels:
+        {{- include "miglens-attribution.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      hostIPC: false
+      hostNetwork: false
+      hostPID: false
+      enableServiceLinks: false
+      serviceAccountName: {{ include "miglens-attribution.serviceAccountName" . }}
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: bridge
+          image: "{{ .Values.image.repository }}:{{ default .Chart.AppVersion .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --socket={{ .Values.socketPath }}
+            - --node-name=$(NODE_NAME)
+            - --namespaces={{ join "," .Values.workspaceNamespaces }}
+            - --driver={{ .Values.driver }}
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          livenessProbe:
+            exec:
+              command:
+                - /miglens-kubernetes-bridge
+                - probe
+                - --socket={{ .Values.socketPath }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+          readinessProbe:
+            exec:
+              command:
+                - /miglens-kubernetes-bridge
+                - probe
+                - --ready
+                - --socket={{ .Values.socketPath }}
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 2
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: handoff
+              mountPath: {{ dir .Values.socketPath }}
+      volumes:
+        - name: handoff
+          hostPath:
+            path: {{ dir .Values.socketPath }}
+            type: DirectoryOrCreate
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}

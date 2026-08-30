@@ -1,6 +1,8 @@
-# MIGLens v0.1 configuration. CLI flags override MIGLENS_* environment
+# MIGLens configuration. CLI flags override MIGLENS_* environment
 # variables, which override this file.
 interval = "1s"                 # 250ms through 60s
+profile_interval = "2s"         # expensive per-entity telemetry
+process_interval = "2s"         # /proc GPU-client inventory
 history_window = "1h"           # bounded; not persisted
 topology_interval = "10s"
 provider = "auto"               # auto, nvml, dcgm, or fake
@@ -10,6 +12,10 @@ no_profile = false
 listen = "127.0.0.1:1397"       # non-loopback values are refused
 no_color = false
 ascii = false
+
+# Optional scheduler attribution from the Kubernetes bridge. Empty disables
+# attribution and makes no Kubernetes or local socket requests.
+# attribution_socket = "/run/miglens/attribution.sock"
 
 # Development only. Any non-empty fixture selects the fake provider.
 # fixture = "multi-ci"

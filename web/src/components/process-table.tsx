@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState } from 'react';
+import { memo, useDeferredValue, useMemo, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
 import {
   createColumnHelper,
@@ -78,17 +78,24 @@ const columns = [
   }),
 ];
 
-export function ProcessTable({ snapshot }: { snapshot: Snapshot }) {
+function ProcessTableComponent({
+  processes,
+  procCapability,
+}: {
+  processes: Snapshot['processes'];
+  procCapability: Snapshot['capabilities']['proc'];
+}) {
   const [query, setQuery] = useState('');
+  const scrollViewportRef = useRef<HTMLDivElement>(null);
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
   const rows = useMemo(
     () =>
       deferredQuery
-        ? snapshot.processes.filter((process) =>
+        ? processes.filter((process) =>
             processSearchText(process).includes(deferredQuery),
           )
-        : snapshot.processes,
-    [snapshot.processes, deferredQuery],
+        : processes,
+    [deferredQuery, processes],
   );
   const table = useReactTable({
     data: rows,
@@ -96,19 +103,29 @@ export function ProcessTable({ snapshot }: { snapshot: Snapshot }) {
     getCoreRowModel: getCoreRowModel(),
     getRowId: (process) => `${process.pid}:${process.startTime || ''}`,
   });
+  const countLabel = deferredQuery
+    ? `${rows.length} of ${processes.length}`
+    : `${processes.length} CUDA ${processes.length === 1 ? 'client' : 'clients'}`;
 
   return (
     <section
       className="min-w-0 border border-border/75 bg-card/90"
       aria-labelledby="process-heading"
+      data-testid="process-section"
     >
       <div className="flex flex-col gap-3 border-b border-border/70 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 id="process-heading" className="text-sm font-semibold">
-            GPU processes
+            Host-wide GPU processes
           </h2>
-          <p className="text-xs text-muted-foreground">
-            CUDA clients · current PID namespace
+          <p
+            id="process-table-description"
+            className="text-xs text-muted-foreground"
+          >
+            <span data-testid="process-count" aria-live="polite">
+              {countLabel}
+            </span>{' '}
+            · current PID namespace · not workspace-attributed
           </p>
         </div>
         <label
@@ -119,7 +136,12 @@ export function ProcessTable({ snapshot }: { snapshot: Snapshot }) {
           <Input
             id="process-filter"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              if (scrollViewportRef.current) {
+                scrollViewportRef.current.scrollTop = 0;
+              }
+            }}
             className="pl-8 font-mono text-xs"
             placeholder="PID, user, executable"
             aria-label="Filter GPU processes"
@@ -130,20 +152,31 @@ export function ProcessTable({ snapshot }: { snapshot: Snapshot }) {
         <div className="p-6 text-sm text-muted-foreground">
           {deferredQuery
             ? 'No GPU processes match this filter.'
-            : snapshot.capabilities.proc.available
+            : procCapability.available
               ? 'No GPU-connected processes.'
-              : snapshot.capabilities.proc.message ||
+              : procCapability.message ||
                 'GPU-connected process detection is unavailable.'}
         </div>
       ) : (
-        <Table>
+        <Table
+          className="min-w-[58rem]"
+          containerClassName="max-h-[22rem] overflow-auto [scrollbar-gutter:stable] md:max-h-[24rem]"
+          containerProps={{
+            ref: scrollViewportRef,
+            role: 'region',
+            tabIndex: 0,
+            'aria-label': 'Host-wide GPU processes table',
+            'aria-describedby': 'process-table-description',
+            'data-testid': 'process-scroll-viewport',
+          }}
+        >
           <TableHeader>
             {table.getHeaderGroups().map((group) => (
               <TableRow key={group.id}>
                 {group.headers.map((header) => (
                   <TableHead
                     key={header.id}
-                    className="text-[10px] uppercase tracking-[0.11em] text-muted-foreground"
+                    className="sticky top-0 z-10 border-b border-border bg-card text-[10px] uppercase tracking-[0.11em] text-muted-foreground"
                   >
                     {flexRender(
                       header.column.columnDef.header,
@@ -170,3 +203,5 @@ export function ProcessTable({ snapshot }: { snapshot: Snapshot }) {
     </section>
   );
 }
+
+export const ProcessTable = memo(ProcessTableComponent);

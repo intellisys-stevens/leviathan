@@ -2,11 +2,13 @@ package api
 
 import (
 	"bufio"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +24,13 @@ type stubSource struct {
 	snapshot model.Snapshot
 	events   chan model.Snapshot
 	settings model.RuntimeSettings
+	series   history.Series
+	aligned  history.AlignedSeries
+
+	alignedCalls     int
+	alignedRequest   []history.SeriesDescriptor
+	alignedWindow    time.Duration
+	alignedMaxPoints int
 }
 
 func newStubSource() *stubSource {
@@ -29,7 +38,7 @@ func newStubSource() *stubSource {
 	return &stubSource{
 		snapshot: model.Snapshot{SchemaVersion: "v1", Sequence: 9, SampledAt: at, GPUs: []model.GPU{}, Processes: []model.Process{}, Diagnostics: []model.Diagnostic{}},
 		events:   make(chan model.Snapshot, 1),
-		settings: model.RuntimeSettings{SamplingIntervalMs: 1000, HistoryWindowMs: 3600000, AllowedSamplingIntervalsMs: []int64{500, 1000, 2000}},
+		settings: model.RuntimeSettings{SamplingIntervalMs: 1000, ProfileIntervalMs: 2000, ProcessIntervalMs: 2000, HistoryWindowMs: 3600000, AllowedSamplingIntervalsMs: []int64{500, 1000, 2000}},
 	}
 }
 
@@ -43,7 +52,27 @@ func newTestServer(source DataSource, assets fs.FS) *Server {
 
 func (s *stubSource) Current() (model.Snapshot, bool) { return s.snapshot, true }
 func (s *stubSource) History(entity string, metrics []string, window time.Duration, now time.Time) history.Series {
-	return history.Series{Entity: entity, Metrics: metrics, Window: window.String(), Points: []history.Point{}}
+	series := s.series
+	series.Entity, series.Metrics, series.Window = entity, metrics, window.String()
+	if series.Points == nil {
+		series.Points = []history.Point{}
+	}
+	return series
+}
+func (s *stubSource) AlignedHistory(series []history.SeriesDescriptor, window time.Duration, maxPoints int, now time.Time) history.AlignedSeries {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.alignedCalls++
+	s.alignedRequest = append([]history.SeriesDescriptor(nil), series...)
+	s.alignedWindow = window
+	s.alignedMaxPoints = maxPoints
+	result := s.aligned
+	result.Window = window.String()
+	result.Series = append([]history.SeriesDescriptor(nil), series...)
+	if result.Points == nil {
+		result.Points = []history.AlignedPoint{}
+	}
+	return history.LimitAligned(result, maxPoints)
 }
 func (s *stubSource) Subscribe() (<-chan model.Snapshot, func()) {
 	s.mu.Lock()
@@ -85,12 +114,221 @@ func TestSnapshotAndSecurityHeaders(t *testing.T) {
 
 func TestHistoryValidation(t *testing.T) {
 	server := newTestServer(newStubSource(), nil)
-	for _, target := range []string{"/api/v1/history", "/api/v1/history?entity=MIG-a&window=forever"} {
+	for _, target := range []string{
+		"/api/v1/history",
+		"/api/v1/history?entity=MIG-a&window=forever",
+		"/api/v1/history?entity=MIG-a&maxPoints=49",
+		"/api/v1/history?entity=MIG-a&maxPoints=5001",
+		"/api/v1/history?entity=MIG-a&maxPoints=many",
+	} {
 		response := httptest.NewRecorder()
 		server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, target, nil))
 		if response.Code != http.StatusBadRequest {
 			t.Errorf("%s status = %d", target, response.Code)
 		}
+	}
+}
+
+func TestHistoryMaxPointsIsStrict(t *testing.T) {
+	source := newStubSource()
+	for index := 0; index < 200; index++ {
+		source.series.Points = append(source.series.Points, history.Point{
+			SampledAt: time.Unix(int64(index), 0),
+			Values:    map[string]float64{"sm_activity": float64(index % 17)},
+		})
+	}
+	server := newTestServer(source, nil)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/history?entity=MIG-a&metrics=sm_activity&maxPoints=50", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	var series history.Series
+	if err := json.NewDecoder(response.Body).Decode(&series); err != nil {
+		t.Fatal(err)
+	}
+	if len(series.Points) > 50 {
+		t.Fatalf("history points = %d, want <= 50", len(series.Points))
+	}
+}
+
+func TestAlignedHistoryContractAndStrictCap(t *testing.T) {
+	source := newStubSource()
+	for index := 0; index < 200; index++ {
+		source.aligned.Points = append(source.aligned.Points, history.AlignedPoint{
+			SampledAt: time.Unix(int64(index), 0).UTC(),
+			Values: map[string]map[string]float64{
+				"gpu": {"sm_activity": float64(index % 19)},
+				"gi":  {"sm_activity": float64(index % 23)},
+			},
+		})
+	}
+	server := newTestServer(source, nil)
+	body := `{"window":"30m","maxPoints":50,"series":[{"key":"gpu","entity":"GPU-a","metrics":["sm_activity"]},{"key":"gi","entity":"GI-a","metrics":["sm_activity"]}]}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/history/aligned", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json; charset=utf-8")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	var got history.AlignedSeries
+	if err := json.NewDecoder(response.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Points) != 50 {
+		t.Fatalf("aligned points = %d, want strict cap of 50", len(got.Points))
+	}
+	if len(got.Series) != 2 || got.Series[0].Key != "gpu" || got.Series[1].Key != "gi" {
+		t.Fatalf("response descriptors = %+v", got.Series)
+	}
+	if source.alignedCalls != 1 || source.alignedWindow != 30*time.Minute || source.alignedMaxPoints != 50 {
+		t.Fatalf("aligned source call = calls:%d window:%s cap:%d", source.alignedCalls, source.alignedWindow, source.alignedMaxPoints)
+	}
+}
+
+func TestAlignedHistoryValidation(t *testing.T) {
+	valid := `{"window":"30m","maxPoints":720,"series":[{"key":"gpu","entity":"GPU-a","metrics":["sm_activity"]}]}`
+	tests := []struct {
+		name        string
+		contentType string
+		body        string
+		status      int
+	}{
+		{name: "requires json", body: valid, status: http.StatusUnsupportedMediaType},
+		{name: "malformed", contentType: "application/json", body: `{`, status: http.StatusBadRequest},
+		{name: "unknown field", contentType: "application/json", body: `{"window":"30m","maxPoints":720,"series":[],"extra":true}`, status: http.StatusBadRequest},
+		{name: "trailing object", contentType: "application/json", body: valid + `{}`, status: http.StatusBadRequest},
+		{name: "missing window", contentType: "application/json", body: `{"maxPoints":720,"series":[{"key":"a","entity":"GPU-a","metrics":["sm_activity"]}]}`, status: http.StatusBadRequest},
+		{name: "invalid window", contentType: "application/json", body: `{"window":"forever","maxPoints":720,"series":[{"key":"a","entity":"GPU-a","metrics":["sm_activity"]}]}`, status: http.StatusBadRequest},
+		{name: "nonpositive window", contentType: "application/json", body: `{"window":"0s","maxPoints":720,"series":[{"key":"a","entity":"GPU-a","metrics":["sm_activity"]}]}`, status: http.StatusBadRequest},
+		{name: "window exceeds retention", contentType: "application/json", body: `{"window":"2h","maxPoints":720,"series":[{"key":"a","entity":"GPU-a","metrics":["sm_activity"]}]}`, status: http.StatusBadRequest},
+		{name: "cap too small", contentType: "application/json", body: `{"window":"30m","maxPoints":49,"series":[{"key":"a","entity":"GPU-a","metrics":["sm_activity"]}]}`, status: http.StatusBadRequest},
+		{name: "cap too large", contentType: "application/json", body: `{"window":"30m","maxPoints":5001,"series":[{"key":"a","entity":"GPU-a","metrics":["sm_activity"]}]}`, status: http.StatusBadRequest},
+		{name: "series required", contentType: "application/json", body: `{"window":"30m","maxPoints":720,"series":[]}`, status: http.StatusBadRequest},
+		{name: "duplicate keys", contentType: "application/json", body: `{"window":"30m","maxPoints":720,"series":[{"key":"a","entity":"GPU-a","metrics":["sm_activity"]},{"key":"a","entity":"GPU-b","metrics":["sm_activity"]}]}`, status: http.StatusBadRequest},
+		{name: "blank key", contentType: "application/json", body: `{"window":"30m","maxPoints":720,"series":[{"key":" ","entity":"GPU-a","metrics":["sm_activity"]}]}`, status: http.StatusBadRequest},
+		{name: "blank entity", contentType: "application/json", body: `{"window":"30m","maxPoints":720,"series":[{"key":"a","entity":"","metrics":["sm_activity"]}]}`, status: http.StatusBadRequest},
+		{name: "metrics required", contentType: "application/json", body: `{"window":"30m","maxPoints":720,"series":[{"key":"a","entity":"GPU-a","metrics":[]}]}`, status: http.StatusBadRequest},
+		{name: "duplicate metrics", contentType: "application/json", body: `{"window":"30m","maxPoints":720,"series":[{"key":"a","entity":"GPU-a","metrics":["sm_activity","sm_activity"]}]}`, status: http.StatusBadRequest},
+		{name: "descriptor unknown field", contentType: "application/json", body: `{"window":"30m","maxPoints":720,"series":[{"key":"a","entity":"GPU-a","metrics":["sm_activity"],"label":"GPU 0"}]}`, status: http.StatusBadRequest},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			source := newStubSource()
+			server := newTestServer(source, nil)
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/history/aligned", strings.NewReader(test.body))
+			if test.contentType != "" {
+				request.Header.Set("Content-Type", test.contentType)
+			}
+			response := httptest.NewRecorder()
+			server.ServeHTTP(response, request)
+			if response.Code != test.status {
+				t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+			}
+			if source.alignedCalls != 0 {
+				t.Fatalf("invalid request reached data source %d times", source.alignedCalls)
+			}
+		})
+	}
+}
+
+func TestAlignedHistoryBoundsDescriptorCount(t *testing.T) {
+	descriptors := make([]history.SeriesDescriptor, maxAlignedHistorySeries+1)
+	for index := range descriptors {
+		descriptors[index] = history.SeriesDescriptor{Key: strconv.Itoa(index), Entity: "GPU-a", Metrics: []string{"sm_activity"}}
+	}
+	body, err := json.Marshal(history.AlignedRequest{Window: "30m", MaxPoints: 720, Series: descriptors})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := newTestServer(newStubSource(), nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/history/aligned", strings.NewReader(string(body)))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestAlignedHistoryBoundsRequestBody(t *testing.T) {
+	source := newStubSource()
+	server := newTestServer(source, nil)
+	body := `{"window":"` + strings.Repeat("x", maxAlignedHistoryBodyBytes) + `","maxPoints":720,"series":[{"key":"a","entity":"GPU-a","metrics":["sm_activity"]}]}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/history/aligned", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	if source.alignedCalls != 0 {
+		t.Fatalf("oversized request reached data source %d times", source.alignedCalls)
+	}
+}
+
+func TestGzipJSONAndSSEFlush(t *testing.T) {
+	t.Run("json", func(t *testing.T) {
+		server := newTestServer(newStubSource(), nil)
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/snapshot", nil)
+		request.Header.Set("Accept-Encoding", "gzip")
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, request)
+		if response.Header().Get("Content-Encoding") != "gzip" || !strings.Contains(response.Header().Get("Vary"), "Accept-Encoding") {
+			t.Fatalf("compression headers = %#v", response.Header())
+		}
+		reader, err := gzip.NewReader(response.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer reader.Close()
+		var snapshot model.Snapshot
+		if err := json.NewDecoder(reader).Decode(&snapshot); err != nil || snapshot.Sequence != 9 {
+			t.Fatalf("compressed snapshot = %+v, %v", snapshot, err)
+		}
+	})
+
+	t.Run("sse", func(t *testing.T) {
+		server := httptest.NewServer(newTestServer(newStubSource(), nil))
+		defer server.Close()
+		request, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/events", nil)
+		request.Header.Set("Accept-Encoding", "gzip")
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		if response.Header.Get("Content-Encoding") != "gzip" {
+			t.Fatalf("SSE content encoding = %q", response.Header.Get("Content-Encoding"))
+		}
+		reader, err := gzip.NewReader(response.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer reader.Close()
+		scanner := bufio.NewScanner(reader)
+		found := false
+		for scanner.Scan() {
+			if scanner.Text() == "event: snapshot" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("compressed SSE did not flush a snapshot: %v", scanner.Err())
+		}
+	})
+}
+
+func TestGzipRespectsZeroQuality(t *testing.T) {
+	server := newTestServer(newStubSource(), nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/snapshot", nil)
+	request.Header.Set("Accept-Encoding", "br, gzip;q=0")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if got := response.Header().Get("Content-Encoding"); got != "" {
+		t.Fatalf("content encoding = %q, want identity", got)
 	}
 }
 

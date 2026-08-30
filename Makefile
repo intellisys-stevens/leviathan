@@ -1,12 +1,17 @@
 GO ?= go
 NPM ?= npm
+DOCKER ?= docker
+HELM ?= helm
 VERSION ?= dev
 COMMIT ?= unknown
 BUILD_DATE ?= unknown
 CGO_CFLAGS ?= -Wno-deprecated-declarations
+BRIDGE_IMAGE ?= miglens-kubernetes-bridge:$(VERSION)
+DIST_DIR ?= dist
 LDFLAGS := -s -w -X github.com/intellisys-stevens/miglens/internal/cli.Version=$(VERSION) -X github.com/intellisys-stevens/miglens/internal/cli.Commit=$(COMMIT) -X github.com/intellisys-stevens/miglens/internal/cli.BuildDate=$(BUILD_DATE)
+BRIDGE_LDFLAGS := -s -w -X main.BridgeVersion=$(VERSION)
 
-.PHONY: bootstrap generate fmt frontend build test test-go test-race test-install license-check vulncheck soak soak-one-hour clean
+.PHONY: bootstrap generate fmt frontend build build-miglens build-bridge bridge-image helm-check helm-package test test-go test-race test-install license-check vulncheck soak soak-one-hour clean
 
 bootstrap:
 	cd web && $(NPM) ci
@@ -27,9 +32,25 @@ frontend:
 	cd web && $(NPM) test
 	cd web && $(NPM) run build
 
-build: frontend
+build: frontend build-miglens build-bridge
+
+build-miglens:
 	mkdir -p bin
 	CGO_CFLAGS='$(CGO_CFLAGS)' $(GO) build -trimpath -buildvcs=false -ldflags '$(LDFLAGS)' -o bin/miglens ./cmd/miglens
+
+build-bridge:
+	mkdir -p bin
+	CGO_ENABLED=0 $(GO) build -trimpath -buildvcs=false -ldflags '$(BRIDGE_LDFLAGS)' -o bin/miglens-kubernetes-bridge ./cmd/miglens-kubernetes-bridge
+
+bridge-image:
+	$(DOCKER) build --file contrib/container/miglens-kubernetes-bridge.Dockerfile --build-arg VERSION='$(VERSION)' --build-arg COMMIT='$(COMMIT)' --build-arg BUILD_DATE='$(BUILD_DATE)' --tag '$(BRIDGE_IMAGE)' .
+
+helm-check:
+	HELM='$(HELM)' scripts/verify-helm-chart.sh
+
+helm-package: helm-check
+	mkdir -p '$(DIST_DIR)'
+	$(HELM) package charts/miglens-attribution --destination '$(DIST_DIR)'
 
 test-go:
 	CGO_CFLAGS='$(CGO_CFLAGS)' $(GO) test ./...
@@ -43,9 +64,10 @@ test-install:
 
 license-check:
 	CGO_CFLAGS='$(CGO_CFLAGS)' $(GO) run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/miglens --disallowed_types=forbidden,restricted,unknown
+	$(GO) run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/miglens-kubernetes-bridge --disallowed_types=forbidden,restricted,unknown
 	cd web && $(NPM) run license:check
 
-test: test-go test-race test-install frontend license-check
+test: test-go test-race test-install frontend helm-check license-check
 
 vulncheck:
 	CGO_CFLAGS='$(CGO_CFLAGS)' $(GO) run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
@@ -59,4 +81,4 @@ soak-one-hour:
 
 clean:
 	$(GO) clean
-	-rm -f bin/miglens
+	-rm -f bin/miglens bin/miglens-kubernetes-bridge

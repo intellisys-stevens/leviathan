@@ -1,6 +1,7 @@
 # Contributing
 
-MIGLens is intentionally narrow in v0.1: Linux, NVIDIA, one host, read-only.
+MIGLens is intentionally narrow and pre-1.0: Linux, NVIDIA, one host,
+read-only.
 Changes should preserve the MIG hierarchy and metric provenance rather than
 papering over provider differences.
 

@@ -36,9 +36,31 @@ for required_path in \
   "${archive_root}/LICENSE" \
   "${archive_root}/NOTICE" \
   "${archive_root}/README.md" \
+  "${archive_root}/CONTRIBUTING.md" \
+  "${archive_root}/SECURITY.md" \
   "${archive_root}/miglens@.service" \
+  "${archive_root}/miglens.env.example" \
+  "${archive_root}/miglens-attribution.env" \
   "${archive_root}/miglens@root.service.d/10-hardening.conf" \
+  "${archive_root}/contrib/systemd/miglens@.service" \
+  "${archive_root}/contrib/systemd/miglens.env.example" \
+  "${archive_root}/contrib/systemd/miglens-attribution.env" \
+  "${archive_root}/contrib/systemd/miglens@root.service.d/10-hardening.conf" \
+  "${archive_root}/charts/miglens-attribution/Chart.yaml" \
+  "${archive_root}/charts/miglens-attribution/values.yaml" \
+  "${archive_root}/charts/miglens-attribution/values.schema.json" \
+  "${archive_root}/charts/miglens-attribution/templates/daemonset.yaml" \
+  "${archive_root}/charts/miglens-attribution/templates/rbac.yaml" \
+  "${archive_root}/docs/architecture.md" \
+  "${archive_root}/docs/assets/architecture.svg" \
+  "${archive_root}/docs/config.example.toml" \
+  "${archive_root}/docs/kubernetes-attribution.md" \
+  "${archive_root}/docs/permissions.md" \
+  "${archive_root}/api/openapi.yaml" \
+  "${archive_root}/web/public/miglens-mark.png" \
   "${archive_root}/openapi.yaml" \
+  "${archive_root}/licenses/OFL-1.1.txt" \
+  "${archive_root}/licenses/SHADCN-MIT.txt" \
   "${archive_root}/THIRD_PARTY_LICENSES/assets/OFL-1.1.txt" \
   "${archive_root}/THIRD_PARTY_LICENSES/assets/SHADCN-MIT.txt" \
   "${archive_root}/THIRD_PARTY_LICENSES/web/THIRD_PARTY_NOTICES.txt"; do
@@ -53,6 +75,9 @@ root="${temporary_directory}/${archive_root}"
 [[ -x "${root}/miglens" ]] || { echo "miglens is not executable" >&2; exit 1; }
 grep -Fx 'User=%i' "${root}/miglens@.service" >/dev/null
 grep -Fx 'ExecStart=/usr/local/bin/miglens --listen 127.0.0.1:1397 serve' "${root}/miglens@.service" >/dev/null
+grep -Fx 'EnvironmentFile=-/etc/miglens/miglens.env' "${root}/miglens@.service" >/dev/null
+grep -Fx '# MIGLENS_ATTRIBUTION_SOCKET=/run/miglens/attribution.sock' "${root}/miglens.env.example" >/dev/null
+grep -Fx 'MIGLENS_ATTRIBUTION_SOCKET=/run/miglens/attribution.sock' "${root}/miglens-attribution.env" >/dev/null
 root_hardening="${root}/miglens@root.service.d/10-hardening.conf"
 for directive in \
   'CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_SYS_PTRACE' \
@@ -70,9 +95,26 @@ if grep -F -- '--show-command-line' "${root_hardening}" >/dev/null; then
 fi
 grep -Fx 'MIT License' "${root}/LICENSE" >/dev/null
 grep -F 'Copyright 2026 MIGLens contributors' "${root}/NOTICE" >/dev/null
+cmp "${root}/openapi.yaml" "${root}/api/openapi.yaml" >/dev/null
 
 version_output="$("${root}/miglens" version --format json)"
 grep -F "\"version\":\"${version}\"" <<<"${version_output}" >/dev/null
+grep -Fx "  version: ${version}" "${root}/openapi.yaml" >/dev/null
+
+chart="${root}/charts/miglens-attribution/Chart.yaml"
+grep -Fx "version: ${version}" "${chart}" >/dev/null || {
+  echo "Helm chart version does not match archive version ${version}" >&2
+  exit 1
+}
+grep -Fx "appVersion: \"${version}\"" "${chart}" >/dev/null || {
+  echo "Helm chart appVersion does not match archive version ${version}" >&2
+  exit 1
+}
+grep -Fx 'kubeVersion: ">=1.34.0-0"' "${chart}" >/dev/null
+grep -F 'workspaceNamespaces:' "${root}/charts/miglens-attribution/values.yaml" >/dev/null
+grep -F 'readOnlyRootFilesystem: true' "${root}/charts/miglens-attribution/values.yaml" >/dev/null
+grep -F 'resources: ["resourceslices"]' "${root}/charts/miglens-attribution/templates/rbac.yaml" >/dev/null
+grep -F 'resources: ["resourceclaims"]' "${root}/charts/miglens-attribution/templates/rbac.yaml" >/dev/null
 
 if strings -a "${root}/miglens" | grep -Ei '(/home/[^/[:space:]]+/|/Users/[^/[:space:]]+/|(MIG-)?GPU-[0-9a-f]{8}-[0-9a-f-]{27})' >/dev/null; then
   echo "binary contains a host path or hardware identifier" >&2

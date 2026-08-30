@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: MIGLens local API
-  version: 0.1.0
+  version: 0.2.0
   description: Single-host NVIDIA GPU and MIG telemetry with a process-local sampling control.
   license:
     name: MIT
@@ -38,6 +38,11 @@ paths:
           in: query
           required: false
           schema: { type: string, default: 30m }
+        - name: maxPoints
+          in: query
+          required: false
+          description: Maximum number of history points returned after shape-preserving downsampling.
+          schema: { type: integer, minimum: 50, maximum: 5000 }
       responses:
         "200":
           description: Bounded in-memory series.
@@ -45,6 +50,27 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/HistorySeries" }
         "400": { $ref: "#/components/responses/BadRequest" }
+  /api/v1/history/aligned:
+    post:
+      operationId: getAlignedHistory
+      summary: Return multiple retained metric series on one shared timestamp set.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AlignedHistoryRequest" }
+      responses:
+        "200":
+          description: Shape-preserving aligned in-memory history with no interpolated values.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AlignedHistory" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "415":
+          description: The request body is not JSON.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/v1/events:
     get:
       operationId: getEvents
@@ -151,7 +177,7 @@ components:
         message: { type: string }
     MetricSet:
       type: object
-      description: Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy.
+      description: Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts.
       additionalProperties: { $ref: "#/components/schemas/Metric" }
     Memory:
       type: object
@@ -177,6 +203,53 @@ components:
         startTime: { type: string, format: date-time }
         status: { $ref: "#/components/schemas/MetricStatus" }
         message: { type: string }
+    WorkloadPlatform:
+      type: string
+      enum: [coder]
+    WorkloadKind:
+      type: string
+      enum: [workspace]
+    AllocationEntityType:
+      type: string
+      enum: [physical_gpu, compute_instance]
+    AllocationState:
+      type: string
+      enum: [allocated, reserved]
+    WorkloadAttribution:
+      type: object
+      description: Sanitized workload display identity from an optional attribution source. The reference is opaque and source-scoped.
+      required: [ref, platform, kind, name, ownerName]
+      properties:
+        ref: { type: string }
+        platform: { $ref: "#/components/schemas/WorkloadPlatform" }
+        kind: { $ref: "#/components/schemas/WorkloadKind" }
+        name: { type: string }
+        ownerName: { type: string }
+    ResourceAssignment:
+      type: object
+      description: A scheduler assignment; it does not prove active device use by a process.
+      required: [workloadRef, entityType, entityUuid, state]
+      properties:
+        workloadRef: { type: string }
+        entityType: { $ref: "#/components/schemas/AllocationEntityType" }
+        entityUuid: { type: string }
+        state: { $ref: "#/components/schemas/AllocationState" }
+    AttributionStatus:
+      type: string
+      enum: [available, stale, unavailable]
+    Attribution:
+      type: object
+      required: [provider, status, workloads, assignments]
+      properties:
+        provider: { type: string }
+        status: { $ref: "#/components/schemas/AttributionStatus" }
+        observedAt: { type: string, format: date-time }
+        workloads:
+          type: array
+          items: { $ref: "#/components/schemas/WorkloadAttribution" }
+        assignments:
+          type: array
+          items: { $ref: "#/components/schemas/ResourceAssignment" }
     ComputeInstance:
       type: object
       required: [uuid, id, profile, memory, metrics, generation]
@@ -231,13 +304,23 @@ components:
         profileMetrics: { type: boolean }
     RuntimeSettings:
       type: object
-      required: [samplingIntervalMs, historyWindowMs, allowedSamplingIntervalsMs]
+      required: [samplingIntervalMs, profileIntervalMs, processIntervalMs, historyWindowMs, allowedSamplingIntervalsMs]
       properties:
         samplingIntervalMs:
           type: integer
           format: int64
           minimum: 250
           description: Effective process-local collector cadence in milliseconds.
+        profileIntervalMs:
+          type: integer
+          format: int64
+          minimum: 250
+          description: Effective profile-metric refresh cadence in milliseconds.
+        processIntervalMs:
+          type: integer
+          format: int64
+          minimum: 250
+          description: Effective GPU-process inventory refresh cadence in milliseconds.
         historyWindowMs:
           type: integer
           format: int64
@@ -299,6 +382,8 @@ components:
           type: array
           description: GPU-connected processes detected through open NVIDIA UVM device handles in the current PID namespace. MIGLens itself is excluded.
           items: { $ref: "#/components/schemas/Process" }
+        attribution:
+          $ref: "#/components/schemas/Attribution"
         capabilities: { $ref: "#/components/schemas/Capabilities" }
         diagnostics: { type: array, items: { $ref: "#/components/schemas/Diagnostic" } }
     HistoryPoint:
@@ -317,6 +402,57 @@ components:
         metrics: { type: array, items: { type: string } }
         window: { type: string }
         points: { type: array, items: { $ref: "#/components/schemas/HistoryPoint" } }
+    AlignedHistorySeriesDescriptor:
+      type: object
+      additionalProperties: false
+      required: [key, entity, metrics]
+      properties:
+        key: { type: string, minLength: 1, maxLength: 256 }
+        entity: { type: string, minLength: 1, maxLength: 512 }
+        metrics:
+          type: array
+          minItems: 1
+          maxItems: 16
+          uniqueItems: true
+          items: { type: string, minLength: 1, maxLength: 128 }
+    AlignedHistoryRequest:
+      type: object
+      additionalProperties: false
+      required: [window, maxPoints, series]
+      properties:
+        window:
+          type: string
+          minLength: 1
+          maxLength: 32
+          description: Positive Go duration no longer than the configured history retention.
+        maxPoints: { type: integer, minimum: 50, maximum: 5000 }
+        series:
+          type: array
+          minItems: 1
+          maxItems: 256
+          items: { $ref: "#/components/schemas/AlignedHistorySeriesDescriptor" }
+    AlignedHistoryPoint:
+      type: object
+      required: [sampledAt, values]
+      properties:
+        sampledAt: { type: string, format: date-time }
+        values:
+          type: object
+          description: Actual stored metric values keyed first by request series key. Missing values remain absent.
+          additionalProperties:
+            type: object
+            additionalProperties: { type: number, format: double }
+    AlignedHistory:
+      type: object
+      required: [window, series, points]
+      properties:
+        window: { type: string }
+        series:
+          type: array
+          items: { $ref: "#/components/schemas/AlignedHistorySeriesDescriptor" }
+        points:
+          type: array
+          items: { $ref: "#/components/schemas/AlignedHistoryPoint" }
     Health:
       type: object
       required: [status, sampledAt]

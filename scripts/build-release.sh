@@ -55,10 +55,18 @@ if [[ "${highest_glibc}" != "${glibc_baseline}" ]]; then
 fi
 echo "verified glibc requirement ${required_glibc} <= ${glibc_baseline}" >&2
 
-cp LICENSE NOTICE README.md "${stage}/"
+cp LICENSE NOTICE README.md CONTRIBUTING.md SECURITY.md "${stage}/"
 cp contrib/systemd/miglens@.service "${stage}/"
+cp contrib/systemd/miglens.env.example contrib/systemd/miglens-attribution.env "${stage}/"
 mkdir -p "${stage}/miglens@root.service.d"
 cp contrib/systemd/miglens@root.service.d/10-hardening.conf "${stage}/miglens@root.service.d/"
+mkdir -p "${stage}/api" "${stage}/charts" "${stage}/contrib" "${stage}/web/public"
+cp -R charts/miglens-attribution "${stage}/charts/"
+cp -R contrib/systemd "${stage}/contrib/"
+cp -R docs "${stage}/"
+cp -R licenses "${stage}/"
+cp api/openapi.yaml "${stage}/api/openapi.yaml"
+cp web/public/miglens-mark.png "${stage}/web/public/miglens-mark.png"
 cp api/openapi.yaml "${stage}/openapi.yaml"
 cp licenses/* "${stage}/THIRD_PARTY_LICENSES/assets/"
 CGO_CFLAGS="${CGO_CFLAGS:--Wno-deprecated-declarations}" "${go_command}" run github.com/google/go-licenses/v2@v2.0.1 save ./cmd/miglens --save_path "${stage}/THIRD_PARTY_LICENSES/go" >&2

@@ -7,6 +7,63 @@ import (
 	"time"
 )
 
+// Defines values for AllocationEntityType.
+const (
+	AllocationEntityTypeComputeInstance AllocationEntityType = "compute_instance"
+	AllocationEntityTypePhysicalGpu     AllocationEntityType = "physical_gpu"
+)
+
+// Valid indicates whether the value is a known member of the AllocationEntityType enum.
+func (e AllocationEntityType) Valid() bool {
+	switch e {
+	case AllocationEntityTypeComputeInstance:
+		return true
+	case AllocationEntityTypePhysicalGpu:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AllocationState.
+const (
+	Allocated AllocationState = "allocated"
+	Reserved  AllocationState = "reserved"
+)
+
+// Valid indicates whether the value is a known member of the AllocationState enum.
+func (e AllocationState) Valid() bool {
+	switch e {
+	case Allocated:
+		return true
+	case Reserved:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AttributionStatus.
+const (
+	AttributionStatusAvailable   AttributionStatus = "available"
+	AttributionStatusStale       AttributionStatus = "stale"
+	AttributionStatusUnavailable AttributionStatus = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the AttributionStatus enum.
+func (e AttributionStatus) Valid() bool {
+	switch e {
+	case AttributionStatusAvailable:
+		return true
+	case AttributionStatusStale:
+		return true
+	case AttributionStatusUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DiagnosticSeverity.
 const (
 	DiagnosticSeverityError   DiagnosticSeverity = "error"
@@ -178,6 +235,85 @@ func (e SnapshotSchemaVersion) Valid() bool {
 	}
 }
 
+// Defines values for WorkloadKind.
+const (
+	Workspace WorkloadKind = "workspace"
+)
+
+// Valid indicates whether the value is a known member of the WorkloadKind enum.
+func (e WorkloadKind) Valid() bool {
+	switch e {
+	case Workspace:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WorkloadPlatform.
+const (
+	Coder WorkloadPlatform = "coder"
+)
+
+// Valid indicates whether the value is a known member of the WorkloadPlatform enum.
+func (e WorkloadPlatform) Valid() bool {
+	switch e {
+	case Coder:
+		return true
+	default:
+		return false
+	}
+}
+
+// AlignedHistory defines model for AlignedHistory.
+type AlignedHistory struct {
+	Points []AlignedHistoryPoint            `json:"points"`
+	Series []AlignedHistorySeriesDescriptor `json:"series"`
+	Window string                           `json:"window"`
+}
+
+// AlignedHistoryPoint defines model for AlignedHistoryPoint.
+type AlignedHistoryPoint struct {
+	SampledAt time.Time `json:"sampledAt"`
+
+	// Values Actual stored metric values keyed first by request series key. Missing values remain absent.
+	Values map[string]map[string]float64 `json:"values"`
+}
+
+// AlignedHistoryRequest defines model for AlignedHistoryRequest.
+type AlignedHistoryRequest struct {
+	MaxPoints int                              `json:"maxPoints"`
+	Series    []AlignedHistorySeriesDescriptor `json:"series"`
+
+	// Window Positive Go duration no longer than the configured history retention.
+	Window string `json:"window"`
+}
+
+// AlignedHistorySeriesDescriptor defines model for AlignedHistorySeriesDescriptor.
+type AlignedHistorySeriesDescriptor struct {
+	Entity  string   `json:"entity"`
+	Key     string   `json:"key"`
+	Metrics []string `json:"metrics"`
+}
+
+// AllocationEntityType defines model for AllocationEntityType.
+type AllocationEntityType string
+
+// AllocationState defines model for AllocationState.
+type AllocationState string
+
+// Attribution defines model for Attribution.
+type Attribution struct {
+	Assignments []ResourceAssignment  `json:"assignments"`
+	ObservedAt  *time.Time            `json:"observedAt,omitempty"`
+	Provider    string                `json:"provider"`
+	Status      AttributionStatus     `json:"status"`
+	Workloads   []WorkloadAttribution `json:"workloads"`
+}
+
+// AttributionStatus defines model for AttributionStatus.
+type AttributionStatus string
+
 // BuildInfo defines model for BuildInfo.
 type BuildInfo struct {
 	// BuildDate Build timestamp supplied by the linker.
@@ -206,7 +342,7 @@ type ComputeInstance struct {
 	Id          uint32        `json:"id"`
 	Memory      Memory        `json:"memory"`
 
-	// Metrics Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy.
+	// Metrics Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts.
 	Metrics MetricSet `json:"metrics"`
 	Profile string    `json:"profile"`
 	Uuid    string    `json:"uuid"`
@@ -238,7 +374,7 @@ type GPU struct {
 	MaxMigDevices int           `json:"maxMigDevices"`
 	Memory        Memory        `json:"memory"`
 
-	// Metrics Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy.
+	// Metrics Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts.
 	Metrics    MetricSet `json:"metrics"`
 	MigEnabled bool      `json:"migEnabled"`
 	Name       string    `json:"name"`
@@ -253,7 +389,7 @@ type GpuInstance struct {
 	Id               uint32            `json:"id"`
 	Memory           Memory            `json:"memory"`
 
-	// Metrics Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy.
+	// Metrics Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts.
 	Metrics MetricSet `json:"metrics"`
 	Profile string    `json:"profile"`
 	Uuid    string    `json:"uuid"`
@@ -315,7 +451,7 @@ type Metric struct {
 // MetricScope defines model for MetricScope.
 type MetricScope string
 
-// MetricSet Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy.
+// MetricSet Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts.
 type MetricSet map[string]Metric
 
 // MetricSource defines model for MetricSource.
@@ -346,12 +482,26 @@ type ProviderState struct {
 	Status    MetricStatus `json:"status"`
 }
 
+// ResourceAssignment A scheduler assignment; it does not prove active device use by a process.
+type ResourceAssignment struct {
+	EntityType  AllocationEntityType `json:"entityType"`
+	EntityUuid  string               `json:"entityUuid"`
+	State       AllocationState      `json:"state"`
+	WorkloadRef string               `json:"workloadRef"`
+}
+
 // RuntimeSettings defines model for RuntimeSettings.
 type RuntimeSettings struct {
 	AllowedSamplingIntervalsMs []RuntimeSettingsAllowedSamplingIntervalsMs `json:"allowedSamplingIntervalsMs"`
 
 	// HistoryWindowMs Maximum in-memory retention in milliseconds.
 	HistoryWindowMs int64 `json:"historyWindowMs"`
+
+	// ProcessIntervalMs Effective GPU-process inventory refresh cadence in milliseconds.
+	ProcessIntervalMs int64 `json:"processIntervalMs"`
+
+	// ProfileIntervalMs Effective profile-metric refresh cadence in milliseconds.
+	ProfileIntervalMs int64 `json:"profileIntervalMs"`
 
 	// SamplingIntervalMs Effective process-local collector cadence in milliseconds.
 	SamplingIntervalMs int64 `json:"samplingIntervalMs"`
@@ -370,6 +520,7 @@ type RuntimeSettingsPatchSamplingIntervalMs int64
 
 // Snapshot defines model for Snapshot.
 type Snapshot struct {
+	Attribution  *Attribution `json:"attribution,omitempty"`
 	Capabilities Capabilities `json:"capabilities"`
 	Diagnostics  []Diagnostic `json:"diagnostics"`
 	Gpus         []GPU        `json:"gpus"`
@@ -385,6 +536,21 @@ type Snapshot struct {
 // SnapshotSchemaVersion defines model for Snapshot.SchemaVersion.
 type SnapshotSchemaVersion string
 
+// WorkloadAttribution Sanitized workload display identity from an optional attribution source. The reference is opaque and source-scoped.
+type WorkloadAttribution struct {
+	Kind      WorkloadKind     `json:"kind"`
+	Name      string           `json:"name"`
+	OwnerName string           `json:"ownerName"`
+	Platform  WorkloadPlatform `json:"platform"`
+	Ref       string           `json:"ref"`
+}
+
+// WorkloadKind defines model for WorkloadKind.
+type WorkloadKind string
+
+// WorkloadPlatform defines model for WorkloadPlatform.
+type WorkloadPlatform string
+
 // BadRequest defines model for BadRequest.
 type BadRequest = Error
 
@@ -398,7 +564,13 @@ type GetHistoryParams struct {
 	// Metrics Comma-separated canonical metric names.
 	Metrics *string `form:"metrics,omitempty" json:"metrics,omitempty"`
 	Window  *string `form:"window,omitempty" json:"window,omitempty"`
+
+	// MaxPoints Maximum number of history points returned after shape-preserving downsampling.
+	MaxPoints *int `form:"maxPoints,omitempty" json:"maxPoints,omitempty"`
 }
+
+// GetAlignedHistoryJSONRequestBody defines body for GetAlignedHistory for application/json ContentType.
+type GetAlignedHistoryJSONRequestBody = AlignedHistoryRequest
 
 // UpdateRuntimeSettingsJSONRequestBody defines body for UpdateRuntimeSettings for application/json ContentType.
 type UpdateRuntimeSettingsJSONRequestBody = RuntimeSettingsPatch

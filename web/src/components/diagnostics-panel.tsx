@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { AlertTriangle, CheckCircle2, CircleX } from 'lucide-react';
 import { shortUUID } from '../lib';
 import type { Diagnostic } from '../types';
@@ -35,7 +36,7 @@ export function groupDiagnostics(diagnostics: Diagnostic[]): DiagnosticGroup[] {
   return [...groups.values()];
 }
 
-export function DiagnosticsPanel({
+function DiagnosticsPanelComponent({
   diagnostics,
 }: {
   diagnostics: Diagnostic[];
@@ -96,3 +97,5 @@ export function DiagnosticsPanel({
     </section>
   );
 }
+
+export const DiagnosticsPanel = memo(DiagnosticsPanelComponent);

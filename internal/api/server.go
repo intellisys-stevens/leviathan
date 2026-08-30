@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,7 @@ import (
 type DataSource interface {
 	Current() (model.Snapshot, bool)
 	History(entity string, metrics []string, window time.Duration, now time.Time) history.Series
+	AlignedHistory(series []history.SeriesDescriptor, window time.Duration, maxPoints int, now time.Time) history.AlignedSeries
 	Subscribe() (<-chan model.Snapshot, func())
 	Capabilities() model.Capabilities
 	LastError() error
@@ -48,6 +50,7 @@ func NewServer(source DataSource, assets fs.FS, buildInfo model.BuildInfo) *Serv
 	}
 	server.mux.HandleFunc("GET /api/v1/snapshot", server.snapshot)
 	server.mux.HandleFunc("GET /api/v1/history", server.history)
+	server.mux.HandleFunc("POST /api/v1/history/aligned", server.alignedHistory)
 	server.mux.HandleFunc("GET /api/v1/events", server.events)
 	server.mux.HandleFunc("GET /api/v1/capabilities", server.capabilities)
 	server.mux.HandleFunc("GET /api/v1/settings", server.getSettings)
@@ -62,11 +65,13 @@ func NewServer(source DataSource, assets fs.FS, buildInfo model.BuildInfo) *Serv
 }
 
 func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	writer.Header().Set("X-Content-Type-Options", "nosniff")
-	writer.Header().Set("Referrer-Policy", "no-referrer")
-	writer.Header().Set("X-Frame-Options", "DENY")
-	writer.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'")
-	s.mux.ServeHTTP(writer, request)
+	serveCompressed(writer, request, func(response http.ResponseWriter) {
+		response.Header().Set("X-Content-Type-Options", "nosniff")
+		response.Header().Set("Referrer-Policy", "no-referrer")
+		response.Header().Set("X-Frame-Options", "DENY")
+		response.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'")
+		s.mux.ServeHTTP(response, request)
+	})
 }
 
 func (s *Server) snapshot(writer http.ResponseWriter, _ *http.Request) {
@@ -94,7 +99,109 @@ func (s *Server) history(writer http.ResponseWriter, request *http.Request) {
 		}
 		window = parsed
 	}
-	writeJSON(writer, http.StatusOK, s.source.History(entity, metrics, window, time.Now().UTC()))
+	maxPoints := 0
+	if raw := request.URL.Query().Get("maxPoints"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 50 || parsed > 5000 {
+			writeError(writer, http.StatusBadRequest, "maxPoints must be an integer between 50 and 5000")
+			return
+		}
+		maxPoints = parsed
+	}
+	series := s.source.History(entity, metrics, window, time.Now().UTC())
+	writeJSON(writer, http.StatusOK, history.Limit(series, maxPoints))
+}
+
+const (
+	maxAlignedHistoryBodyBytes   = 256 << 10
+	maxAlignedHistorySeries      = 256
+	maxAlignedMetricsPerSeries   = 16
+	maxAlignedHistoryTotalMetric = 1024
+	maxAlignedKeyLength          = 256
+	maxAlignedEntityLength       = 512
+	maxAlignedMetricLength       = 128
+)
+
+func (s *Server) alignedHistory(writer http.ResponseWriter, request *http.Request) {
+	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		writeError(writer, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+		return
+	}
+
+	request.Body = http.MaxBytesReader(writer, request.Body, maxAlignedHistoryBodyBytes)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var input history.AlignedRequest
+	if err := decoder.Decode(&input); err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid aligned history body")
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeError(writer, http.StatusBadRequest, "aligned history body must contain one JSON object")
+		return
+	}
+
+	window, validationError := s.validateAlignedHistory(input)
+	if validationError != "" {
+		writeError(writer, http.StatusBadRequest, validationError)
+		return
+	}
+	result := s.source.AlignedHistory(input.Series, window, input.MaxPoints, time.Now().UTC())
+	writeJSON(writer, http.StatusOK, result)
+}
+
+func (s *Server) validateAlignedHistory(input history.AlignedRequest) (time.Duration, string) {
+	if input.Window == "" || len(input.Window) > 32 {
+		return 0, "window must be a positive Go duration such as 5m"
+	}
+	window, err := time.ParseDuration(input.Window)
+	if err != nil || window <= 0 {
+		return 0, "window must be a positive Go duration such as 5m"
+	}
+	retentionMilliseconds := s.source.RuntimeSettings().HistoryWindowMs
+	if retentionMilliseconds > 0 && window > time.Duration(retentionMilliseconds)*time.Millisecond {
+		return 0, "window must not exceed the configured history retention"
+	}
+	if input.MaxPoints < 50 || input.MaxPoints > 5000 {
+		return 0, "maxPoints must be an integer between 50 and 5000"
+	}
+	if len(input.Series) == 0 || len(input.Series) > maxAlignedHistorySeries {
+		return 0, fmt.Sprintf("series must contain between 1 and %d descriptors", maxAlignedHistorySeries)
+	}
+
+	keys := make(map[string]struct{}, len(input.Series))
+	totalMetrics := 0
+	for _, descriptor := range input.Series {
+		if descriptor.Key == "" || len(descriptor.Key) > maxAlignedKeyLength || strings.TrimSpace(descriptor.Key) != descriptor.Key {
+			return 0, "each series key must be a bounded non-empty string without surrounding whitespace"
+		}
+		if _, duplicate := keys[descriptor.Key]; duplicate {
+			return 0, "series keys must be unique"
+		}
+		keys[descriptor.Key] = struct{}{}
+		if descriptor.Entity == "" || len(descriptor.Entity) > maxAlignedEntityLength || strings.TrimSpace(descriptor.Entity) != descriptor.Entity {
+			return 0, "each series entity must be a bounded non-empty string without surrounding whitespace"
+		}
+		if len(descriptor.Metrics) == 0 || len(descriptor.Metrics) > maxAlignedMetricsPerSeries {
+			return 0, fmt.Sprintf("each series must request between 1 and %d metrics", maxAlignedMetricsPerSeries)
+		}
+		totalMetrics += len(descriptor.Metrics)
+		if totalMetrics > maxAlignedHistoryTotalMetric {
+			return 0, fmt.Sprintf("aligned history requests may contain at most %d metrics", maxAlignedHistoryTotalMetric)
+		}
+		metrics := make(map[string]struct{}, len(descriptor.Metrics))
+		for _, metric := range descriptor.Metrics {
+			if metric == "" || len(metric) > maxAlignedMetricLength || strings.TrimSpace(metric) != metric {
+				return 0, "metric names must be bounded non-empty strings without surrounding whitespace"
+			}
+			if _, duplicate := metrics[metric]; duplicate {
+				return 0, "metric names must be unique within each series"
+			}
+			metrics[metric] = struct{}{}
+		}
+	}
+	return window, ""
 }
 
 func (s *Server) capabilities(writer http.ResponseWriter, _ *http.Request) {

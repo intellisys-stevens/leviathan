@@ -1,0 +1,91 @@
+package kubernetesbridge
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"reflect"
+	"sync"
+	"time"
+
+	"github.com/intellisys-stevens/miglens/internal/attribution"
+	"github.com/intellisys-stevens/miglens/internal/model"
+)
+
+type State struct {
+	mu sync.RWMutex
+
+	bridgeVersion string
+	instanceID    string
+	nodeRef       string
+	revision      uint64
+	observedAt    time.Time
+	status        attribution.SourceStatus
+	workloads     []model.WorkloadAttribution
+	assignments   []model.ResourceAssignment
+	stats         BuildStats
+}
+
+func NewState(bridgeVersion, nodeName string, now time.Time) *State {
+	random := make([]byte, 16)
+	if _, err := rand.Read(random); err != nil {
+		stamp := now.UTC().Format(time.RFC3339Nano)
+		return newStateWithInstance(bridgeVersion, nodeName, HashRef("instance_", stamp), now)
+	}
+	return newStateWithInstance(bridgeVersion, nodeName, "instance_"+hex.EncodeToString(random), now)
+}
+
+func newStateWithInstance(bridgeVersion, nodeName, instanceID string, now time.Time) *State {
+	return &State{
+		bridgeVersion: bridgeVersion, instanceID: instanceID, nodeRef: HashRef("node_", nodeName),
+		revision: 1, observedAt: now.UTC(),
+		status:    attribution.SourceStatus{State: attribution.SourceStale, HasValidInventory: false, Message: "Kubernetes attribution cache is synchronizing"},
+		workloads: []model.WorkloadAttribution{}, assignments: []model.ResourceAssignment{},
+	}
+}
+
+func (s *State) Update(workloads []model.WorkloadAttribution, assignments []model.ResourceAssignment, stats BuildStats, observedAt time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := !reflect.DeepEqual(s.workloads, workloads) || !reflect.DeepEqual(s.assignments, assignments) || s.status.State != attribution.SourceAvailable
+	s.workloads = append([]model.WorkloadAttribution(nil), workloads...)
+	s.assignments = append([]model.ResourceAssignment(nil), assignments...)
+	s.stats = stats
+	s.observedAt = observedAt.UTC()
+	s.status = attribution.SourceStatus{State: attribution.SourceAvailable, HasValidInventory: true}
+	if changed {
+		s.revision++
+	}
+}
+
+func (s *State) MarkUnavailable() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.status.State == attribution.SourceStale && s.status.Message == "Kubernetes attribution source is unavailable" {
+		return
+	}
+	s.status = attribution.SourceStatus{State: attribution.SourceStale, HasValidInventory: s.status.HasValidInventory, Message: "Kubernetes attribution source is unavailable"}
+	s.revision++
+}
+
+func (s *State) Document(now time.Time) attribution.Document {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return attribution.Document{
+		SchemaVersion: attribution.SchemaVersion, BridgeVersion: s.bridgeVersion,
+		InstanceID: s.instanceID, Revision: s.revision, GeneratedAt: now.UTC(), SourceObservedAt: s.observedAt,
+		NodeRef: s.nodeRef, Status: s.status,
+		Workloads: append([]model.WorkloadAttribution(nil), s.workloads...), Assignments: append([]model.ResourceAssignment(nil), s.assignments...),
+	}
+}
+
+func (s *State) Ready() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.status.State == attribution.SourceAvailable
+}
+
+func (s *State) Stats() BuildStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.stats
+}

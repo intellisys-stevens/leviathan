@@ -1,5 +1,8 @@
 import type { components } from './api.gen';
 
+export type WorkloadAttribution = components['schemas']['WorkloadAttribution'];
+export type ResourceAssignment = components['schemas']['ResourceAssignment'];
+export type Attribution = components['schemas']['Attribution'];
 export type Snapshot = components['schemas']['Snapshot'];
 export type GPU = components['schemas']['GPU'];
 export type GpuInstance = components['schemas']['GpuInstance'];
@@ -10,6 +13,11 @@ export type Process = components['schemas']['Process'];
 export type Diagnostic = components['schemas']['Diagnostic'];
 export type Capabilities = components['schemas']['Capabilities'];
 export type HistorySeries = components['schemas']['HistorySeries'];
+export type AlignedHistorySeriesDescriptor =
+  components['schemas']['AlignedHistorySeriesDescriptor'];
+export type AlignedHistoryRequest =
+  components['schemas']['AlignedHistoryRequest'];
+export type AlignedHistory = components['schemas']['AlignedHistory'];
 export type RuntimeSettings = components['schemas']['RuntimeSettings'];
 export type BuildInfo = components['schemas']['BuildInfo'];
 

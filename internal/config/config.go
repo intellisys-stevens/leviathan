@@ -16,18 +16,21 @@ import (
 const DefaultListen = "127.0.0.1:1397"
 
 type Config struct {
-	Interval         time.Duration `toml:"interval"`
-	HistoryWindow    time.Duration `toml:"history_window"`
-	TopologyInterval time.Duration `toml:"topology_interval"`
-	Provider         string        `toml:"provider"`
-	DCGMAddress      string        `toml:"dcgm_address"`
-	ShowCommandLine  bool          `toml:"show_command_line"`
-	NoProfile        bool          `toml:"no_profile"`
-	Listen           string        `toml:"listen"`
-	NoColor          bool          `toml:"no_color"`
-	ASCII            bool          `toml:"ascii"`
-	Fixture          string        `toml:"fixture"`
-	ConfigFile       string        `toml:"-"`
+	Interval          time.Duration `toml:"interval"`
+	ProfileInterval   time.Duration `toml:"profile_interval"`
+	ProcessInterval   time.Duration `toml:"process_interval"`
+	HistoryWindow     time.Duration `toml:"history_window"`
+	TopologyInterval  time.Duration `toml:"topology_interval"`
+	Provider          string        `toml:"provider"`
+	DCGMAddress       string        `toml:"dcgm_address"`
+	ShowCommandLine   bool          `toml:"show_command_line"`
+	NoProfile         bool          `toml:"no_profile"`
+	Listen            string        `toml:"listen"`
+	NoColor           bool          `toml:"no_color"`
+	ASCII             bool          `toml:"ascii"`
+	Fixture           string        `toml:"fixture"`
+	AttributionSocket string        `toml:"attribution_socket"`
+	ConfigFile        string        `toml:"-"`
 }
 
 type fileDuration time.Duration
@@ -42,23 +45,28 @@ func (d *fileDuration) UnmarshalText(text []byte) error {
 }
 
 type fileConfig struct {
-	Interval         fileDuration `toml:"interval"`
-	HistoryWindow    fileDuration `toml:"history_window"`
-	TopologyInterval fileDuration `toml:"topology_interval"`
-	Provider         string       `toml:"provider"`
-	DCGMAddress      string       `toml:"dcgm_address"`
-	ShowCommandLine  bool         `toml:"show_command_line"`
-	NoProfile        bool         `toml:"no_profile"`
-	Listen           string       `toml:"listen"`
-	NoColor          bool         `toml:"no_color"`
-	ASCII            bool         `toml:"ascii"`
-	Fixture          string       `toml:"fixture"`
+	Interval          fileDuration `toml:"interval"`
+	ProfileInterval   fileDuration `toml:"profile_interval"`
+	ProcessInterval   fileDuration `toml:"process_interval"`
+	HistoryWindow     fileDuration `toml:"history_window"`
+	TopologyInterval  fileDuration `toml:"topology_interval"`
+	Provider          string       `toml:"provider"`
+	DCGMAddress       string       `toml:"dcgm_address"`
+	ShowCommandLine   bool         `toml:"show_command_line"`
+	NoProfile         bool         `toml:"no_profile"`
+	Listen            string       `toml:"listen"`
+	NoColor           bool         `toml:"no_color"`
+	ASCII             bool         `toml:"ascii"`
+	Fixture           string       `toml:"fixture"`
+	AttributionSocket string       `toml:"attribution_socket"`
 }
 
 // ApplyEnv overlays supported MIGLENS_* environment variables on cfg.
 func ApplyEnv(cfg *Config) error {
 	durations := map[string]*time.Duration{
 		"MIGLENS_INTERVAL":          &cfg.Interval,
+		"MIGLENS_PROFILE_INTERVAL":  &cfg.ProfileInterval,
+		"MIGLENS_PROCESS_INTERVAL":  &cfg.ProcessInterval,
 		"MIGLENS_HISTORY_WINDOW":    &cfg.HistoryWindow,
 		"MIGLENS_TOPOLOGY_INTERVAL": &cfg.TopologyInterval,
 	}
@@ -72,10 +80,11 @@ func ApplyEnv(cfg *Config) error {
 		}
 	}
 	stringsMap := map[string]*string{
-		"MIGLENS_PROVIDER":     &cfg.Provider,
-		"MIGLENS_DCGM_ADDRESS": &cfg.DCGMAddress,
-		"MIGLENS_LISTEN":       &cfg.Listen,
-		"MIGLENS_FIXTURE":      &cfg.Fixture,
+		"MIGLENS_PROVIDER":           &cfg.Provider,
+		"MIGLENS_DCGM_ADDRESS":       &cfg.DCGMAddress,
+		"MIGLENS_LISTEN":             &cfg.Listen,
+		"MIGLENS_FIXTURE":            &cfg.Fixture,
+		"MIGLENS_ATTRIBUTION_SOCKET": &cfg.AttributionSocket,
 	}
 	for name, target := range stringsMap {
 		if value, ok := os.LookupEnv(name); ok {
@@ -105,7 +114,8 @@ func ApplyEnv(cfg *Config) error {
 
 func Defaults() Config {
 	return Config{
-		Interval: time.Second, HistoryWindow: time.Hour, TopologyInterval: 10 * time.Second,
+		Interval: time.Second, ProfileInterval: 2 * time.Second, ProcessInterval: 2 * time.Second,
+		HistoryWindow: time.Hour, TopologyInterval: 10 * time.Second,
 		Provider: "auto", DCGMAddress: "127.0.0.1:5555", Listen: DefaultListen,
 	}
 }
@@ -134,17 +144,19 @@ func LoadFile(path string, cfg *Config) error {
 		return err
 	}
 	decoded := fileConfig{
-		Interval: fileDuration(cfg.Interval), HistoryWindow: fileDuration(cfg.HistoryWindow), TopologyInterval: fileDuration(cfg.TopologyInterval),
+		Interval: fileDuration(cfg.Interval), ProfileInterval: fileDuration(cfg.ProfileInterval), ProcessInterval: fileDuration(cfg.ProcessInterval),
+		HistoryWindow: fileDuration(cfg.HistoryWindow), TopologyInterval: fileDuration(cfg.TopologyInterval),
 		Provider: cfg.Provider, DCGMAddress: cfg.DCGMAddress, ShowCommandLine: cfg.ShowCommandLine, NoProfile: cfg.NoProfile,
-		Listen: cfg.Listen, NoColor: cfg.NoColor, ASCII: cfg.ASCII, Fixture: cfg.Fixture,
+		Listen: cfg.Listen, NoColor: cfg.NoColor, ASCII: cfg.ASCII, Fixture: cfg.Fixture, AttributionSocket: cfg.AttributionSocket,
 	}
 	if err := toml.Unmarshal(data, &decoded); err != nil {
 		return fmt.Errorf("parse %s: %w", path, err)
 	}
-	cfg.Interval, cfg.HistoryWindow, cfg.TopologyInterval = time.Duration(decoded.Interval), time.Duration(decoded.HistoryWindow), time.Duration(decoded.TopologyInterval)
+	cfg.Interval, cfg.ProfileInterval, cfg.ProcessInterval = time.Duration(decoded.Interval), time.Duration(decoded.ProfileInterval), time.Duration(decoded.ProcessInterval)
+	cfg.HistoryWindow, cfg.TopologyInterval = time.Duration(decoded.HistoryWindow), time.Duration(decoded.TopologyInterval)
 	cfg.Provider, cfg.DCGMAddress = decoded.Provider, decoded.DCGMAddress
 	cfg.ShowCommandLine, cfg.NoProfile, cfg.Listen = decoded.ShowCommandLine, decoded.NoProfile, decoded.Listen
-	cfg.NoColor, cfg.ASCII, cfg.Fixture = decoded.NoColor, decoded.ASCII, decoded.Fixture
+	cfg.NoColor, cfg.ASCII, cfg.Fixture, cfg.AttributionSocket = decoded.NoColor, decoded.ASCII, decoded.Fixture, decoded.AttributionSocket
 	cfg.ConfigFile = path
 	return nil
 }
@@ -152,6 +164,12 @@ func LoadFile(path string, cfg *Config) error {
 func Validate(cfg Config) error {
 	if cfg.Interval < 250*time.Millisecond || cfg.Interval > 60*time.Second {
 		return fmt.Errorf("interval must be between 250ms and 60s")
+	}
+	if cfg.ProfileInterval < 250*time.Millisecond || cfg.ProfileInterval > 60*time.Second {
+		return fmt.Errorf("profile interval must be between 250ms and 60s")
+	}
+	if cfg.ProcessInterval < 250*time.Millisecond || cfg.ProcessInterval > 60*time.Second {
+		return fmt.Errorf("process interval must be between 250ms and 60s")
 	}
 	if cfg.HistoryWindow < cfg.Interval {
 		return fmt.Errorf("history window must be at least one interval")
@@ -163,6 +181,14 @@ func Validate(cfg Config) error {
 	case "auto", "nvml", "dcgm", "fake":
 	default:
 		return fmt.Errorf("provider must be auto, nvml, dcgm, or fake")
+	}
+	if cfg.AttributionSocket != "" {
+		if !filepath.IsAbs(cfg.AttributionSocket) {
+			return fmt.Errorf("attribution socket must be an absolute path")
+		}
+		if cleaned := filepath.Clean(cfg.AttributionSocket); cleaned != cfg.AttributionSocket {
+			return fmt.Errorf("attribution socket must be a clean path; got %q", cfg.AttributionSocket)
+		}
 	}
 	return nil
 }
@@ -178,7 +204,7 @@ func ValidateLoopback(address string) error {
 	}
 	ip := net.ParseIP(host)
 	if ip == nil || !ip.IsLoopback() {
-		return fmt.Errorf("MIGLens v0.1 only listens on loopback; got %q", host)
+		return fmt.Errorf("MIGLens only listens on loopback; got %q", host)
 	}
 	return nil
 }

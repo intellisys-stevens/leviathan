@@ -1,6 +1,11 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { defaultHistoryWindowMs, durationQuery } from './chart-window';
-import type { HistorySeries, Snapshot } from './types';
+import type {
+  AlignedHistory,
+  AlignedHistoryRequest,
+  AlignedHistorySeriesDescriptor,
+  Snapshot,
+} from './types';
 
 export const chartAverageWindowMilliseconds = 5 * 1000;
 
@@ -16,6 +21,7 @@ export type OverviewEntity = {
 
 export type OverviewPoint = {
   sampledAt: string;
+  time?: number;
   values: Record<string, number>;
 };
 
@@ -26,25 +32,11 @@ export type OverviewHistoryState = {
   failedEntities: string[];
 };
 
-type LoadHistory = (
-  entity: string,
-  metrics: string[],
-  window?: string,
-) => Promise<HistorySeries>;
+export type { AlignedHistorySeriesDescriptor } from './types';
 
-const gpuMetrics = [
-  'temperature',
-  'gpu_activity',
-  'memory_activity',
-  'memory_used_bytes',
-  'memory_total_bytes',
-];
-const giMetrics = [
-  'sm_activity',
-  'dram_activity',
-  'memory_used_bytes',
-  'memory_total_bytes',
-];
+export type LoadAlignedHistory = (
+  request: AlignedHistoryRequest,
+) => Promise<AlignedHistory>;
 
 export function overviewTopologyKey(snapshot: Snapshot): string {
   return snapshot.gpus
@@ -85,10 +77,6 @@ export function buildOverviewEntities(snapshot: Snapshot): OverviewEntity[] {
   return entities;
 }
 
-function metricsFor(entity: OverviewEntity): string[] {
-  return entity.scope === 'physical_gpu' ? gpuMetrics : giMetrics;
-}
-
 export function pointFromSnapshot(
   snapshot: Snapshot,
   entity: OverviewEntity,
@@ -108,6 +96,8 @@ export function pointFromSnapshot(
     'sm_activity',
     'memory_activity',
     'dram_activity',
+    'pcie_rx_bytes_per_second',
+    'pcie_tx_bytes_per_second',
   ]) {
     const metric = source.metrics[name];
     if (metric?.status === 'available' && metric.value != null)
@@ -121,7 +111,33 @@ export function pointFromSnapshot(
     values.memory_used_bytes = source.memory.usedBytes;
     values.memory_total_bytes = source.memory.totalBytes;
   }
-  return { sampledAt: snapshot.sampledAt, values };
+  return {
+    sampledAt: snapshot.sampledAt,
+    time: new Date(snapshot.sampledAt).getTime(),
+    values,
+  };
+}
+
+function pointTime(point: OverviewPoint): number {
+  return point.time ?? new Date(point.sampledAt).getTime();
+}
+
+function normalizedPoint(point: OverviewPoint): OverviewPoint {
+  return point.time == null ? { ...point, time: pointTime(point) } : point;
+}
+
+function firstPointAtOrAfter(
+  points: readonly OverviewPoint[],
+  cutoff: number,
+): number {
+  let low = 0;
+  let high = points.length;
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2);
+    if (pointTime(points[middle]) < cutoff) low = middle + 1;
+    else high = middle;
+  }
+  return low;
 }
 
 export function mergeOverviewPoints(
@@ -131,30 +147,69 @@ export function mergeOverviewPoints(
   retentionMilliseconds = defaultHistoryWindowMs,
 ): OverviewPoint[] {
   const cutoff = new Date(now).getTime() - retentionMilliseconds;
-  const byTimestamp = new Map<string, OverviewPoint>();
-  for (const point of [...existing, ...incoming]) {
-    if (new Date(point.sampledAt).getTime() >= cutoff)
-      byTimestamp.set(point.sampledAt, point);
+  const existingStart = firstPointAtOrAfter(existing, cutoff);
+  const retainedSlice = existing.slice(existingStart);
+  // History responses arrive as ISO strings. Normalize them once; subsequent
+  // live appends can compare numeric timestamps without repeatedly parsing the
+  // whole retained window.
+  const retained =
+    retainedSlice[0]?.time == null
+      ? retainedSlice.map(normalizedPoint)
+      : retainedSlice;
+  if (incoming.length === 1) {
+    const candidate = normalizedPoint(incoming[0]);
+    if (pointTime(candidate) < cutoff) return retained;
+    const last = retained.at(-1);
+    if (!last || pointTime(candidate) > pointTime(last))
+      return [...retained, candidate];
+    if (pointTime(candidate) === pointTime(last))
+      return [...retained.slice(0, -1), candidate];
   }
-  return [...byTimestamp.values()].sort(
-    (left, right) =>
-      new Date(left.sampledAt).getTime() - new Date(right.sampledAt).getTime(),
-  );
-}
 
-type HistoryLoadResult = {
-  entity: OverviewEntity;
-  series?: HistorySeries;
-  failed: boolean;
-};
+  let right = incoming
+    .map(normalizedPoint)
+    .filter((point) => pointTime(point) >= cutoff);
+  if (
+    right.some(
+      (point, index) =>
+        index > 0 && pointTime(point) < pointTime(right[index - 1]),
+    )
+  )
+    right = right.toSorted(
+      (left, candidate) => pointTime(left) - pointTime(candidate),
+    );
+
+  const merged: OverviewPoint[] = [];
+  let leftIndex = 0;
+  let rightIndex = 0;
+  while (leftIndex < retained.length || rightIndex < right.length) {
+    const left = retained[leftIndex];
+    const candidate = right[rightIndex];
+    if (left && (!candidate || pointTime(left) < pointTime(candidate))) {
+      merged.push(normalizedPoint(left));
+      leftIndex += 1;
+    } else if (!left || pointTime(candidate) < pointTime(left)) {
+      merged.push(candidate);
+      rightIndex += 1;
+    } else {
+      // A freshly loaded or sampled point wins when timestamps collide.
+      merged.push(candidate);
+      leftIndex += 1;
+      rightIndex += 1;
+    }
+  }
+  return merged;
+}
 
 type InternalHistoryState = OverviewHistoryState & {
   topologyKey: string;
   latestSampledAt: string;
 };
 
-function initialHistoryState(snapshot: Snapshot): InternalHistoryState {
-  const entities = buildOverviewEntities(snapshot);
+function initialHistoryState(
+  snapshot: Snapshot,
+  entities: OverviewEntity[],
+): InternalHistoryState {
   const points: Record<string, OverviewPoint[]> = {};
   for (const entity of entities) {
     const point = pointFromSnapshot(snapshot, entity);
@@ -173,12 +228,11 @@ function initialHistoryState(snapshot: Snapshot): InternalHistoryState {
 class OverviewHistoryStore {
   private state: InternalHistoryState;
   private listeners = new Set<() => void>();
-  private requestedTopology = '';
-  private loadedWindowMilliseconds = 0;
+  private requestedKey = '';
   private requestToken = 0;
 
-  constructor(snapshot: Snapshot) {
-    this.state = initialHistoryState(snapshot);
+  constructor(snapshot: Snapshot, entities: OverviewEntity[]) {
+    this.state = initialHistoryState(snapshot, entities);
   }
 
   readonly getSnapshot = () => this.state;
@@ -188,13 +242,16 @@ class OverviewHistoryStore {
     return () => this.listeners.delete(listener);
   };
 
-  mergeSnapshot(snapshot: Snapshot, retentionMilliseconds: number) {
+  mergeSnapshot(
+    snapshot: Snapshot,
+    entities: OverviewEntity[],
+    retentionMilliseconds: number,
+  ) {
     const topologyKey = overviewTopologyKey(snapshot);
     if (this.state.topologyKey !== topologyKey) {
-      this.requestedTopology = '';
-      this.loadedWindowMilliseconds = 0;
+      this.requestedKey = '';
       this.requestToken += 1;
-      this.publish(initialHistoryState(snapshot));
+      this.publish(initialHistoryState(snapshot, entities));
       return;
     }
     const points = { ...this.state.points };
@@ -217,63 +274,96 @@ class OverviewHistoryStore {
 
   loadHistory(
     snapshot: Snapshot,
-    loadHistory: LoadHistory,
+    panelID: string,
+    entities: OverviewEntity[],
+    descriptors: AlignedHistorySeriesDescriptor[],
+    loadHistory: LoadAlignedHistory,
     windowMilliseconds: number,
     retentionMilliseconds: number,
   ) {
     const topologyKey = overviewTopologyKey(snapshot);
-    if (this.requestedTopology !== topologyKey) {
-      this.requestedTopology = topologyKey;
-      this.loadedWindowMilliseconds = 0;
-    }
-    if (this.loadedWindowMilliseconds >= windowMilliseconds) return;
-    this.loadedWindowMilliseconds = windowMilliseconds;
-    const requestToken = ++this.requestToken;
-    const entities = buildOverviewEntities(snapshot);
-    this.publish({ ...this.state, loading: true, failedEntities: [] });
-    void Promise.all(
-      entities.map(async (entity): Promise<HistoryLoadResult> => {
-        try {
-          return {
-            entity,
-            series: await loadHistory(
-              entity.uuid,
-              metricsFor(entity),
-              durationQuery(windowMilliseconds),
-            ),
-            failed: false,
-          };
-        } catch {
-          return { entity, failed: true };
-        }
-      }),
-    ).then((results) => {
-      if (
-        this.state.topologyKey !== topologyKey ||
-        requestToken !== this.requestToken
+    const requestWindow = durationQuery(windowMilliseconds);
+    const descriptorKey = descriptors
+      .map(
+        ({ key, entity, metrics }) =>
+          `${key}\u0001${entity}\u0001${metrics.join('\u0002')}`,
       )
-        return;
-      const points = { ...this.state.points };
-      const failedEntities: string[] = [];
-      for (const result of results) {
-        if (result.failed || !result.series) {
-          failedEntities.push(result.entity.key);
-          continue;
-        }
-        points[result.entity.key] = mergeOverviewPoints(
-          result.series.points,
-          points[result.entity.key] ?? [],
-          this.state.latestSampledAt,
-          retentionMilliseconds,
-        );
-      }
+      .join('\u0003');
+    const requestKey = `${topologyKey}\u0000${panelID}\u0000${requestWindow}\u0000${descriptorKey}`;
+    if (this.requestedKey === requestKey) return;
+    this.requestedKey = requestKey;
+    if (descriptors.length === 0) {
       this.publish({
         ...this.state,
-        points,
+        entities,
+        points: {},
         loading: false,
-        failedEntities,
+        failedEntities: [],
       });
-    });
+      return;
+    }
+    const requestToken = ++this.requestToken;
+    const requestStartedAt = new Date(this.state.latestSampledAt).getTime();
+    this.publish({ ...this.state, loading: true, failedEntities: [] });
+    void loadHistory({
+      window: requestWindow,
+      maxPoints: 720,
+      series: descriptors,
+    })
+      .then((response) => {
+        if (
+          this.state.topologyKey !== topologyKey ||
+          requestToken !== this.requestToken
+        )
+          return;
+
+        const historical: Record<string, OverviewPoint[]> = Object.fromEntries(
+          entities.map((entity) => [entity.key, []]),
+        );
+        for (const point of response.points) {
+          const time = new Date(point.sampledAt).getTime();
+          if (!Number.isFinite(time)) continue;
+          for (const descriptor of descriptors) {
+            historical[descriptor.key]?.push({
+              sampledAt: point.sampledAt,
+              time,
+              values: point.values[descriptor.key] ?? {},
+            });
+          }
+        }
+
+        const points: Record<string, OverviewPoint[]> = {};
+        for (const entity of entities) {
+          const live = (this.state.points[entity.key] ?? []).filter(
+            (point) => pointTime(point) >= requestStartedAt,
+          );
+          points[entity.key] = mergeOverviewPoints(
+            historical[entity.key] ?? [],
+            live,
+            this.state.latestSampledAt,
+            retentionMilliseconds,
+          );
+        }
+        this.publish({
+          ...this.state,
+          entities,
+          points,
+          loading: false,
+          failedEntities: [],
+        });
+      })
+      .catch(() => {
+        if (
+          this.state.topologyKey !== topologyKey ||
+          requestToken !== this.requestToken
+        )
+          return;
+        this.publish({
+          ...this.state,
+          loading: false,
+          failedEntities: entities.map((entity) => entity.key),
+        });
+      });
   }
 
   private publish(next: InternalHistoryState) {
@@ -284,37 +374,55 @@ class OverviewHistoryStore {
 
 export function useOverviewHistory(
   snapshot: Snapshot,
-  loadHistory: LoadHistory,
+  panelID: string,
+  entities: OverviewEntity[],
+  descriptors: AlignedHistorySeriesDescriptor[],
+  loadHistory: LoadAlignedHistory,
   windowMilliseconds: number,
   retentionMilliseconds: number,
 ): OverviewHistoryState {
-  const [store] = useState(() => new OverviewHistoryStore(snapshot));
+  const [store] = useState(() => new OverviewHistoryStore(snapshot, entities));
 
   useEffect(() => {
-    store.mergeSnapshot(snapshot, retentionMilliseconds);
-  }, [retentionMilliseconds, snapshot, store]);
+    store.mergeSnapshot(snapshot, entities, retentionMilliseconds);
+  }, [entities, retentionMilliseconds, snapshot, store]);
 
   useEffect(() => {
     store.loadHistory(
       snapshot,
+      panelID,
+      entities,
+      descriptors,
       loadHistory,
       windowMilliseconds,
       retentionMilliseconds,
     );
-  }, [loadHistory, retentionMilliseconds, snapshot, store, windowMilliseconds]);
+  }, [
+    descriptors,
+    entities,
+    loadHistory,
+    panelID,
+    retentionMilliseconds,
+    snapshot,
+    store,
+    windowMilliseconds,
+  ]);
 
   const state = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
     store.getSnapshot,
   );
-  const cutoff = new Date(state.latestSampledAt).getTime() - windowMilliseconds;
-  const points: Record<string, OverviewPoint[]> = {};
-  for (const [entity, series] of Object.entries(state.points)) {
-    points[entity] = series.filter(
-      (point) => new Date(point.sampledAt).getTime() >= cutoff,
-    );
-  }
+  const points = useMemo(() => {
+    const cutoff =
+      new Date(state.latestSampledAt).getTime() - windowMilliseconds;
+    const visible: Record<string, OverviewPoint[]> = {};
+    for (const [entity, series] of Object.entries(state.points)) {
+      const start = firstPointAtOrAfter(series, cutoff);
+      visible[entity] = start === 0 ? series : series.slice(start);
+    }
+    return visible;
+  }, [state.latestSampledAt, state.points, windowMilliseconds]);
   return { ...state, points };
 }
 
@@ -327,28 +435,44 @@ export function movingAverageChartRows(
   valueKeys: string[],
   windowMilliseconds = chartAverageWindowMilliseconds,
 ): ChartRow[] {
-  const windows = new Map<string, Array<{ time: number; value: number }>>(
-    valueKeys.map((key) => [key, []]),
-  );
+  const windows = new Map<
+    string,
+    {
+      samples: Array<{ time: number; value: number }>;
+      head: number;
+      sum: number;
+    }
+  >(valueKeys.map((key) => [key, { samples: [], head: 0, sum: 0 }]));
 
   return rows.map((row) => {
     const averaged: ChartRow = { ...row };
     for (const key of valueKeys) {
       const value = row[key];
-      const window = windows.get(key) ?? [];
+      const window = windows.get(key) ?? { samples: [], head: 0, sum: 0 };
       if (typeof value !== 'number' || !Number.isFinite(value)) {
-        window.length = 0;
+        window.samples = [];
+        window.head = 0;
+        window.sum = 0;
         windows.set(key, window);
         averaged[key] = null;
         continue;
       }
       const cutoff = row.time - windowMilliseconds;
-      while (window.length > 0 && window[0].time <= cutoff) window.shift();
-      window.push({ time: row.time, value });
+      while (
+        window.head < window.samples.length &&
+        window.samples[window.head].time <= cutoff
+      ) {
+        window.sum -= window.samples[window.head].value;
+        window.head += 1;
+      }
+      window.samples.push({ time: row.time, value });
+      window.sum += value;
+      if (window.head > 128 && window.head * 2 > window.samples.length) {
+        window.samples = window.samples.slice(window.head);
+        window.head = 0;
+      }
       windows.set(key, window);
-      averaged[key] =
-        window.reduce((total, sample) => total + sample.value, 0) /
-        window.length;
+      averaged[key] = window.sum / (window.samples.length - window.head);
     }
     return averaged;
   });
@@ -357,14 +481,36 @@ export function movingAverageChartRows(
 export function downsampleChartRows(
   rows: ChartRow[],
   valueKeys: string[],
-  bucketCount = 360,
+  maxRows = 720,
 ): ChartRow[] {
-  if (bucketCount <= 0 || rows.length <= bucketCount) return rows;
-  const bucketSize = Math.ceil(rows.length / bucketCount);
-  const selected: ChartRow[] = [];
-  for (let start = 0; start < rows.length; start += bucketSize) {
-    const bucket = rows.slice(start, Math.min(rows.length, start + bucketSize));
-    const keep = new Set<ChartRow>([bucket[0], bucket[bucket.length - 1]]);
+  if (maxRows <= 0) return [];
+  if (rows.length <= maxRows) return rows;
+  if (maxRows < 3 || valueKeys.length === 0) {
+    if (maxRows <= 1) return rows.slice(0, Math.max(0, maxRows));
+    return Array.from(
+      { length: maxRows },
+      (_, index) =>
+        rows[Math.round((index * (rows.length - 1)) / (maxRows - 1))],
+    );
+  }
+  const bucketCount = Math.floor(
+    (maxRows - 2) / Math.max(1, valueKeys.length * 2),
+  );
+  if (bucketCount < 1) {
+    return Array.from(
+      { length: maxRows },
+      (_, index) =>
+        rows[Math.round((index * (rows.length - 1)) / (maxRows - 1))],
+    );
+  }
+  const interior = rows.slice(1, -1);
+  const bucketSize = Math.ceil(interior.length / bucketCount);
+  const keep = new Set<ChartRow>([rows[0], rows[rows.length - 1]]);
+  for (let start = 0; start < interior.length; start += bucketSize) {
+    const bucket = interior.slice(
+      start,
+      Math.min(interior.length, start + bucketSize),
+    );
     for (const key of valueKeys) {
       let minimum: { row: ChartRow; value: number } | null = null;
       let maximum: { row: ChartRow; value: number } | null = null;
@@ -377,7 +523,8 @@ export function downsampleChartRows(
       if (minimum) keep.add(minimum.row);
       if (maximum) keep.add(maximum.row);
     }
-    selected.push(...[...keep].sort((left, right) => left.time - right.time));
   }
-  return selected;
+  return [...keep]
+    .sort((left, right) => left.time - right.time)
+    .slice(0, maxRows);
 }

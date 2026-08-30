@@ -151,7 +151,7 @@ func TestSamplingIntervalReschedulesAndNeverOverlaps(t *testing.T) {
 	if provider.maxActive.Load() != 1 {
 		t.Fatalf("provider polls overlapped: max active = %d", provider.maxActive.Load())
 	}
-	if got := engine.RuntimeSettings(); got.SamplingIntervalMs != 500 || got.HistoryWindowMs != time.Hour.Milliseconds() {
+	if got := engine.RuntimeSettings(); got.SamplingIntervalMs != 500 || got.ProfileIntervalMs != 2000 || got.ProcessIntervalMs != 2000 || got.HistoryWindowMs != time.Hour.Milliseconds() {
 		t.Fatalf("runtime settings = %+v", got)
 	}
 	if engine.history.Capacity() != int(time.Hour/(500*time.Millisecond))+2 {

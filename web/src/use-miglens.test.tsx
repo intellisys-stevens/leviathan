@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BuildInfo, RuntimeSettings, Snapshot } from './types';
-import { useMIGLens } from './use-miglens';
+import { shareStableSnapshot, useMIGLens } from './use-miglens';
 
 const snapshot: Snapshot = {
   schemaVersion: 'v1',
@@ -22,6 +22,8 @@ const snapshot: Snapshot = {
 
 const initialSettings: RuntimeSettings = {
   samplingIntervalMs: 1000,
+  profileIntervalMs: 1000,
+  processIntervalMs: 1000,
   historyWindowMs: 60 * 60 * 1000,
   allowedSamplingIntervalsMs: [500, 1000, 2000],
 };
@@ -101,6 +103,26 @@ describe('useMIGLens runtime settings', () => {
         }
         if (url === '/api/v1/settings') return jsonResponse(initialSettings);
         if (url === '/api/v1/version') return jsonResponse(buildInfo);
+        if (url.startsWith('/api/v1/history?'))
+          return jsonResponse({
+            entity: 'GPU/a',
+            metrics: ['temperature', 'power'],
+            window: '1h0m0s',
+            points: [],
+          });
+        if (url === '/api/v1/history/aligned' && init?.method === 'POST') {
+          if (typeof init.body !== 'string')
+            throw new Error('expected an aligned history JSON body');
+          const body = JSON.parse(init.body) as {
+            window: string;
+            series: unknown[];
+          };
+          return jsonResponse({
+            window: body.window,
+            series: body.series,
+            points: [],
+          });
+        }
         throw new Error(`unexpected request: ${url}`);
       },
     );
@@ -143,5 +165,110 @@ describe('useMIGLens runtime settings', () => {
       headers: { 'Content-Type': 'application/json' },
       body: '{"samplingIntervalMs":2000}',
     });
+
+    await act(async () => {
+      await first.result.current.history(
+        'GPU/a',
+        ['temperature', 'power'],
+        '1h',
+      );
+    });
+    const historyCall = fetchMock.mock.calls.find(([input]) =>
+      requestURL(input).startsWith('/api/v1/history?'),
+    );
+    const historyURL = new URL(
+      requestURL(historyCall?.[0] as string),
+      'http://miglens.local',
+    );
+    expect(historyURL.searchParams.get('entity')).toBe('GPU/a');
+    expect(historyURL.searchParams.get('metrics')).toBe('temperature,power');
+    expect(historyURL.searchParams.get('window')).toBe('1h');
+    expect(historyURL.searchParams.get('maxPoints')).toBe('720');
+
+    await act(async () => {
+      await first.result.current.alignedHistory({
+        window: '30m',
+        maxPoints: 720,
+        series: [
+          {
+            key: 'gpu:fixture',
+            entity: 'GPU/fixture',
+            metrics: ['temperature'],
+          },
+        ],
+      });
+    });
+    const alignedCall = fetchMock.mock.calls.find(
+      ([input, init]) =>
+        requestURL(input) === '/api/v1/history/aligned' &&
+        (init as RequestInit | undefined)?.method === 'POST',
+    );
+    expect(alignedCall?.[1]).toMatchObject({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const alignedBody = alignedCall?.[1]?.body;
+    expect(typeof alignedBody).toBe('string');
+    expect(JSON.parse(alignedBody as string)).toEqual({
+      window: '30m',
+      maxPoints: 720,
+      series: [
+        { key: 'gpu:fixture', entity: 'GPU/fixture', metrics: ['temperature'] },
+      ],
+    });
+  });
+
+  it('reuses unchanged slow-moving slices across telemetry snapshots', () => {
+    const previous: Snapshot = {
+      ...structuredClone(snapshot),
+      processes: [{ pid: 42, user: 'worker', status: 'available' }],
+      diagnostics: [
+        {
+          code: 'fixture',
+          severity: 'warning',
+          component: 'test',
+          summary: 'Fixture warning',
+          status: 'stale',
+        },
+      ],
+      attribution: {
+        provider: 'kubernetes_dra',
+        status: 'available',
+        workloads: [
+          {
+            ref: 'opaque',
+            platform: 'coder',
+            kind: 'workspace',
+            name: 'training',
+            ownerName: 'alice',
+          },
+        ],
+        assignments: [
+          {
+            workloadRef: 'opaque',
+            entityType: 'physical_gpu',
+            entityUuid: 'GPU-fixture',
+            state: 'allocated',
+          },
+        ],
+      },
+    };
+    const next = structuredClone(previous);
+    next.sequence = 2;
+    next.sampledAt = '2026-08-29T12:00:01Z';
+
+    const shared = shareStableSnapshot(previous, next);
+    expect(shared.host).toBe(previous.host);
+    expect(shared.processes).toBe(previous.processes);
+    expect(shared.diagnostics).toBe(previous.diagnostics);
+    expect(shared.capabilities).toBe(previous.capabilities);
+    expect(shared.attribution).toBe(previous.attribution);
+
+    const changed = structuredClone(next);
+    changed.processes[0].pid = 43;
+    changed.attribution!.assignments[0].state = 'reserved';
+    const updated = shareStableSnapshot(previous, changed);
+    expect(updated.processes).not.toBe(previous.processes);
+    expect(updated.attribution).not.toBe(previous.attribution);
   });
 });

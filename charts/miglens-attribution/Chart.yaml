@@ -1,0 +1,7 @@
+apiVersion: v2
+name: miglens-attribution
+description: Optional node-local Coder and Kubernetes DRA attribution bridge for MIGLens
+type: application
+version: 0.2.0
+appVersion: "0.2.0"
+kubeVersion: ">=1.34.0-0"

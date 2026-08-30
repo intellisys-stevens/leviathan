@@ -92,3 +92,46 @@ func TestFixtureProcessesAreTopLevelAndCommandLineIsOptIn(t *testing.T) {
 		}
 	}
 }
+
+func TestFixtureIncludesPowerLimitAndPCIeThroughput(t *testing.T) {
+	at := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	provider, _ := NewFixture("blackwell")
+	snapshot, err := provider.Sample(context.Background(), at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gpu := snapshot.GPUs[0]
+	for _, name := range []string{"power_limit", "pcie_tx_bytes_per_second", "pcie_rx_bytes_per_second"} {
+		metric, ok := gpu.Metrics[name]
+		if !ok || metric.Value == nil || metric.Status != model.StatusAvailable {
+			t.Fatalf("physical metric %q = %+v", name, metric)
+		}
+	}
+	if metric := gpu.Metrics["power_limit"]; metric.Unit != "watts" || metric.Source != model.SourceNVML {
+		t.Fatalf("power limit metric = %+v", metric)
+	}
+	for _, name := range []string{"pcie_tx_bytes_per_second", "pcie_rx_bytes_per_second"} {
+		physical := gpu.Metrics[name]
+		instance := gpu.GPUInstances[0].Metrics[name]
+		if physical.Unit != "bytes_per_second" || physical.Scope != model.ScopePhysicalGPU || physical.Source != model.SourceNVMLGPM {
+			t.Fatalf("physical PCIe metric %q = %+v", name, physical)
+		}
+		if instance.Unit != "bytes_per_second" || instance.Scope != model.ScopeGPUInstance || instance.Source != model.SourceNVMLGPM {
+			t.Fatalf("GI PCIe metric %q = %+v", name, instance)
+		}
+	}
+}
+
+func TestNonMIGFixtureUsesLegacyPhysicalPCIeSource(t *testing.T) {
+	provider, _ := NewFixture("non-mig")
+	snapshot, err := provider.Sample(context.Background(), time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"pcie_tx_bytes_per_second", "pcie_rx_bytes_per_second"} {
+		metric := snapshot.GPUs[0].Metrics[name]
+		if metric.Value == nil || metric.Source != model.SourceNVML || metric.Scope != model.ScopePhysicalGPU || metric.Unit != "bytes_per_second" {
+			t.Fatalf("non-MIG PCIe metric %q = %+v", name, metric)
+		}
+	}
+}

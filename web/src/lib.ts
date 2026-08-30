@@ -18,9 +18,60 @@ export function formatMetric(metric?: Metric): string {
       return `${Math.round(value)} W`;
     case 'mhz':
       return `${Math.round(value)} MHz`;
+    case 'bytes_per_second':
+    case 'bytes/second':
+      return formatBytesPerSecond(value);
     default:
       return `${value.toFixed(2)} ${metric?.unit ?? ''}`.trim();
   }
+}
+
+export type TemperatureLevel =
+  | 'unavailable'
+  | 'cool'
+  | 'normal'
+  | 'warm'
+  | 'hot';
+
+export type PowerLevel =
+  | 'unavailable'
+  | 'unknown'
+  | 'low'
+  | 'normal'
+  | 'high'
+  | 'near_limit';
+
+export function temperatureLevel(metric?: Metric): TemperatureLevel {
+  const value = metricValue(metric);
+  if (value == null) return 'unavailable';
+  if (value < 55) return 'cool';
+  if (value < 70) return 'normal';
+  if (value < 80) return 'warm';
+  return 'hot';
+}
+
+export function powerLevel(power?: Metric, limit?: Metric): PowerLevel {
+  const powerValue = metricValue(power);
+  if (powerValue == null) return 'unavailable';
+  const limitValue = metricValue(limit);
+  if (limitValue == null || limitValue <= 0) return 'unknown';
+  const ratio = powerValue / limitValue;
+  if (ratio < 0.25) return 'low';
+  if (ratio < 0.6) return 'normal';
+  if (ratio < 0.85) return 'high';
+  return 'near_limit';
+}
+
+export function formatBytesPerSecond(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  const units = ['B/s', 'KiB/s', 'MiB/s', 'GiB/s', 'TiB/s'];
+  let current = Math.max(0, value);
+  let unit = 0;
+  while (current >= 1024 && unit < units.length - 1) {
+    current /= 1024;
+    unit += 1;
+  }
+  return `${current.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
 export function formatRoundedPercent(value: number): string {

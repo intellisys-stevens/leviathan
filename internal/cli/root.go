@@ -62,6 +62,8 @@ func (a *application) command() *cobra.Command {
 	flags := root.PersistentFlags()
 	flags.StringVar(&a.path, "config", "", "optional XDG TOML configuration file")
 	flags.DurationVar(&a.flags.Interval, "interval", a.flags.Interval, "sampling interval (250ms–60s)")
+	flags.DurationVar(&a.flags.ProfileInterval, "profile-interval", a.flags.ProfileInterval, "expensive per-entity telemetry interval (250ms–60s)")
+	flags.DurationVar(&a.flags.ProcessInterval, "process-interval", a.flags.ProcessInterval, "GPU process inventory interval (250ms–60s)")
 	flags.DurationVar(&a.flags.HistoryWindow, "history-window", a.flags.HistoryWindow, "bounded in-memory history window")
 	flags.DurationVar(&a.flags.TopologyInterval, "topology-interval", a.flags.TopologyInterval, "MIG topology rescan interval")
 	flags.StringVar(&a.flags.Provider, "provider", a.flags.Provider, "provider mode: auto, nvml, dcgm, or fake")
@@ -72,6 +74,7 @@ func (a *application) command() *cobra.Command {
 	flags.BoolVar(&a.flags.NoColor, "no-color", a.flags.NoColor, "disable terminal colors")
 	flags.BoolVar(&a.flags.ASCII, "ascii", a.flags.ASCII, "use ASCII terminal glyphs")
 	flags.StringVar(&a.flags.Fixture, "fixture", a.flags.Fixture, "use a deterministic fixture (see README for scenarios)")
+	flags.StringVar(&a.flags.AttributionSocket, "attribution-socket", a.flags.AttributionSocket, "optional MIGLens attribution bridge Unix socket")
 
 	root.AddCommand(a.tuiCommand(), a.snapshotCommand(), a.watchCommand(), a.serveCommand(), a.doctorCommand(), versionCommand(a.stdout))
 	return root
@@ -104,6 +107,12 @@ func (a *application) applyFlags(command *cobra.Command, cfg *config.Config) {
 	if flagChanged(command, "interval") {
 		cfg.Interval = a.flags.Interval
 	}
+	if flagChanged(command, "profile-interval") {
+		cfg.ProfileInterval = a.flags.ProfileInterval
+	}
+	if flagChanged(command, "process-interval") {
+		cfg.ProcessInterval = a.flags.ProcessInterval
+	}
 	if flagChanged(command, "history-window") {
 		cfg.HistoryWindow = a.flags.HistoryWindow
 	}
@@ -133,6 +142,9 @@ func (a *application) applyFlags(command *cobra.Command, cfg *config.Config) {
 	}
 	if flagChanged(command, "fixture") {
 		cfg.Fixture = a.flags.Fixture
+	}
+	if flagChanged(command, "attribution-socket") {
+		cfg.AttributionSocket = a.flags.AttributionSocket
 	}
 }
 
@@ -198,7 +210,7 @@ func (a *application) sample(ctx context.Context) (model.Snapshot, error) {
 		return snapshot, err
 	}
 	if snapshot.Capabilities.GPM.Available && !a.cfg.NoProfile {
-		timer := time.NewTimer(maxDuration(a.cfg.Interval, 250*time.Millisecond))
+		timer := time.NewTimer(maxDuration(a.cfg.ProfileInterval, maxDuration(a.cfg.Interval, 250*time.Millisecond)))
 		defer timer.Stop()
 		select {
 		case <-ctx.Done():
@@ -377,7 +389,12 @@ func (a *application) startEngine(ctx context.Context) (*collector.Engine, error
 	if err != nil {
 		return nil, err
 	}
-	engine := collector.New(source, a.cfg.Interval, a.cfg.HistoryWindow)
+	engine := collector.NewWithOptions(source, collector.Options{
+		SamplingInterval: a.cfg.Interval,
+		HistoryWindow:    a.cfg.HistoryWindow,
+		ProfileInterval:  maxDuration(a.cfg.ProfileInterval, a.cfg.Interval),
+		ProcessInterval:  maxDuration(a.cfg.ProcessInterval, a.cfg.Interval),
+	})
 	if err := engine.Start(ctx); err != nil {
 		return nil, err
 	}

@@ -7,6 +7,7 @@ After=nvidia-persistenced.service
 [Service]
 Type=simple
 User=%i
+EnvironmentFile=-/etc/miglens/miglens.env
 ExecStart=/usr/local/bin/miglens --listen 127.0.0.1:1397 serve
 Restart=on-failure
 RestartSec=5s

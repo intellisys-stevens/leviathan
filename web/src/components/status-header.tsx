@@ -1,23 +1,13 @@
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
-import {
-  AlertTriangle,
-  Check,
-  ChevronDown,
-  CircleDot,
-  Moon,
-  RefreshCw,
-  Sun,
-} from 'lucide-react';
-import { useRef, useState } from 'react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { AlertTriangle, ChevronDown, Moon, RefreshCw, Sun } from 'lucide-react';
+import { memo, useRef, useState } from 'react';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { formatSamplingInterval } from '../chart-window';
-import type { Capabilities, RuntimeSettings } from '../types';
+import type { RuntimeSettings } from '../types';
 import type { ConnectionState } from '../use-miglens';
 
 type Props = {
   hostname: string;
-  capabilities: Capabilities;
   connection: ConnectionState;
   degraded: boolean;
   settings: RuntimeSettings | null;
@@ -28,6 +18,7 @@ type Props = {
 
 type SamplingChoicesProps = {
   allowed: number[];
+  custom: number | null;
   current: number | null;
   pending: number | null;
   mobile?: boolean;
@@ -36,15 +27,17 @@ type SamplingChoicesProps = {
 
 const defaultSamplingIntervals = [500, 1000, 2000];
 
-function providerLabel(capabilities: Capabilities): string {
-  const active = Array.from(
-    new Set(
-      [capabilities.nvml, capabilities.gpm, capabilities.dcgm]
-        .filter((provider) => provider.available)
-        .map((provider) => provider.name.replace('NVML GPM', 'GPM')),
-    ),
+function GitHubMark() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className="size-4"
+      aria-hidden="true"
+    >
+      <path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.3c-3.3.7-4-1.4-4-1.4-.5-1.4-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.4 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.4 11.4 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.6 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3Z" />
+    </svg>
   );
-  return active.length > 0 ? active.join(' + ') : 'Provider degraded';
 }
 
 function titleCase(value: string): string {
@@ -53,44 +46,69 @@ function titleCase(value: string): string {
 
 function SamplingChoices({
   allowed,
+  custom,
   current,
   pending,
   mobile = false,
   onSelect,
 }: SamplingChoicesProps) {
+  const choices =
+    custom == null
+      ? defaultSamplingIntervals
+      : [custom, ...defaultSamplingIntervals];
+
   return (
     <fieldset
-      className={`flex rounded-md bg-background/70 p-0.5 ${mobile ? 'w-full border border-border' : ''}`}
+      className={`relative isolate flex gap-1 rounded-md border border-border/80 bg-muted/50 p-0.5 ${mobile ? 'w-full' : ''}`}
+      aria-busy={pending != null}
     >
       <legend className="sr-only">Sampling interval</legend>
-      {allowed.map((milliseconds) => {
+      {choices.map((milliseconds) => {
         const selected = current === milliseconds;
+        const applying = pending === milliseconds;
+        const isCustom = custom === milliseconds;
+        const label = `${isCustom ? 'Custom ' : ''}${formatSamplingInterval(milliseconds)}`;
         return (
           <button
             key={milliseconds}
             type="button"
-            className={`relative flex-1 rounded px-2 font-mono text-[10px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-              mobile ? 'h-8' : 'h-6'
+            className={`relative whitespace-nowrap rounded px-2 font-mono text-[10px] transition-colors focus-visible:z-20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+              mobile
+                ? 'h-8 min-w-0 flex-1'
+                : `h-6 flex-none ${isCustom ? '' : 'min-w-10'}`
             } ${
               selected
-                ? 'bg-primary text-primary-foreground shadow-sm'
-                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                ? 'z-10 bg-background text-foreground shadow-sm ring-1 ring-border/60'
+                : 'text-muted-foreground hover:bg-background/70 hover:text-foreground'
             }`}
-            disabled={current == null || pending != null}
+            disabled={
+              current == null ||
+              pending != null ||
+              (!isCustom && !allowed.includes(milliseconds))
+            }
+            aria-label={label}
             aria-pressed={selected}
             onClick={() => onSelect(milliseconds)}
           >
-            {formatSamplingInterval(milliseconds)}
+            <span className={applying ? 'opacity-0' : undefined}>{label}</span>
+            {applying ? (
+              <RefreshCw
+                className="absolute left-1/2 top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 animate-spin"
+                aria-hidden="true"
+              />
+            ) : null}
           </button>
         );
       })}
+      <output className="sr-only" aria-live="polite">
+        {pending == null ? '' : `Applying ${formatSamplingInterval(pending)}`}
+      </output>
     </fieldset>
   );
 }
 
-export function StatusHeader({
+function StatusHeaderComponent({
   hostname,
-  capabilities,
   connection,
   degraded,
   settings,
@@ -115,11 +133,24 @@ export function StatusHeader({
   const allowedSampling =
     settings?.allowedSamplingIntervalsMs ?? defaultSamplingIntervals;
   const customSampling =
-    currentSampling != null && !allowedSampling.includes(currentSampling);
-  const samplingText =
-    currentSampling == null ? '—' : formatSamplingInterval(currentSampling);
+    currentSampling != null &&
+    !defaultSamplingIntervals.includes(currentSampling)
+      ? currentSampling
+      : null;
   const displayedSamplingText =
     displayedSampling == null ? '—' : formatSamplingInterval(displayedSampling);
+  const cadenceDetails = [
+    settings?.profileIntervalMs
+      ? `profiles ${formatSamplingInterval(settings.profileIntervalMs)}`
+      : null,
+    settings?.processIntervalMs
+      ? `processes ${formatSamplingInterval(settings.processIntervalMs)}`
+      : null,
+  ].filter((value): value is string => value != null);
+  const cadenceTitle = [
+    `GPU metrics ${displayedSamplingText}`,
+    ...cadenceDetails,
+  ].join(' · ');
 
   async function applySampling(milliseconds: number) {
     if (milliseconds === currentSampling || pendingSamplingRef.current != null)
@@ -139,11 +170,15 @@ export function StatusHeader({
     }
   }
 
-  const indicator = reconnecting ? (
-    <RefreshCw className="size-3 animate-spin" aria-hidden="true" />
-  ) : (
+  const indicator = (
     <span
-      className={`size-1.5 shrink-0 rounded-full ${healthy ? 'bg-primary' : 'bg-current'}`}
+      className={`size-2 shrink-0 rounded-full ${
+        healthy
+          ? 'bg-primary'
+          : live || reconnecting
+            ? 'bg-amber-500'
+            : 'bg-muted-foreground'
+      } ${reconnecting ? 'animate-pulse' : ''}`}
       aria-hidden="true"
     />
   );
@@ -153,13 +188,13 @@ export function StatusHeader({
       <div className="mx-auto flex h-16 max-w-[1680px] items-center justify-between gap-3 px-4 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <span
-            className="grid size-9 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-primary/30 bg-primary/10 p-2"
+            className="size-9 shrink-0 bg-foreground"
+            style={{
+              WebkitMask: "url('/miglens-mark.png') center / contain no-repeat",
+              mask: "url('/miglens-mark.png') center / contain no-repeat",
+            }}
             aria-hidden="true"
-          >
-            <span className="rounded-[1px] bg-primary" />
-            <span className="rounded-[1px] bg-primary/45" />
-            <span className="col-span-2 rounded-[1px] bg-primary/70" />
-          </span>
+          />
           <div className="min-w-0">
             <p className="text-sm font-semibold tracking-tight">MIGLens</p>
             <p className="truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
@@ -169,76 +204,43 @@ export function StatusHeader({
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          <Badge
-            variant="outline"
-            className="hidden rounded-md border-border bg-card font-mono text-[11px] text-muted-foreground lg:inline-flex"
-          >
-            <CircleDot
-              className={healthy ? 'text-primary' : 'text-amber-400'}
-            />
-            {providerLabel(capabilities)}
-          </Badge>
-
           <div
             className="relative hidden md:block"
             data-testid="desktop-live-sampling"
           >
             <div
-              className={`flex h-8 items-center overflow-hidden rounded-lg border shadow-sm ${
-                healthy
-                  ? 'border-primary/25 bg-primary/[0.07]'
-                  : 'border-amber-500/30 bg-amber-500/[0.08]'
-              }`}
+              className="flex h-8 items-center gap-2"
               aria-label="Live status and sampling"
               aria-busy={pendingSampling != null}
             >
-              <div
-                className={`flex h-full items-center gap-1.5 px-3 font-mono text-[10px] font-semibold ${healthy ? 'text-primary' : 'text-amber-500'}`}
+              <output
+                className={`flex h-full items-center gap-1.5 font-mono text-[10px] font-semibold ${healthy ? 'text-foreground' : 'text-amber-500'}`}
                 aria-live="polite"
+                aria-label={`Connection status: ${statusName}`}
               >
                 {indicator}
                 {statusName}
+              </output>
+              <div title={cadenceTitle}>
+                <SamplingChoices
+                  allowed={allowedSampling}
+                  custom={customSampling}
+                  current={displayedSampling}
+                  pending={pendingSampling}
+                  onSelect={(milliseconds) => void applySampling(milliseconds)}
+                />
               </div>
-              <span className="h-4 w-px bg-border" aria-hidden="true" />
-              <span className="px-2 font-mono text-[8px] uppercase tracking-[0.13em] text-muted-foreground">
-                Sampling
-              </span>
-              <SamplingChoices
-                allowed={allowedSampling}
-                current={displayedSampling}
-                pending={pendingSampling}
-                onSelect={(milliseconds) => void applySampling(milliseconds)}
-              />
-              <span
-                className="grid h-full w-24 shrink-0 place-items-center px-1 font-mono text-[9px] text-muted-foreground"
-                data-testid="sampling-update-status"
-                aria-live="polite"
-              >
-                {pendingSampling != null ? (
-                  <RefreshCw
-                    className="size-3 animate-spin text-muted-foreground"
-                    aria-label={`Applying ${formatSamplingInterval(pendingSampling)}`}
-                  />
-                ) : samplingError ? (
-                  <span className="flex items-center gap-1 whitespace-nowrap">
-                    <AlertTriangle
-                      className="size-3.5 text-amber-500"
-                      aria-label="Sampling update failed"
-                    />
-                    {customSampling ? `Custom ${samplingText}` : samplingText}
-                  </span>
-                ) : customSampling ? (
-                  <span className="whitespace-nowrap">
-                    Custom {samplingText}
-                  </span>
-                ) : (
-                  <Check className="size-3 opacity-0" aria-hidden="true" />
-                )}
-              </span>
             </div>
             {samplingError ? (
-              <output className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-max max-w-72 rounded-md border border-amber-500/30 bg-popover px-3 py-2 font-mono text-[10px] text-amber-600 shadow-xl dark:text-amber-300">
-                {samplingError}
+              <output
+                role="alert"
+                className="absolute right-0 top-[calc(100%+0.5rem)] z-50 flex w-max max-w-72 items-center gap-1.5 rounded-md border border-amber-500/30 bg-popover px-3 py-2 font-mono text-[10px] text-amber-600 shadow-xl dark:text-amber-300"
+              >
+                <AlertTriangle
+                  className="size-3.5 shrink-0"
+                  aria-hidden="true"
+                />
+                <span>{samplingError}</span>
               </output>
             ) : null}
           </div>
@@ -246,12 +248,9 @@ export function StatusHeader({
           <div className="md:hidden" data-testid="mobile-live-sampling">
             <PopoverPrimitive.Root>
               <PopoverPrimitive.Trigger
-                className={`flex h-8 items-center gap-1.5 rounded-lg border px-2.5 font-mono text-[10px] font-semibold shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                  healthy
-                    ? 'border-primary/25 bg-primary/[0.08] text-primary'
-                    : 'border-amber-500/30 bg-amber-500/[0.09] text-amber-500'
-                }`}
+                className="flex h-8 items-center gap-1.5 rounded-md border border-border/80 bg-muted/50 px-2.5 font-mono text-[10px] font-semibold text-foreground shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={`${statusName} status, sampling ${displayedSamplingText}`}
+                aria-busy={pendingSampling != null}
               >
                 {indicator}
                 <span className="whitespace-nowrap">
@@ -270,47 +269,61 @@ export function StatusHeader({
                     <div className="mb-3 flex items-start justify-between gap-3">
                       <div>
                         <PopoverPrimitive.Title className="text-xs font-semibold">
-                          Sampling
+                          Live cadence
                         </PopoverPrimitive.Title>
                         <PopoverPrimitive.Description className="mt-0.5 text-[10px] text-muted-foreground">
-                          Shared live update cadence.
+                          {cadenceDetails.length > 0
+                            ? cadenceTitle
+                            : 'Shared live update cadence.'}
                         </PopoverPrimitive.Description>
                       </div>
                       <span
-                        className={`flex items-center gap-1 font-mono text-[9px] ${healthy ? 'text-primary' : 'text-amber-500'}`}
+                        className={`flex items-center gap-1 font-mono text-[9px] ${healthy ? 'text-foreground' : 'text-amber-500'}`}
                       >
-                        {healthy ? <Check className="size-3" /> : indicator}
+                        {indicator}
                         {statusName}
                       </span>
                     </div>
-                    <SamplingChoices
-                      allowed={allowedSampling}
-                      current={displayedSampling}
-                      pending={pendingSampling}
-                      mobile
-                      onSelect={(milliseconds) =>
-                        void applySampling(milliseconds)
-                      }
-                    />
-                    <div
-                      className="mt-2 min-h-4 font-mono text-[9px] text-muted-foreground"
-                      aria-live="polite"
-                    >
+                    <div className="relative">
+                      <SamplingChoices
+                        allowed={allowedSampling}
+                        custom={customSampling}
+                        current={displayedSampling}
+                        pending={pendingSampling}
+                        mobile
+                        onSelect={(milliseconds) =>
+                          void applySampling(milliseconds)
+                        }
+                      />
                       {samplingError ? (
-                        <span className="text-amber-500">{samplingError}</span>
-                      ) : pendingSampling != null ? (
-                        `Applying ${formatSamplingInterval(pendingSampling)}…`
-                      ) : customSampling ? (
-                        `Current · Custom ${samplingText}`
-                      ) : (
-                        `Current · ${samplingText}`
-                      )}
+                        <output
+                          role="alert"
+                          className="absolute right-0 top-[calc(100%+0.5rem)] z-50 flex w-max max-w-full items-center gap-1.5 rounded-md border border-amber-500/30 bg-popover px-3 py-2 font-mono text-[9px] text-amber-600 shadow-xl dark:text-amber-300"
+                        >
+                          <AlertTriangle
+                            className="size-3.5 shrink-0"
+                            aria-hidden="true"
+                          />
+                          <span>{samplingError}</span>
+                        </output>
+                      ) : null}
                     </div>
                   </PopoverPrimitive.Popup>
                 </PopoverPrimitive.Positioner>
               </PopoverPrimitive.Portal>
             </PopoverPrimitive.Root>
           </div>
+
+          <a
+            href="https://github.com/intellisys-stevens/miglens"
+            target="_blank"
+            rel="noreferrer"
+            className={buttonVariants({ variant: 'ghost', size: 'icon' })}
+            aria-label="Open MIGLens repository on GitHub"
+            title="MIGLens on GitHub"
+          >
+            <GitHubMark />
+          </a>
 
           <Button
             type="button"
@@ -326,3 +339,5 @@ export function StatusHeader({
     </header>
   );
 }
+
+export const StatusHeader = memo(StatusHeaderComponent);

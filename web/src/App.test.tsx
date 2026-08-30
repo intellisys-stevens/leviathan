@@ -8,6 +8,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App, formatBuildVersion } from './App';
 import type {
+  Attribution,
   Capabilities,
   Diagnostic,
   GPU,
@@ -83,6 +84,30 @@ function populatedGPU(index = 0): GPU {
       power: {
         value: 142,
         unit: 'watts',
+        source: 'nvml',
+        scope: 'physical_gpu',
+        sampledAt,
+        status: 'available',
+      },
+      power_limit: {
+        value: 250,
+        unit: 'watts',
+        source: 'nvml',
+        scope: 'physical_gpu',
+        sampledAt,
+        status: 'available',
+      },
+      pcie_rx_bytes_per_second: {
+        value: 1_073_741_824,
+        unit: 'bytes_per_second',
+        source: 'nvml',
+        scope: 'physical_gpu',
+        sampledAt,
+        status: 'available',
+      },
+      pcie_tx_bytes_per_second: {
+        value: 536_870_912,
+        unit: 'bytes_per_second',
         source: 'nvml',
         scope: 'physical_gpu',
         sampledAt,
@@ -183,6 +208,16 @@ function GPUWithoutMetrics(): GPU {
     value: null,
     status: 'unsupported',
   };
+  gpu.metrics.pcie_rx_bytes_per_second = {
+    ...gpu.metrics.pcie_rx_bytes_per_second,
+    value: null,
+    status: 'unsupported',
+  };
+  gpu.metrics.pcie_tx_bytes_per_second = {
+    ...gpu.metrics.pcie_tx_bytes_per_second,
+    value: null,
+    status: 'unsupported',
+  };
   gi.memory = {
     ...gi.memory,
     totalBytes: null,
@@ -208,6 +243,18 @@ function fullGPU(index = 2): GPU {
     power: {
       ...gpu.metrics.power,
       value: 300,
+    },
+    power_limit: {
+      ...gpu.metrics.power_limit,
+      value: 300,
+    },
+    pcie_rx_bytes_per_second: {
+      ...gpu.metrics.pcie_rx_bytes_per_second,
+      value: 2_147_483_648,
+    },
+    pcie_tx_bytes_per_second: {
+      ...gpu.metrics.pcie_tx_bytes_per_second,
+      value: 1_073_741_824,
     },
     gpu_activity: {
       value: 100,
@@ -270,16 +317,52 @@ function snapshot(
   };
 }
 
+const workspaceAttribution: Attribution = {
+  provider: 'coder-kubernetes',
+  status: 'available',
+  observedAt: sampledAt,
+  workloads: [
+    {
+      ref: 'internal-workload-ref',
+      platform: 'coder',
+      kind: 'workspace',
+      name: 'training-lab',
+      ownerName: 'alice',
+    },
+  ],
+  assignments: [
+    {
+      workloadRef: 'internal-workload-ref',
+      entityType: 'compute_instance',
+      entityUuid: 'MIG-fixture-0-0',
+      state: 'allocated',
+    },
+  ],
+};
+
 function result(
   current: Snapshot | null,
   connection = 'live',
   error: string | null = null,
   settings: RuntimeSettings = {
     samplingIntervalMs: 1000,
+    profileIntervalMs: 1000,
+    processIntervalMs: 1000,
     historyWindowMs: 60 * 60 * 1000,
     allowedSamplingIntervalsMs: [500, 1000, 2000],
   },
 ) {
+  const historyValues = {
+    temperature: 47,
+    gpu_activity: 61,
+    sm_activity: 60,
+    memory_activity: 32,
+    dram_activity: 31,
+    pcie_rx_bytes_per_second: 1_073_741_824,
+    pcie_tx_bytes_per_second: 536_870_912,
+    memory_used_bytes: 4_294_967_296,
+    memory_total_bytes: 25_769_803_776,
+  };
   return {
     snapshot: current,
     connection,
@@ -291,18 +374,42 @@ function result(
       points: [
         {
           sampledAt: '2026-08-29T11:59:59Z',
-          values: {
-            temperature: 47,
-            gpu_activity: 61,
-            sm_activity: 60,
-            memory_activity: 32,
-            dram_activity: 31,
-            memory_used_bytes: 4_294_967_296,
-            memory_total_bytes: 25_769_803_776,
-          },
+          values: historyValues,
         },
       ],
     })),
+    alignedHistory: vi.fn(
+      async (request: {
+        window: string;
+        maxPoints: number;
+        series: Array<{ key: string; entity: string; metrics: string[] }>;
+      }) => ({
+        window: request.window,
+        series: request.series,
+        points: [
+          {
+            sampledAt: '2026-08-29T11:59:59Z',
+            values: Object.fromEntries(
+              request.series.map((series) => [
+                series.key,
+                Object.fromEntries(
+                  series.metrics.flatMap((metric) =>
+                    metric in historyValues
+                      ? [
+                          [
+                            metric,
+                            historyValues[metric as keyof typeof historyValues],
+                          ],
+                        ]
+                      : [],
+                  ),
+                ),
+              ]),
+            ),
+          },
+        ],
+      }),
+    ),
     settings,
     buildInfo: {
       version: '0.1.0',
@@ -360,21 +467,45 @@ describe('MIGLens dashboard states', () => {
     expect(screen.getByText('GPU 0')).toBeInTheDocument();
   });
 
-  it('combines healthy live status and sampling in the desktop header', () => {
+  it('renders concise live status beside one neutral cadence control', () => {
     mockUseMIGLens.mockReturnValue(result(snapshot()));
     render(<App />);
 
     const capsule = screen.getByTestId('desktop-live-sampling');
     expect(within(capsule).getByText('Live')).toBeInTheDocument();
     expect(within(capsule).queryByText(/#12/)).not.toBeInTheDocument();
-    expect(within(capsule).getByText('Sampling')).toBeInTheDocument();
-    expect(within(capsule).getByRole('button', { name: '1s' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    expect(within(capsule).queryByText('Sampling')).toBeNull();
+    const sampling = within(capsule).getByRole('group', {
+      name: 'Sampling interval',
+    });
+    expect(sampling).toHaveClass('gap-1');
+    const selectedSampling = within(sampling).getByRole('button', {
+      name: '1s',
+    });
+    expect(selectedSampling).toHaveAttribute('aria-pressed', 'true');
+    expect(selectedSampling).toHaveClass('min-w-10', 'flex-none');
+    expect(screen.getByRole('banner')).not.toHaveTextContent('NVML + GPM');
     expect(screen.getByRole('banner')).not.toHaveTextContent(
       /\d{1,2}:\d{2}:\d{2}/,
     );
+  });
+
+  it('exposes slower cadences without reserving an empty feedback slot', () => {
+    const settings: RuntimeSettings = {
+      samplingIntervalMs: 1000,
+      profileIntervalMs: 2000,
+      processIntervalMs: 5000,
+      historyWindowMs: 60 * 60 * 1000,
+      allowedSamplingIntervalsMs: [500, 1000, 2000],
+    };
+    mockUseMIGLens.mockReturnValue(result(snapshot(), 'live', null, settings));
+    render(<App />);
+
+    expect(screen.queryByTestId('sampling-update-status')).toBeNull();
+    expect(screen.queryByText('Sampling')).toBeNull();
+    expect(
+      screen.getByTitle('GPU metrics 1s · profiles 2s · processes 5s'),
+    ).toBeInTheDocument();
   });
 
   it('opens and dismisses the accessible mobile sampling popover', async () => {
@@ -388,7 +519,7 @@ describe('MIGLens dashboard states', () => {
     fireEvent.click(trigger);
     const popup = await screen.findByRole('dialog');
     expect(
-      within(popup).getByText('Shared live update cadence.'),
+      within(popup).getByText('GPU metrics 1s · profiles 1s · processes 1s'),
     ).toBeVisible();
 
     fireEvent.click(within(popup).getByRole('button', { name: '0.5s' }));
@@ -428,7 +559,9 @@ describe('MIGLens dashboard states', () => {
   it('renders and filters current-namespace GPU processes', async () => {
     mockUseMIGLens.mockReturnValue(result(snapshot()));
     render(<App />);
-    expect(screen.getAllByText('GPU processes').length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole('heading', { name: 'Host-wide GPU processes' }),
+    ).toBeInTheDocument();
     expect(screen.getByText('4100')).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Filter GPU processes'), {
@@ -446,13 +579,140 @@ describe('MIGLens dashboard states', () => {
     });
   });
 
+  it('switches between GPU and People resources without resetting host panels', async () => {
+    const current = snapshot();
+    current.attribution = workspaceAttribution;
+    const dashboard = result(current);
+    mockUseMIGLens.mockReturnValue(dashboard);
+    render(<App />);
+
+    await screen.findByRole('heading', { name: 'Temperature' });
+    await waitFor(() =>
+      expect(dashboard.alignedHistory).toHaveBeenCalledTimes(5),
+    );
+    const filter = screen.getByLabelText('Filter GPU processes');
+    fireEvent.change(filter, { target: { value: 'research' } });
+
+    const viewSwitch = screen.getByRole('group', {
+      name: 'Organize resources by',
+    });
+    fireEvent.click(within(viewSwitch).getByRole('button', { name: 'People' }));
+
+    expect(await screen.findByTestId('people-view')).toBeInTheDocument();
+    expect(screen.getByText('alice')).toBeInTheDocument();
+    expect(screen.getByText('training-lab')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Host-wide telemetry' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        'Scheduler assignments describe allocation, not active GPU use.',
+      ),
+    ).toBeNull();
+    expect(
+      screen.queryByText(
+        'History across this host; the resource view above does not filter these charts.',
+      ),
+    ).toBeNull();
+    expect(
+      screen.getByRole('heading', { name: 'Host-wide GPU processes' }),
+    ).toBeInTheDocument();
+    expect(filter).toHaveValue('research');
+    expect(dashboard.alignedHistory).toHaveBeenCalledTimes(5);
+    expect(localStorage.getItem('miglens.dashboardView.v1')).toBe('people');
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Open GPU 0 · GI 1 · CI 0 details',
+      }),
+    );
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('restores the persisted People perspective when attribution is configured', () => {
+    localStorage.setItem('miglens.dashboardView.v1', 'people');
+    const current = snapshot();
+    current.attribution = workspaceAttribution;
+    mockUseMIGLens.mockReturnValue(result(current));
+
+    render(<App />);
+
+    expect(screen.getByTestId('people-view')).toBeInTheDocument();
+    expect(screen.getByText('training-lab')).toBeInTheDocument();
+    expect(screen.queryByLabelText('GPU topology')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'People' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('keeps bare-metal dashboards GPU-only', () => {
+    mockUseMIGLens.mockReturnValue(result(snapshot()));
+    render(<App />);
+    expect(
+      screen.queryByRole('group', { name: 'Organize resources by' }),
+    ).toBeNull();
+    expect(screen.getByLabelText('GPU topology')).toBeInTheDocument();
+  });
+
+  it('uses semantic temperature and power colors based on physical limits', () => {
+    mockUseMIGLens.mockReturnValue(
+      result(snapshot([populatedGPU(), fullGPU()])),
+    );
+    render(<App />);
+
+    expect(
+      screen.getByLabelText('Physical GPU temperature 48°C, cool'),
+    ).toHaveClass('text-sky-600');
+    expect(
+      screen.getByLabelText(
+        'Physical GPU power 142 W, 57% of power limit, normal',
+      ),
+    ).toHaveClass('text-primary');
+    expect(
+      screen.getByLabelText('Physical GPU temperature 82°C, hot'),
+    ).toHaveClass('text-destructive');
+    expect(
+      screen.getByLabelText(
+        'Physical GPU power 300 W, 100% of power limit, near limit',
+      ),
+    ).toHaveClass('text-orange-700');
+  });
+
+  it('shows workspace attribution without exposing internal join refs', async () => {
+    const current = snapshot();
+    current.attribution = workspaceAttribution;
+    mockUseMIGLens.mockReturnValue(result(current));
+    render(<App />);
+
+    expect(
+      screen.getByLabelText('Workspace attribution summary'),
+    ).toHaveTextContent(/coder-kubernetes.*1 workspace.*1 device/);
+    expect(screen.getAllByText('alice / training-lab').length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.queryByText('internal-workload-ref')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /GI 1 \/ CI 0/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(
+      within(dialog).getByRole('heading', { name: 'Workspace attribution' }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText('alice / training-lab'),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText('coder · workspace')).toBeInTheDocument();
+    expect(dialog.querySelector('time')).toHaveAttribute('datetime', sampledAt);
+    expect(within(dialog).queryByText('internal-workload-ref')).toBeNull();
+  });
+
   it('uses the GPU-connected empty-state wording for a healthy zero count', () => {
     mockUseMIGLens.mockReturnValue(result(snapshot([populatedGPU()], [], [])));
     render(<App />);
     expect(screen.getByText('No GPU-connected processes.')).toBeInTheDocument();
   });
 
-  it('renders all four overview chart panels with scoped series labels', async () => {
+  it('renders all five overview chart panels with scoped series labels', async () => {
     mockUseMIGLens.mockReturnValue(result(snapshot()));
     render(<App />);
     for (const name of [
@@ -460,11 +720,24 @@ describe('MIGLens dashboard states', () => {
       'Utilization',
       'Memory',
       'Memory Activity',
+      'PCIe Transfer',
     ]) {
       expect(await screen.findByRole('heading', { name })).toBeInTheDocument();
     }
     expect(screen.getAllByText('GPU 0').length).toBeGreaterThan(0);
     expect(screen.getAllByText('GPU 0 · GI 1').length).toBeGreaterThan(0);
+    const chartLayer = screen
+      .getByTestId('memory-chart')
+      .closest('[aria-label="30m GPU history"]');
+    expect(chartLayer).toHaveClass('z-10');
+    expect(screen.getByTestId('process-section')).toBeInTheDocument();
+    await waitFor(() => {
+      const wrapper = document.querySelector<HTMLElement>(
+        '.recharts-tooltip-wrapper',
+      );
+      expect(wrapper?.style.zIndex).toBe('50');
+      expect(wrapper?.style.pointerEvents).toBe('none');
+    });
   });
 
   it('uses concise dashboard copy', async () => {
@@ -472,12 +745,23 @@ describe('MIGLens dashboard states', () => {
     render(<App />);
 
     expect(
+      screen.getByRole('heading', { name: 'Dashboard' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', {
+        name: /^(?:GPU overview|GPU partition overview)$/u,
+      }),
+    ).not.toBeInTheDocument();
+    expect(
       screen.getByText('Live GPU, MIG, and CUDA process telemetry.'),
     ).toBeInTheDocument();
     expect(screen.getByText('1 GI · 1 CI')).toBeInTheDocument();
+    expect(screen.getByTestId('process-count')).toHaveTextContent(
+      '1 CUDA client',
+    );
     expect(
-      screen.getByText('CUDA clients · current PID namespace'),
-    ).toBeInTheDocument();
+      document.getElementById('process-table-description'),
+    ).toHaveTextContent('current PID namespace · not workspace-attributed');
     expect(
       screen.getByText('Unavailable metrics and provider issues.'),
     ).toBeInTheDocument();
@@ -485,7 +769,9 @@ describe('MIGLens dashboard states', () => {
     expect(footer).toHaveTextContent(
       'Built with ⚔️ by Intellisys Dragoons and Codex · MIGLens v0.1.0',
     );
-    expect(screen.getByText('Intellisys Dragoons').tagName).toBe('STRONG');
+    expect(
+      screen.getByRole('link', { name: 'Intellisys Dragoons' }),
+    ).toHaveAttribute('href', 'https://intellisys.haow.us/team/');
     expect(footer).not.toHaveTextContent('linux/amd64');
     expect(footer).not.toHaveTextContent('localhost only');
     expect(screen.queryByText(/5s smoothing/i)).not.toBeInTheDocument();
@@ -498,7 +784,8 @@ describe('MIGLens dashboard states', () => {
       '30m · Physical GPUs',
       '30m · SM activity by GI · GPU activity for full GPUs',
       '30m · Instance memory used',
-      '30m · DRAM activity by GI · memory activity for full GPUs',
+      '30m · DRAM bandwidth utilization by GI · read/write busy time for full GPUs',
+      '30m · Exact Host → GPU + GPU → Host by GPU / GI',
     ]) {
       expect(await screen.findByText(copy)).toBeInTheDocument();
     }
@@ -542,31 +829,38 @@ describe('MIGLens dashboard states', () => {
     );
   });
 
-  it('refetches history only when the selected range expands', async () => {
+  it('refetches aligned history whenever the selected range changes', async () => {
     const dashboard = result(snapshot());
     mockUseMIGLens.mockReturnValue(dashboard);
     render(<App />);
     await screen.findByRole('heading', { name: 'Temperature' });
-    await waitFor(() => expect(dashboard.history).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(dashboard.alignedHistory).toHaveBeenCalledTimes(5),
+    );
 
     fireEvent.click(screen.getByRole('button', { name: '1h' }));
-    await waitFor(() => expect(dashboard.history).toHaveBeenCalledTimes(4));
-    expect(dashboard.history).toHaveBeenLastCalledWith(
-      expect.any(String),
-      expect.any(Array),
-      '1h',
+    await waitFor(() =>
+      expect(dashboard.alignedHistory).toHaveBeenCalledTimes(10),
+    );
+    expect(dashboard.alignedHistory).toHaveBeenLastCalledWith(
+      expect.objectContaining({ window: '1h', maxPoints: 720 }),
     );
 
     fireEvent.click(screen.getByRole('button', { name: '5m' }));
-    await waitFor(() =>
-      expect(screen.getByText('5m · Physical GPUs')).toBeInTheDocument(),
+    await waitFor(() => {
+      expect(screen.getByText('5m · Physical GPUs')).toBeInTheDocument();
+      expect(dashboard.alignedHistory).toHaveBeenCalledTimes(15);
+    });
+    expect(dashboard.alignedHistory).toHaveBeenLastCalledWith(
+      expect.objectContaining({ window: '5m', maxPoints: 720 }),
     );
-    expect(dashboard.history).toHaveBeenCalledTimes(4);
   });
 
   it('disables ranges beyond retention and displays a shorter custom retention', async () => {
     const settings: RuntimeSettings = {
       samplingIntervalMs: 1000,
+      profileIntervalMs: 1000,
+      processIntervalMs: 1000,
       historyWindowMs: 4 * 60 * 1000,
       allowedSamplingIntervalsMs: [500, 1000, 2000],
     };
@@ -593,6 +887,8 @@ describe('MIGLens dashboard states', () => {
   it('applies sampling changes and keeps custom startup cadences visible', async () => {
     const settings: RuntimeSettings = {
       samplingIntervalMs: 250,
+      profileIntervalMs: 250,
+      processIntervalMs: 250,
       historyWindowMs: 60 * 60 * 1000,
       allowedSamplingIntervalsMs: [500, 1000, 2000],
     };
@@ -608,10 +904,14 @@ describe('MIGLens dashboard states', () => {
     render(<App />);
 
     expect(await screen.findByText('Custom 0.25s')).toBeInTheDocument();
-    const statusSlot = screen.getByTestId('sampling-update-status');
+    const cadenceControl = screen.getByRole('group', {
+      name: 'Sampling interval',
+    });
     fireEvent.click(screen.getByRole('button', { name: '0.5s' }));
-    expect(screen.getByLabelText('Applying 0.5s')).toBeInTheDocument();
-    expect(screen.getByTestId('sampling-update-status')).toBe(statusSlot);
+    expect(screen.getByText('Applying 0.5s')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Sampling interval' })).toBe(
+      cadenceControl,
+    );
     expect(
       within(screen.getByTestId('desktop-live-sampling')).getByRole('button', {
         name: '0.5s',
@@ -638,8 +938,16 @@ describe('MIGLens dashboard states', () => {
     );
     render(<App />);
 
-    const gpu0 = await screen.findByRole('button', { name: 'Focus GPU 0' });
-    const gpu1 = screen.getByRole('button', { name: 'Focus GPU 1' });
+    const temperaturePanel = (
+      await screen.findByRole('heading', { name: 'Temperature' })
+    ).closest('section');
+    expect(temperaturePanel).not.toBeNull();
+    const gpu0 = within(temperaturePanel as HTMLElement).getByRole('button', {
+      name: 'Focus GPU 0',
+    });
+    const gpu1 = within(temperaturePanel as HTMLElement).getByRole('button', {
+      name: 'Focus GPU 1',
+    });
     const panel = gpu0.closest('section');
     expect(panel).not.toBeNull();
 
@@ -697,78 +1005,77 @@ describe('MIGLens dashboard states', () => {
     const unresolved = new Promise<never>(() => undefined);
     mockUseMIGLens.mockReturnValue({
       ...result(snapshot([GPUWithoutMetrics()])),
-      history: vi.fn(() => unresolved),
+      alignedHistory: vi.fn(() => unresolved),
     });
     const loadingView = render(<App />);
-    expect((await screen.findAllByText('Loading history…')).length).toBe(4);
+    expect((await screen.findAllByText('Loading history…')).length).toBe(5);
     loadingView.unmount();
 
     mockUseMIGLens.mockReturnValue({
       ...result(snapshot([GPUWithoutMetrics()]), 'reconnecting'),
-      history: vi.fn(() => unresolved),
+      alignedHistory: vi.fn(() => unresolved),
     });
     const disconnectedView = render(<App />);
     expect((await screen.findAllByText('History disconnected.')).length).toBe(
-      4,
+      5,
     );
     disconnectedView.unmount();
 
     mockUseMIGLens.mockReturnValue({
       ...result(snapshot([GPUWithoutMetrics()])),
-      history: vi.fn(async (entity: string, metrics: string[]) => ({
-        entity,
-        metrics,
-        window: '30m0s',
+      alignedHistory: vi.fn(async (request) => ({
+        window: request.window,
+        series: request.series,
         points: [],
       })),
     });
     const unavailableView = render(<App />);
-    expect((await screen.findAllByText('Metric unavailable.')).length).toBe(4);
+    expect((await screen.findAllByText('Metric unavailable.')).length).toBe(5);
     unavailableView.unmount();
 
     mockUseMIGLens.mockReturnValue({
       ...result(snapshot()),
-      history: vi.fn(async (entity: string, metrics: string[]) => ({
-        entity,
-        metrics,
-        window: '30m0s',
+      alignedHistory: vi.fn(async (request) => ({
+        window: request.window,
+        series: request.series,
         points: [],
       })),
     });
     render(<App />);
-    expect((await screen.findAllByText('Collecting history…')).length).toBe(4);
+    expect(
+      (await screen.findAllByText('Collecting history…')).length,
+    ).toBeGreaterThanOrEqual(4);
   });
 
-  it('loads overview history once per entity and reloads on topology generation change', async () => {
-    const history = vi.fn(async (entity: string, metrics: string[]) => ({
-      entity,
-      metrics,
-      window: '30m0s',
+  it('loads aligned history once per panel and reloads on topology generation change', async () => {
+    const alignedHistory = vi.fn(async (request) => ({
+      window: request.window,
+      series: request.series,
       points: [],
     }));
     let current = snapshot();
+    const dashboardState = result(current);
     mockUseMIGLens.mockImplementation(() => ({
+      ...dashboardState,
       snapshot: current,
-      connection: 'live',
-      error: null,
-      history,
+      alignedHistory,
     }));
     const dashboard = render(<App />);
     await screen.findByRole('heading', { name: 'Temperature' });
-    await waitFor(() => expect(history).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(alignedHistory).toHaveBeenCalledTimes(5));
 
     current = snapshot();
     current.sequence = 13;
     current.sampledAt = '2026-08-29T12:00:01Z';
     dashboard.rerender(<App />);
-    await waitFor(() => expect(history).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(alignedHistory).toHaveBeenCalledTimes(5));
 
     current = snapshot();
     current.sequence = 14;
     current.sampledAt = '2026-08-29T12:00:02Z';
     current.gpus[0].gpuInstances[0].generation = 'GPU-fixture-0/gi/1@g2';
     dashboard.rerender(<App />);
-    await waitFor(() => expect(history).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(alignedHistory).toHaveBeenCalledTimes(10));
   });
 
   it('shows hierarchy details without placement or ownership', async () => {
@@ -802,11 +1109,18 @@ describe('MIGLens dashboard states', () => {
       }),
     );
     const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveAttribute('data-testid', 'detail-sheet');
+    expect(
+      within(dialog).getByTestId('detail-history-chart'),
+    ).toBeInTheDocument();
     expect(within(dialog).getByText('GPU 2 · Full GPU')).toBeInTheDocument();
     for (const value of [
       '100.0%',
       '98.4%',
       '89.0%',
+      '3.0 GiB/s',
+      '2.0 GiB/s',
+      '1.0 GiB/s',
       '82°C',
       '300 W',
       '1807 MHz',
@@ -814,6 +1128,7 @@ describe('MIGLens dashboard states', () => {
     ]) {
       expect(within(dialog).getByText(value)).toBeInTheDocument();
     }
+    expect(within(dialog).getAllByText('100%').length).toBeGreaterThan(0);
     expect(
       within(dialog).getByRole('group', { name: 'Detail chart window' }),
     ).toBeInTheDocument();
@@ -821,7 +1136,13 @@ describe('MIGLens dashboard states', () => {
     await waitFor(() =>
       expect(dashboard.history).toHaveBeenCalledWith(
         'GPU-fixture-2',
-        ['gpu_activity', 'sm_activity', 'memory_activity'],
+        [
+          'gpu_activity',
+          'sm_activity',
+          'memory_activity',
+          'pcie_rx_bytes_per_second',
+          'pcie_tx_bytes_per_second',
+        ],
         '30m',
       ),
     );

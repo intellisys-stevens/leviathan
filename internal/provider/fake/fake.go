@@ -94,6 +94,9 @@ func (p *Provider) Sample(_ context.Context, at time.Time) (model.Snapshot, erro
 		gpu.Memory = model.Memory{TotalBytes: &total, UsedBytes: &used, FreeBytes: &free, Source: model.SourceNVML, Scope: model.ScopePhysicalGPU, SampledAt: at, Status: model.StatusAvailable}
 		gpu.Metrics["temperature"] = model.AvailableMetric(48+float64(gpuIndex*3), "celsius", model.SourceNVML, model.ScopePhysicalGPU, at)
 		gpu.Metrics["power"] = model.AvailableMetric(142+float64(gpuIndex*17), "watts", model.SourceNVML, model.ScopePhysicalGPU, at)
+		gpu.Metrics["power_limit"] = model.AvailableMetric(300+float64(gpuIndex*25), "watts", model.SourceNVML, model.ScopePhysicalGPU, at)
+		gpu.Metrics["pcie_tx_bytes_per_second"] = model.AvailableMetric(float64(220+gpuIndex*35)*1024*1024, "bytes_per_second", model.SourceNVMLGPM, model.ScopePhysicalGPU, at)
+		gpu.Metrics["pcie_rx_bytes_per_second"] = model.AvailableMetric(float64(510+gpuIndex*45)*1024*1024, "bytes_per_second", model.SourceNVMLGPM, model.ScopePhysicalGPU, at)
 		for i := 0; i < count; i++ {
 			activity := 12 + math.Mod(float64(seq*7+uint64(i*19+gpuIndex*11)), 81)
 			memTotal := uint64(24 * 1024 * 1024 * 1024)
@@ -111,10 +114,12 @@ func (p *Provider) Sample(_ context.Context, at time.Time) (model.Snapshot, erro
 				UUID: fmt.Sprintf("%s/gi/%d", gpuUUID, giID), ID: giID, Profile: "1g.24gb", Generation: fmt.Sprintf("%s/gi/%d", gpuUUID, giID),
 				Memory: model.Memory{TotalBytes: &memTotal, UsedBytes: &memUsed, FreeBytes: &memFree, Source: model.SourceNVML, Scope: model.ScopeGPUInstance, SampledAt: at, Status: model.StatusAvailable},
 				Metrics: model.MetricSet{
-					"gpu_activity":    model.AvailableMetric(math.Min(100, activity*0.8+5), "percent", model.SourceNVMLGPM, model.ScopeGPUInstance, at),
-					"sm_activity":     model.AvailableMetric(activity, "percent", model.SourceNVMLGPM, model.ScopeGPUInstance, at),
-					"tensor_activity": model.AvailableMetric(activity*0.62, "percent", model.SourceNVMLGPM, model.ScopeGPUInstance, at),
-					"dram_activity":   model.AvailableMetric(math.Min(100, activity*0.83), "percent", model.SourceNVMLGPM, model.ScopeGPUInstance, at),
+					"gpu_activity":             model.AvailableMetric(math.Min(100, activity*0.8+5), "percent", model.SourceNVMLGPM, model.ScopeGPUInstance, at),
+					"sm_activity":              model.AvailableMetric(activity, "percent", model.SourceNVMLGPM, model.ScopeGPUInstance, at),
+					"tensor_activity":          model.AvailableMetric(activity*0.62, "percent", model.SourceNVMLGPM, model.ScopeGPUInstance, at),
+					"dram_activity":            model.AvailableMetric(math.Min(100, activity*0.83), "percent", model.SourceNVMLGPM, model.ScopeGPUInstance, at),
+					"pcie_tx_bytes_per_second": model.AvailableMetric((activity*8+40)*1024*1024, "bytes_per_second", model.SourceNVMLGPM, model.ScopeGPUInstance, at),
+					"pcie_rx_bytes_per_second": model.AvailableMetric((activity*13+80)*1024*1024, "bytes_per_second", model.SourceNVMLGPM, model.ScopeGPUInstance, at),
 				},
 				ComputeInstances: []model.ComputeInstance{ci},
 			}
@@ -145,6 +150,11 @@ func (p *Provider) applyScenario(snapshot *model.Snapshot, sequence uint64, at t
 				gi.Metrics[name] = metric
 			}
 		}
+		for _, name := range []string{"pcie_tx_bytes_per_second", "pcie_rx_bytes_per_second"} {
+			metric := gpu.Metrics[name]
+			metric.Source = model.SourceNVML
+			gpu.Metrics[name] = metric
+		}
 	case "non-mig":
 		gpu := snapshot.GPUs[0]
 		gpu.Name = "NVIDIA RTX 6000 Ada Generation"
@@ -153,6 +163,8 @@ func (p *Provider) applyScenario(snapshot *model.Snapshot, sequence uint64, at t
 		gpu.Metrics["gpu_activity"] = model.AvailableMetric(37, "percent", model.SourceNVML, model.ScopePhysicalGPU, at)
 		gpu.Metrics["sm_activity"] = model.AvailableMetric(37, "percent", model.SourceNVML, model.ScopePhysicalGPU, at)
 		gpu.Metrics["memory_activity"] = model.AvailableMetric(21, "percent", model.SourceNVML, model.ScopePhysicalGPU, at)
+		gpu.Metrics["pcie_tx_bytes_per_second"] = model.AvailableMetric(180*1024*1024, "bytes_per_second", model.SourceNVML, model.ScopePhysicalGPU, at)
+		gpu.Metrics["pcie_rx_bytes_per_second"] = model.AvailableMetric(420*1024*1024, "bytes_per_second", model.SourceNVML, model.ScopePhysicalGPU, at)
 		snapshot.GPUs = []model.GPU{gpu}
 	case "multi-ci":
 		snapshot.GPUs = snapshot.GPUs[:1]

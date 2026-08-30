@@ -9,14 +9,79 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  actions: read
-  artifact-metadata: write
-  attestations: write
-  contents: write
-  id-token: write
+  contents: read
 
 jobs:
+  release-metadata:
+    runs-on: ubuntu-24.04
+    outputs:
+      build-date: ${{ steps.release.outputs.build_date }}
+      commit: ${{ steps.release.outputs.commit }}
+      source-epoch: ${{ steps.release.outputs.source_epoch }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Verify release version metadata
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=${GITHUB_REF_NAME#v}
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]
+          git tag --points-at HEAD | grep -Fxq "$GITHUB_REF_NAME"
+          test "$(awk '$1 == "version:" { print $2 }' charts/miglens-attribution/Chart.yaml)" = "$version"
+          test "$(awk '$1 == "appVersion:" { gsub(/"/, "", $2); print $2 }' charts/miglens-attribution/Chart.yaml)" = "$version"
+          test "$(sed -n 's/^  version: //p' api/openapi.yaml | head -n 1)" = "$version"
+          test "$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)",$/\1/p' web/package.json | head -n 1)" = "$version"
+          source_epoch=$(git log -1 --format=%ct)
+          build_date=$(date -u -d "@$source_epoch" +%Y-%m-%dT%H:%M:%SZ)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "source_epoch=$source_epoch" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+          echo "build_date=$build_date" >> "$GITHUB_OUTPUT"
+
+  release-validation:
+    needs: release-metadata
+    runs-on: ubuntu-24.04
+    env:
+      CGO_CFLAGS: -Wno-deprecated-declarations
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.18.6
+      - name: Test and vet attribution components
+        run: |
+          go test ./cmd/miglens-kubernetes-bridge ./internal/attribution ./internal/kubernetesbridge
+          go vet ./cmd/miglens-kubernetes-bridge ./internal/attribution ./internal/kubernetesbridge
+      - name: Check Go dependency licenses
+        run: |
+          go run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/miglens --disallowed_types=forbidden,restricted,unknown
+          go run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/miglens-kubernetes-bridge --disallowed_types=forbidden,restricted,unknown
+      - name: Check reachable Go vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+      - name: Check frontend dependencies
+        working-directory: web
+        run: |
+          npm ci
+          npm audit
+          npm run license:check
+      - name: Verify Kubernetes attribution Helm chart
+        run: scripts/verify-helm-chart.sh
+
   build:
+    needs: [release-metadata, release-validation]
     strategy:
       fail-fast: false
       matrix:
@@ -26,6 +91,12 @@ jobs:
           - runner: ubuntu-24.04-arm
             architecture: arm64
     runs-on: ${{ matrix.runner }}
+    permissions:
+      actions: read
+      artifact-metadata: write
+      attestations: write
+      contents: read
+      id-token: write
     env:
       CGO_CFLAGS: -Wno-deprecated-declarations
     steps:
@@ -45,8 +116,8 @@ jobs:
         working-directory: web
       - name: Set reproducible build metadata
         run: |
-          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
-          echo "COMMIT=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_ENV"
+          echo "SOURCE_DATE_EPOCH=${{ needs.release-metadata.outputs.source-epoch }}" >> "$GITHUB_ENV"
+          echo "COMMIT=${{ needs.release-metadata.outputs.commit }}" >> "$GITHUB_ENV"
       - name: Build release archive
         id: package
         env:
@@ -81,9 +152,189 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
-  publish:
-    needs: build
+  bridge-image:
+    needs: [release-metadata, release-validation]
     runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      artifact-metadata: write
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    env:
+      BRIDGE_IMAGE: ghcr.io/${{ github.repository_owner }}/miglens-kubernetes-bridge
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build and publish multi-architecture bridge image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: contrib/container/miglens-kubernetes-bridge.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: ${{ env.BRIDGE_IMAGE }}:${{ needs.release-metadata.outputs.version }}
+          build-args: |
+            VERSION=${{ needs.release-metadata.outputs.version }}
+            COMMIT=${{ needs.release-metadata.outputs.commit }}
+            BUILD_DATE=${{ needs.release-metadata.outputs.build-date }}
+          cache-from: type=gha,scope=bridge-release
+          cache-to: type=gha,mode=max,scope=bridge-release
+      - name: Prepare release output
+        run: mkdir -p dist
+      - name: Write amd64 bridge image SPDX SBOM
+        uses: anchore/sbom-action@v0
+        env:
+          SYFT_PLATFORM: linux/amd64
+        with:
+          image: ${{ env.BRIDGE_IMAGE }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: dist/miglens-kubernetes-bridge_${{ needs.release-metadata.outputs.version }}_linux_amd64.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Write arm64 bridge image SPDX SBOM
+        uses: anchore/sbom-action@v0
+        env:
+          SYFT_PLATFORM: linux/arm64
+        with:
+          image: ${{ env.BRIDGE_IMAGE }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: dist/miglens-kubernetes-bridge_${{ needs.release-metadata.outputs.version }}_linux_arm64.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Attest bridge image provenance
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.BRIDGE_IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - name: Attest amd64 bridge image SBOM
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.BRIDGE_IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: dist/miglens-kubernetes-bridge_${{ needs.release-metadata.outputs.version }}_linux_amd64.spdx.json
+          push-to-registry: true
+      - name: Attest arm64 bridge image SBOM
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.BRIDGE_IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: dist/miglens-kubernetes-bridge_${{ needs.release-metadata.outputs.version }}_linux_arm64.spdx.json
+          push-to-registry: true
+      - uses: sigstore/cosign-installer@v4
+      - name: Sign bridge image with GitHub OIDC
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "$BRIDGE_IMAGE@$DIGEST"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-bridge-sbom
+          path: dist/*.spdx.json
+          if-no-files-found: error
+
+  chart:
+    needs: [release-metadata, bridge-image]
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      artifact-metadata: write
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    env:
+      CHART_REGISTRY: ghcr.io/${{ github.repository_owner }}/charts
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.18.6
+      - uses: sigstore/cosign-installer@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Verify chart and release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/verify-helm-chart.sh
+          chart_version=$(helm show chart charts/miglens-attribution | awk '$1 == "version:" { print $2 }')
+          app_version=$(helm show chart charts/miglens-attribution | awk '$1 == "appVersion:" { gsub(/"/, "", $2); print $2 }')
+          test "$chart_version" = "${{ needs.release-metadata.outputs.version }}"
+          test "$app_version" = "${{ needs.release-metadata.outputs.version }}"
+      - name: Package Helm chart
+        run: mkdir -p dist && helm package charts/miglens-attribution --destination dist
+      - name: Generate chart SPDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          file: dist/miglens-attribution-${{ needs.release-metadata.outputs.version }}.tgz
+          format: spdx-json
+          output-file: dist/miglens-attribution_${{ needs.release-metadata.outputs.version }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Publish Helm chart as OCI artifact
+        id: push
+        shell: bash
+        env:
+          HELM_PASSWORD: ${{ github.token }}
+          HELM_USERNAME: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          echo "$HELM_PASSWORD" | helm registry login ghcr.io --username "$HELM_USERNAME" --password-stdin
+          output=$(helm push "dist/miglens-attribution-${{ needs.release-metadata.outputs.version }}.tgz" "oci://$CHART_REGISTRY")
+          printf '%s\n' "$output"
+          digest=$(awk '$1 == "Digest:" { print $2 }' <<<"$output")
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+      - name: Attest Helm OCI provenance
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.CHART_REGISTRY }}/miglens-attribution
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      - name: Sign Helm OCI artifact with GitHub OIDC
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: cosign sign --yes "$CHART_REGISTRY/miglens-attribution@$DIGEST"
+      - name: Attest chart archive provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/miglens-attribution-${{ needs.release-metadata.outputs.version }}.tgz
+      - name: Attest chart archive SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/miglens-attribution-${{ needs.release-metadata.outputs.version }}.tgz
+          sbom-path: dist/miglens-attribution_${{ needs.release-metadata.outputs.version }}.spdx.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-chart
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: [build, bridge-image, chart]
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      artifact-metadata: write
+      attestations: write
+      contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -98,7 +349,7 @@ jobs:
       - name: Create checksums
         working-directory: dist
         run: |
-          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.spdx.json' -o -name 'install.sh' \) -printf '%f\n' | LC_ALL=C sort | xargs sha256sum > checksums.txt
+          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.tgz' -o -name '*.spdx.json' -o -name 'install.sh' \) -printf '%f\n' | LC_ALL=C sort | xargs sha256sum > checksums.txt
       - name: Attest installer
         uses: actions/attest@v4
         with:

@@ -1,6 +1,6 @@
 <div align="center">
 
-# MIGLens
+<h1><img src="web/public/miglens-mark.png" alt="MIGLens dragon mark" width="48" height="48" valign="middle"> MIGLens</h1>
 
 **MIG-first NVIDIA GPU monitoring for the terminal and browser.**
 
@@ -14,17 +14,21 @@
 
 MIGLens is a Linux-only, read-only monitor that understands the physical GPU →
 GPU Instance (GI) → Compute Instance (CI) hierarchy. One Go binary includes an
-interactive TUI, scriptable output, and a local React dashboard.
+interactive TUI, scriptable output, and a local React dashboard; an optional
+Kubernetes bridge adds scheduler-authoritative workspace assignments.
 
 ## ✨ Highlights
 
 - MIG-aware topology, profiles, memory, activity, and parent-GPU telemetry.
-- NVML GPM with optional DCGM fallback for supported per-GI counters.
+- NVML GPM with optional DCGM fallback, including exact PCIe transfer rates.
+- GPU and People perspectives, with optional Coder workspace attribution through
+  Kubernetes DRA.
 - Explicit unavailable, stale, permission-denied, and error states—never fake zeros.
 - GPU-connected processes visible in the current PID namespace, detected through
   NVIDIA UVM without host PID access or runtime sockets.
-- One-hour in-memory history, smooth overview charts, and live `0.5s`, `1s`, or
-  `2s` dashboard sampling.
+- One-hour in-memory history with continuous, timestamp-aligned overview charts,
+  plus live `0.5s`, `1s`, or `2s` sampling and independently throttled profiling
+  and process scans.
 
 ## 🚀 Quick start
 
@@ -77,6 +81,7 @@ start an instance named for the GPU workload user:
 ```bash
 sudo install -m 0755 miglens /usr/local/bin/miglens
 sudo install -m 0644 miglens@.service /etc/systemd/system/miglens@.service
+sudo install -D -m 0644 miglens.env.example /etc/miglens/miglens.env
 sudo systemctl daemon-reload
 sudo systemctl enable --now "miglens@${USER}.service"
 ```
@@ -99,6 +104,36 @@ Root mode makes cross-user process metadata visible to every dashboard viewer;
 command lines stay hidden unless explicitly enabled. See
 [permissions](docs/permissions.md#hardened-host-wide-root-mode) for details.
 
+## Optional Coder attribution
+
+MIGLens can display which Coder user/workspace has been assigned each full GPU
+or MIG compute instance. A least-privilege bridge reads Kubernetes DRA claims
+and publishes sanitized assignments over a root-only Unix socket; it does not
+use a Coder token, container-runtime socket, or process inference.
+
+The GPU perspective organizes host-wide topology and telemetry by device. The
+People perspective groups scheduler assignments by Coder user and workspace.
+An assignment means reserved or allocated by the scheduler, not active GPU use;
+charts and the process inventory remain host-wide, and process rows are not
+attributed to workspaces.
+
+Install the versioned Helm chart published with the release:
+
+```bash
+helm upgrade --install miglens-attribution \
+  oci://ghcr.io/intellisys-stevens/charts/miglens-attribution \
+  --version 0.2.0 \
+  --namespace miglens-system \
+  --create-namespace \
+  --set-json 'workspaceNamespaces=["coder-workspaces"]'
+```
+
+Then set
+`MIGLENS_ATTRIBUTION_SOCKET=/run/miglens/attribution.sock` in the systemd
+environment file. See [Kubernetes attribution](docs/kubernetes-attribution.md)
+for Kubernetes 1.34 and NVIDIA DRA prerequisites, RBAC, privacy, and failure
+behavior.
+
 ## 🔒 Providers and privacy
 
 MIGLens uses NVML for discovery and device metrics, NVML GPM for supported
@@ -108,7 +143,8 @@ parses `nvidia-smi` output and never mutates GPU configuration.
 Process discovery reads numeric `/proc` entries and file-descriptor device
 metadata only. Command arguments are hidden unless `--show-command-line` is
 enabled. MIGLens does not read environments, contact external services, cross
-PID namespaces, or require Docker, Kubernetes, or CRI sockets.
+PID namespaces, or require Docker, Kubernetes, or CRI sockets. Kubernetes is
+contacted only by the explicitly installed attribution bridge.
 
 The dashboard refuses non-loopback addresses. Metrics remain in memory and are
 discarded on restart.
@@ -128,6 +164,7 @@ profiler such as Nsight owns the profiling hardware.
 | --- | --- |
 | Architecture and metric semantics | [docs/architecture.md](docs/architecture.md) |
 | Container and process visibility | [docs/permissions.md](docs/permissions.md) |
+| Optional Kubernetes/Coder attribution | [docs/kubernetes-attribution.md](docs/kubernetes-attribution.md) |
 | OpenAPI 3.1 contract | [api/openapi.yaml](api/openapi.yaml) |
 | Development workflow | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Security boundary | [SECURITY.md](SECURITY.md) |

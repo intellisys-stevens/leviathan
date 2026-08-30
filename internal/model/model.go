@@ -65,6 +65,69 @@ type Process struct {
 	Message     string       `json:"message,omitempty"`
 }
 
+type WorkloadPlatform string
+
+const (
+	WorkloadPlatformCoder WorkloadPlatform = "coder"
+)
+
+type WorkloadKind string
+
+const (
+	WorkloadKindWorkspace WorkloadKind = "workspace"
+)
+
+type AllocationEntityType string
+
+const (
+	AllocationEntityPhysicalGPU     AllocationEntityType = "physical_gpu"
+	AllocationEntityComputeInstance AllocationEntityType = "compute_instance"
+)
+
+type AllocationState string
+
+const (
+	AllocationStateAllocated AllocationState = "allocated"
+	AllocationStateReserved  AllocationState = "reserved"
+)
+
+// WorkloadAttribution is sanitized display identity supplied by an optional
+// attribution source. Ref is opaque and source-scoped rather than an upstream ID.
+type WorkloadAttribution struct {
+	Ref       string           `json:"ref"`
+	Platform  WorkloadPlatform `json:"platform"`
+	Kind      WorkloadKind     `json:"kind"`
+	Name      string           `json:"name"`
+	OwnerName string           `json:"ownerName"`
+}
+
+// ResourceAssignment associates a scheduler-assigned device with a workload.
+// It does not assert that a process is actively using the device.
+type ResourceAssignment struct {
+	WorkloadRef string               `json:"workloadRef"`
+	EntityType  AllocationEntityType `json:"entityType"`
+	EntityUUID  string               `json:"entityUuid"`
+	State       AllocationState      `json:"state"`
+}
+
+type AttributionStatus string
+
+const (
+	AttributionAvailable   AttributionStatus = "available"
+	AttributionStale       AttributionStatus = "stale"
+	AttributionUnavailable AttributionStatus = "unavailable"
+)
+
+const AttributionProviderKubernetesDRA = "kubernetes_dra"
+
+type Attribution struct {
+	Provider    string                `json:"provider"`
+	Status      AttributionStatus     `json:"status"`
+	ObservedAt  *time.Time            `json:"observedAt,omitempty"`
+	Workloads   []WorkloadAttribution `json:"workloads"`
+	Assignments []ResourceAssignment  `json:"assignments"`
+}
+
 type ComputeInstance struct {
 	UUID        string       `json:"uuid"`
 	ID          uint32       `json:"id"`
@@ -134,6 +197,8 @@ type Host struct {
 // are intentionally separate from persisted configuration.
 type RuntimeSettings struct {
 	SamplingIntervalMs         int64   `json:"samplingIntervalMs"`
+	ProfileIntervalMs          int64   `json:"profileIntervalMs"`
+	ProcessIntervalMs          int64   `json:"processIntervalMs"`
 	HistoryWindowMs            int64   `json:"historyWindowMs"`
 	AllowedSamplingIntervalsMs []int64 `json:"allowedSamplingIntervalsMs"`
 }
@@ -153,6 +218,7 @@ type Snapshot struct {
 	Host          Host         `json:"host"`
 	GPUs          []GPU        `json:"gpus"`
 	Processes     []Process    `json:"processes"`
+	Attribution   *Attribution `json:"attribution,omitempty"`
 	Capabilities  Capabilities `json:"capabilities"`
 	Diagnostics   []Diagnostic `json:"diagnostics"`
 }

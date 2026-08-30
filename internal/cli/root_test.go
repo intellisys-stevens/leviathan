@@ -135,7 +135,7 @@ func TestBuildInfoUsesLinkerMetadata(t *testing.T) {
 	t.Cleanup(func() {
 		Version, Commit, BuildDate = previousVersion, previousCommit, previousBuildDate
 	})
-	Version, Commit, BuildDate = "0.1.0", "abc1234", "2026-08-30T12:00:00Z"
+	Version, Commit, BuildDate = "0.2.0", "abc1234", "2026-08-30T12:00:00Z"
 
 	got := buildInfo()
 	if got.Version != Version || got.Commit != Commit || got.BuildDate != BuildDate {
@@ -150,8 +150,8 @@ func TestResolveVersion(t *testing.T) {
 		moduleVersion string
 		want          string
 	}{
-		{name: "linker metadata wins", linkerVersion: "0.1.0", moduleVersion: "v9.9.9", want: "0.1.0"},
-		{name: "tagged module", linkerVersion: "dev", moduleVersion: "v0.1.1", want: "0.1.1"},
+		{name: "linker metadata wins", linkerVersion: "0.2.0", moduleVersion: "v9.9.9", want: "0.2.0"},
+		{name: "tagged module", linkerVersion: "dev", moduleVersion: "v0.2.0", want: "0.2.0"},
 		{name: "development build", linkerVersion: "dev", moduleVersion: "(devel)", want: "dev"},
 		{name: "missing build info", linkerVersion: "dev", want: "dev"},
 	}

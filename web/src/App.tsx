@@ -1,4 +1,11 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -9,10 +16,13 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
 import { DiagnosticsPanel } from './components/diagnostics-panel';
 import { GPUCard } from './components/gpu-card';
+import { PeopleView } from './components/people-view';
 import { ProcessTable } from './components/process-table';
 import { StatusHeader } from './components/status-header';
+import { AttributionSummary } from './components/workspace-attribution';
 import {
   chartWindowStorageKey,
   defaultHistoryWindowMs,
@@ -27,6 +37,14 @@ import { useMIGLens } from './use-miglens';
 const DetailSheet = lazy(() => import('./components/detail-sheet'));
 const OverviewCharts = lazy(() => import('./components/overview-charts'));
 const themeKey = 'miglens.theme.v1';
+const dashboardViewKey = 'miglens.dashboardView.v1';
+type DashboardView = 'gpus' | 'people';
+
+function storedDashboardView(): DashboardView {
+  return localStorage.getItem(dashboardViewKey) === 'people'
+    ? 'people'
+    : 'gpus';
+}
 
 export function formatBuildVersion(
   buildInfo: BuildInfo | null | undefined,
@@ -85,6 +103,7 @@ export function App() {
     connection,
     error,
     history,
+    alignedHistory,
     settings,
     buildInfo,
     updateSamplingInterval,
@@ -97,6 +116,18 @@ export function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>(() =>
     localStorage.getItem(themeKey) === 'light' ? 'light' : 'dark',
   );
+  const [dashboardView, setDashboardView] =
+    useState<DashboardView>(storedDashboardView);
+  const openSelection = useCallback((next: Selection) => {
+    setSelectedKey(
+      next.kind === 'physical_gpu'
+        ? { kind: next.kind, uuid: next.gpu.uuid }
+        : { kind: next.kind, uuid: next.ci.uuid },
+    );
+  }, []);
+  const toggleTheme = useCallback(() => {
+    setTheme((value) => (value === 'dark' ? 'light' : 'dark'));
+  }, []);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -124,6 +155,12 @@ export function App() {
   function selectDetailChartWindow(milliseconds: number) {
     setRequestedDetailChartWindowMs(milliseconds);
     localStorage.setItem(detailChartWindowStorageKey, String(milliseconds));
+  }
+
+  function selectDashboardView(view: DashboardView) {
+    setDashboardView(view);
+    setSelectedKey(null);
+    localStorage.setItem(dashboardViewKey, view);
   }
 
   const summary = useMemo(() => {
@@ -159,20 +196,19 @@ export function App() {
     { value: summary.ci, label: 'Compute instances', icon: Cpu },
     { value: summary.processes, label: 'GPU processes', icon: Database },
   ];
+  const attributionEnabled = snapshot.attribution != null;
+  const effectiveDashboardView = attributionEnabled ? dashboardView : 'gpus';
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <StatusHeader
         hostname={snapshot.host.hostname}
-        capabilities={snapshot.capabilities}
         connection={connection}
         degraded={degraded}
         settings={settings}
         theme={theme}
         onSamplingIntervalChange={updateSamplingInterval}
-        onToggleTheme={() =>
-          setTheme((value) => (value === 'dark' ? 'light' : 'dark'))
-        }
+        onToggleTheme={toggleTheme}
       />
       <main className="mx-auto max-w-[1680px] px-4 py-6 sm:px-6">
         {connection !== 'live' ? (
@@ -194,11 +230,12 @@ export function App() {
               id="host-overview"
               className="text-xl font-semibold tracking-[-0.025em] sm:text-2xl"
             >
-              GPU partition overview
+              Dashboard
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
               Live GPU, MIG, and CUDA process telemetry.
             </p>
+            <AttributionSummary attribution={snapshot.attribution} />
           </div>
           <div className="grid grid-cols-2 gap-px border border-border bg-border text-center sm:grid-cols-4">
             {summaryItems.map(({ value, label, icon: Icon }) => (
@@ -214,58 +251,112 @@ export function App() {
           </div>
         </section>
 
-        <section aria-label="GPU topology" className="space-y-4">
-          {snapshot.gpus.length === 0 ? (
-            <div className="border border-dashed border-border bg-card p-10 text-center">
-              <p className="text-sm font-medium">No NVIDIA GPUs detected</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Run <span className="font-mono">miglens doctor</span> to inspect
-                driver and library visibility.
-              </p>
-            </div>
+        <section aria-labelledby="resource-view-heading">
+          <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+            <h2 id="resource-view-heading" className="text-sm font-semibold">
+              Resources
+            </h2>
+            {attributionEnabled ? (
+              <fieldset
+                className="flex items-center gap-2 border-0 p-0"
+                aria-label="Organize resources by"
+              >
+                <legend className="font-mono text-[8px] uppercase tracking-[0.12em] text-muted-foreground">
+                  Organize by
+                </legend>
+                <div className="flex rounded-md border border-border bg-muted/35 p-0.5">
+                  {(['gpus', 'people'] as const).map((view) => (
+                    <button
+                      key={view}
+                      type="button"
+                      className={`h-7 rounded px-3 font-mono text-[10px] outline-none transition-colors focus-visible:ring-1 focus-visible:ring-ring ${
+                        effectiveDashboardView === view
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
+                      }`}
+                      aria-pressed={effectiveDashboardView === view}
+                      onClick={() => selectDashboardView(view)}
+                    >
+                      {view === 'gpus' ? 'GPUs' : 'People'}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            ) : null}
+          </div>
+
+          {effectiveDashboardView === 'people' ? (
+            <PeopleView snapshot={snapshot} onSelect={openSelection} />
           ) : (
-            snapshot.gpus.map((gpu) => (
-              <GPUCard
-                key={gpu.uuid}
-                gpu={gpu}
-                onSelect={(next) =>
-                  setSelectedKey(
-                    next.kind === 'physical_gpu'
-                      ? { kind: next.kind, uuid: next.gpu.uuid }
-                      : { kind: next.kind, uuid: next.ci.uuid },
-                  )
-                }
-              />
-            ))
+            <div aria-label="GPU topology" className="space-y-4">
+              {snapshot.gpus.length === 0 ? (
+                <div className="border border-dashed border-border bg-card p-10 text-center">
+                  <p className="text-sm font-medium">No NVIDIA GPUs detected</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Run <span className="font-mono">miglens doctor</span> to
+                    inspect driver and library visibility.
+                  </p>
+                </div>
+              ) : (
+                snapshot.gpus.map((gpu) => (
+                  <GPUCard
+                    key={gpu.uuid}
+                    gpu={gpu}
+                    attribution={snapshot.attribution}
+                    onSelect={openSelection}
+                  />
+                ))
+              )}
+            </div>
           )}
         </section>
 
-        <Suspense
-          fallback={
-            <div
-              className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2"
-              aria-label="Loading GPU history charts"
+        <section className="mt-5" aria-labelledby="host-telemetry-heading">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <h2 id="host-telemetry-heading" className="text-sm font-semibold">
+              Host-wide telemetry
+            </h2>
+            <Badge
+              variant="outline"
+              className="rounded border-border bg-muted/35 font-mono text-[9px] text-muted-foreground"
             >
-              {['temperature', 'utilization', 'memory', 'sm-active'].map(
-                (name) => (
+              All GPUs
+            </Badge>
+          </div>
+          <Suspense
+            fallback={
+              <div
+                className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2"
+                aria-label="Loading GPU history charts"
+              >
+                {[
+                  'temperature',
+                  'utilization',
+                  'memory',
+                  'memory-bandwidth',
+                  'pcie',
+                ].map((name) => (
                   <Skeleton key={name} className="h-[302px] w-full" />
-                ),
-              )}
-            </div>
-          }
-        >
-          <OverviewCharts
-            snapshot={snapshot}
-            connection={connection}
-            loadHistory={history}
-            chartWindowMs={chartWindowMs}
-            retentionMs={retentionMs}
-            onChartWindowChange={selectChartWindow}
-          />
-        </Suspense>
+                ))}
+              </div>
+            }
+          >
+            <OverviewCharts
+              snapshot={snapshot}
+              connection={connection}
+              loadHistory={alignedHistory}
+              chartWindowMs={chartWindowMs}
+              retentionMs={retentionMs}
+              onChartWindowChange={selectChartWindow}
+            />
+          </Suspense>
+        </section>
 
-        <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(330px,1fr)]">
-          <ProcessTable snapshot={snapshot} />
+        <div className="relative z-0 mt-5 grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(330px,1fr)]">
+          <ProcessTable
+            processes={snapshot.processes}
+            procCapability={snapshot.capabilities.proc}
+          />
           <DiagnosticsPanel diagnostics={snapshot.diagnostics} />
         </div>
 
@@ -273,9 +364,12 @@ export function App() {
           <p className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5">
             <span>
               Built with <span aria-label="crossed swords">⚔️</span> by{' '}
-              <strong className="font-semibold text-foreground">
+              <a
+                href="https://intellisys.haow.us/team/"
+                className="font-semibold text-foreground underline-offset-4 transition-colors hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
                 Intellisys Dragoons
-              </strong>{' '}
+              </a>{' '}
               and Codex
             </span>{' '}
             <span className="whitespace-nowrap font-mono text-[10px]">
@@ -289,6 +383,7 @@ export function App() {
         <Suspense fallback={null}>
           <DetailSheet
             selection={selection}
+            attribution={snapshot.attribution}
             open
             onOpenChange={(open) => {
               if (!open) setSelectedKey(null);

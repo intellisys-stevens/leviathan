@@ -38,6 +38,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/history/aligned": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Return multiple retained metric series on one shared timestamp set. */
+        post: operations["getAlignedHistory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/events": {
         parameters: {
             query?: never;
@@ -144,7 +161,7 @@ export interface components {
             status: components["schemas"]["MetricStatus"];
             message?: string;
         };
-        /** @description Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy. */
+        /** @description Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts. */
         MetricSet: {
             [key: string]: components["schemas"]["Metric"];
         };
@@ -175,6 +192,39 @@ export interface components {
             startTime?: string;
             status: components["schemas"]["MetricStatus"];
             message?: string;
+        };
+        /** @enum {string} */
+        WorkloadPlatform: "coder";
+        /** @enum {string} */
+        WorkloadKind: "workspace";
+        /** @enum {string} */
+        AllocationEntityType: "physical_gpu" | "compute_instance";
+        /** @enum {string} */
+        AllocationState: "allocated" | "reserved";
+        /** @description Sanitized workload display identity from an optional attribution source. The reference is opaque and source-scoped. */
+        WorkloadAttribution: {
+            ref: string;
+            platform: components["schemas"]["WorkloadPlatform"];
+            kind: components["schemas"]["WorkloadKind"];
+            name: string;
+            ownerName: string;
+        };
+        /** @description A scheduler assignment; it does not prove active device use by a process. */
+        ResourceAssignment: {
+            workloadRef: string;
+            entityType: components["schemas"]["AllocationEntityType"];
+            entityUuid: string;
+            state: components["schemas"]["AllocationState"];
+        };
+        /** @enum {string} */
+        AttributionStatus: "available" | "stale" | "unavailable";
+        Attribution: {
+            provider: string;
+            status: components["schemas"]["AttributionStatus"];
+            /** Format: date-time */
+            observedAt?: string;
+            workloads: components["schemas"]["WorkloadAttribution"][];
+            assignments: components["schemas"]["ResourceAssignment"][];
         };
         ComputeInstance: {
             uuid: string;
@@ -228,6 +278,16 @@ export interface components {
             samplingIntervalMs: number;
             /**
              * Format: int64
+             * @description Effective profile-metric refresh cadence in milliseconds.
+             */
+            profileIntervalMs: number;
+            /**
+             * Format: int64
+             * @description Effective GPU-process inventory refresh cadence in milliseconds.
+             */
+            processIntervalMs: number;
+            /**
+             * Format: int64
              * @description Maximum in-memory retention in milliseconds.
              */
             historyWindowMs: number;
@@ -274,6 +334,7 @@ export interface components {
             gpus: components["schemas"]["GPU"][];
             /** @description GPU-connected processes detected through open NVIDIA UVM device handles in the current PID namespace. MIGLens itself is excluded. */
             processes: components["schemas"]["Process"][];
+            attribution?: components["schemas"]["Attribution"];
             capabilities: components["schemas"]["Capabilities"];
             diagnostics: components["schemas"]["Diagnostic"][];
         };
@@ -289,6 +350,32 @@ export interface components {
             metrics: string[];
             window: string;
             points: components["schemas"]["HistoryPoint"][];
+        };
+        AlignedHistorySeriesDescriptor: {
+            key: string;
+            entity: string;
+            metrics: string[];
+        };
+        AlignedHistoryRequest: {
+            /** @description Positive Go duration no longer than the configured history retention. */
+            window: string;
+            maxPoints: number;
+            series: components["schemas"]["AlignedHistorySeriesDescriptor"][];
+        };
+        AlignedHistoryPoint: {
+            /** Format: date-time */
+            sampledAt: string;
+            /** @description Actual stored metric values keyed first by request series key. Missing values remain absent. */
+            values: {
+                [key: string]: {
+                    [key: string]: number;
+                };
+            };
+        };
+        AlignedHistory: {
+            window: string;
+            series: components["schemas"]["AlignedHistorySeriesDescriptor"][];
+            points: components["schemas"]["AlignedHistoryPoint"][];
         };
         Health: {
             /** @constant */
@@ -355,6 +442,8 @@ export interface operations {
                 /** @description Comma-separated canonical metric names. */
                 metrics?: string;
                 window?: string;
+                /** @description Maximum number of history points returned after shape-preserving downsampling. */
+                maxPoints?: number;
             };
             header?: never;
             path?: never;
@@ -372,6 +461,40 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+        };
+    };
+    getAlignedHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlignedHistoryRequest"];
+            };
+        };
+        responses: {
+            /** @description Shape-preserving aligned in-memory history with no interpolated values. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlignedHistory"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description The request body is not JSON. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     getEvents: {

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import {
   CartesianGrid,
   Line,
@@ -10,15 +10,19 @@ import {
 } from 'recharts';
 import { Badge } from '@/components/ui/badge';
 import { formatDuration } from '../chart-window';
+import { formatBytesPerSecond } from '../lib';
 import {
+  buildOverviewEntities,
   downsampleChartRows,
   movingAverageChartRows,
+  type AlignedHistorySeriesDescriptor,
   type ChartRow,
+  type LoadAlignedHistory,
   type OverviewEntity,
   type OverviewPoint,
   useOverviewHistory,
 } from '../overview-history';
-import type { HistorySeries, Snapshot } from '../types';
+import type { Snapshot } from '../types';
 import type { ConnectionState } from '../use-miglens';
 import { ChartWindowControl } from './chart-window-control';
 
@@ -36,15 +40,19 @@ type ChartMetric =
   | 'temperature'
   | 'utilization'
   | 'memory_percent'
-  | 'memory_activity';
+  | 'memory_activity'
+  | 'pcie_total';
+
+type ChartUnit = '°C' | '%' | 'bytes_per_second';
 
 type PanelDefinition = {
   id: string;
   title: string;
   metric: ChartMetric;
   description: string;
-  unit: '°C' | '%';
+  unit: ChartUnit;
   entities: OverviewEntity[];
+  fullWidth?: boolean;
 };
 
 type Props = {
@@ -53,11 +61,7 @@ type Props = {
   chartWindowMs: number;
   retentionMs: number;
   onChartWindowChange: (milliseconds: number) => void;
-  loadHistory: (
-    entity: string,
-    metrics: string[],
-    window?: string,
-  ) => Promise<HistorySeries>;
+  loadHistory: LoadAlignedHistory;
 };
 
 type SeriesDescriptor = {
@@ -70,7 +74,31 @@ type TooltipDatum = {
   dataKey?: string | number;
   name?: string | number;
   value?: number | string | readonly (number | string)[];
+  payload?: ChartRow;
 };
+
+function historyMetrics(
+  metric: ChartMetric,
+  scope: OverviewEntity['scope'],
+): string[] {
+  switch (metric) {
+    case 'temperature':
+      return ['temperature'];
+    case 'utilization':
+      return [scope === 'gpu_instance' ? 'sm_activity' : 'gpu_activity'];
+    case 'memory_percent':
+      return ['memory_used_bytes', 'memory_total_bytes'];
+    case 'memory_activity':
+      return [scope === 'gpu_instance' ? 'dram_activity' : 'memory_activity'];
+    case 'pcie_total':
+      return ['pcie_rx_bytes_per_second', 'pcie_tx_bytes_per_second'];
+  }
+}
+
+function chartValueLabel(value: number, unit: ChartUnit): string {
+  if (unit === 'bytes_per_second') return formatBytesPerSecond(value);
+  return `${value.toFixed(unit === '°C' ? 0 : 1)}${unit}`;
+}
 
 export function SeriesTooltip({
   active,
@@ -78,12 +106,14 @@ export function SeriesTooltip({
   label,
   activeDataKey,
   unit,
+  testId = 'overview-tooltip',
 }: {
   active?: boolean;
   payload?: readonly TooltipDatum[];
   label?: string | number;
   activeDataKey: string | null;
-  unit: '°C' | '%';
+  unit: ChartUnit;
+  testId?: string;
 }) {
   if (!active || !payload?.length) return null;
 
@@ -96,13 +126,19 @@ export function SeriesTooltip({
 
   return (
     <div
-      className="rounded border border-border bg-popover px-3 py-2 text-[11px] shadow-lg"
-      data-testid="overview-tooltip"
+      className="max-w-[calc(100vw-2rem)] rounded border border-border bg-popover px-3 py-2 text-[11px] shadow-lg"
+      data-testid={testId}
     >
       <p className="mb-1 font-mono text-[9px] text-muted-foreground">
         {new Date(Number(label)).toLocaleString()}
       </p>
-      <div className="space-y-1">
+      <div
+        className={
+          visible.length > 6
+            ? 'grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2'
+            : 'space-y-1'
+        }
+      >
         {visible.map((item) => (
           <div
             key={String(item.dataKey)}
@@ -118,9 +154,20 @@ export function SeriesTooltip({
                 {item.name}
               </span>
             </span>
-            <span className="font-mono font-medium text-foreground">
-              {Number(item.value).toFixed(unit === '°C' ? 0 : 1)}
-              {unit}
+            <span className="text-right font-mono font-medium text-foreground">
+              {chartValueLabel(Number(item.value), unit)}
+              {unit === 'bytes_per_second' && item.dataKey ? (
+                <span className="mt-0.5 block whitespace-nowrap text-[9px] font-normal text-muted-foreground">
+                  RX{' '}
+                  {formatBytesPerSecond(
+                    Number(item.payload?.[`${String(item.dataKey)}_rx`]),
+                  )}{' '}
+                  · TX{' '}
+                  {formatBytesPerSecond(
+                    Number(item.payload?.[`${String(item.dataKey)}_tx`]),
+                  )}
+                </span>
+              ) : null}
             </span>
           </div>
         ))}
@@ -140,6 +187,12 @@ export function overviewMetricValue(
     if (!Number.isFinite(used) || !Number.isFinite(total) || total <= 0)
       return null;
     return Math.max(0, Math.min(100, (used / total) * 100));
+  }
+  if (metric === 'pcie_total') {
+    const rx = point.values.pcie_rx_bytes_per_second;
+    const tx = point.values.pcie_tx_bytes_per_second;
+    if (!Number.isFinite(rx) || !Number.isFinite(tx)) return null;
+    return Math.max(0, rx) + Math.max(0, tx);
   }
   const sourceMetric =
     metric === 'utilization'
@@ -164,7 +217,7 @@ export function chartRows(
 
   entities.forEach((entity, index) => {
     for (const point of points[entity.key] ?? []) {
-      const time = new Date(point.sampledAt).getTime();
+      const time = point.time ?? new Date(point.sampledAt).getTime();
       if (!Number.isFinite(time)) continue;
       let row = rowsByTime.get(time);
       if (!row) {
@@ -172,18 +225,42 @@ export function chartRows(
         for (const key of valueKeys) row[key] = null;
         rowsByTime.set(time, row);
       }
-      const value = overviewMetricValue(point, metric, entity.scope);
-      row[valueKeys[index]] = value;
-      if (value != null) seriesWithValues.add(index);
+      const valueKey = valueKeys[index];
+      if (metric === 'pcie_total') {
+        const rx = point.values.pcie_rx_bytes_per_second;
+        const tx = point.values.pcie_tx_bytes_per_second;
+        row[`${valueKey}_rx`] = Number.isFinite(rx) ? Math.max(0, rx) : null;
+        row[`${valueKey}_tx`] = Number.isFinite(tx) ? Math.max(0, tx) : null;
+        if (Number.isFinite(rx) && Number.isFinite(tx))
+          seriesWithValues.add(index);
+      } else {
+        const value = overviewMetricValue(point, metric, entity.scope);
+        row[valueKey] = value;
+        if (value != null) seriesWithValues.add(index);
+      }
     }
   });
 
   const rows = [...rowsByTime.values()].sort(
     (left, right) => left.time - right.time,
   );
-  const averagedRows = movingAverageChartRows(rows, valueKeys);
+  const smoothingKeys =
+    metric === 'pcie_total'
+      ? valueKeys.flatMap((key) => [`${key}_rx`, `${key}_tx`])
+      : valueKeys;
+  const averagedRows = movingAverageChartRows(rows, smoothingKeys);
+  if (metric === 'pcie_total') {
+    for (const row of averagedRows) {
+      for (const key of valueKeys) {
+        const rx = row[`${key}_rx`];
+        const tx = row[`${key}_tx`];
+        row[key] =
+          typeof rx === 'number' && typeof tx === 'number' ? rx + tx : null;
+      }
+    }
+  }
   return {
-    rows: downsampleChartRows(averagedRows, valueKeys, 360),
+    rows: downsampleChartRows(averagedRows, valueKeys, 720),
     valueKeys,
     availableSeries: seriesWithValues.size,
   };
@@ -248,32 +325,62 @@ function ChartLegend({
 
 function ChartPanel({
   definition,
-  points,
-  loading,
-  failedEntities,
+  snapshot,
+  loadHistory,
+  chartWindowMs,
+  retentionMs,
   connection,
   rangeLabel,
 }: {
   definition: PanelDefinition;
-  points: Record<string, OverviewPoint[]>;
-  loading: boolean;
-  failedEntities: string[];
+  snapshot: Snapshot;
+  loadHistory: LoadAlignedHistory;
+  chartWindowMs: number;
+  retentionMs: number;
   connection: ConnectionState;
   rangeLabel: string;
 }) {
   const { entities, metric, title, description, unit } = definition;
+  const descriptors = useMemo<AlignedHistorySeriesDescriptor[]>(
+    () =>
+      entities.map((entity) => ({
+        key: entity.key,
+        entity: entity.uuid,
+        metrics: historyMetrics(metric, entity.scope),
+      })),
+    [entities, metric],
+  );
+  const { points, loading, failedEntities } = useOverviewHistory(
+    snapshot,
+    definition.id,
+    entities,
+    descriptors,
+    loadHistory,
+    chartWindowMs,
+    retentionMs,
+  );
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   const [pinnedKey, setPinnedKey] = useState<string | null>(null);
   const { rows, valueKeys, availableSeries } = useMemo(
     () => chartRows(entities, points, metric),
     [entities, metric, points],
   );
-  const timestampsWithValues = rows.filter((row) =>
-    valueKeys.some((key) => typeof row[key] === 'number'),
-  ).length;
-  const failedCount = entities.filter((entity) =>
-    failedEntities.includes(entity.key),
-  ).length;
+  const timestampsWithValues = useMemo(() => {
+    let count = 0;
+    for (const row of rows) {
+      if (!valueKeys.some((key) => typeof row[key] === 'number')) continue;
+      count += 1;
+      if (count === 2) break;
+    }
+    return count;
+  }, [rows, valueKeys]);
+  const failedCount = useMemo(() => {
+    const failed = new Set(failedEntities);
+    return entities.reduce(
+      (count, entity) => count + Number(failed.has(entity.key)),
+      0,
+    );
+  }, [entities, failedEntities]);
   const partial =
     availableSeries > 0 &&
     (availableSeries < entities.length || failedCount > 0);
@@ -327,11 +434,13 @@ function ChartPanel({
             ? 'Collecting history…'
             : null;
   const percent = unit === '%';
+  const throughput = unit === 'bytes_per_second';
 
   return (
     <section
-      className="min-w-0 border border-border/75 bg-card/90 p-4"
+      className={`relative min-w-0 overflow-visible border border-border/75 bg-card/90 p-4 ${definition.fullWidth ? 'md:col-span-2' : ''}`}
       aria-labelledby={`${definition.id}-heading`}
+      data-testid={definition.id}
     >
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
@@ -385,7 +494,12 @@ function ChartPanel({
           >
             <LineChart
               data={rows}
-              margin={{ top: 8, right: 8, left: -18, bottom: 0 }}
+              margin={{
+                top: 8,
+                right: 8,
+                left: 0,
+                bottom: 0,
+              }}
             >
               <CartesianGrid stroke="var(--border)" vertical={false} />
               <XAxis
@@ -407,22 +521,37 @@ function ChartPanel({
                 domain={
                   percent
                     ? [0, 100]
-                    : [
-                        (minimum: number) =>
-                          Math.max(0, Math.floor(minimum - 5)),
-                        (maximum: number) => Math.ceil(maximum + 5),
-                      ]
+                    : throughput
+                      ? [
+                          0,
+                          (maximum: number) =>
+                            maximum > 0 ? Math.ceil(maximum * 1.08) : 1,
+                        ]
+                      : [
+                          (minimum: number) =>
+                            Math.max(0, Math.floor(minimum - 5)),
+                          (maximum: number) => Math.ceil(maximum + 5),
+                        ]
                 }
-                tickFormatter={(value) => `${value}${unit}`}
+                tickFormatter={(value) =>
+                  throughput
+                    ? formatBytesPerSecond(Number(value))
+                    : `${value}${unit}`
+                }
                 tick={{ fontSize: 9, fill: 'var(--muted-foreground)' }}
                 axisLine={false}
                 tickLine={false}
-                width={52}
+                width={throughput ? 72 : 52}
               />
               <Tooltip
                 isAnimationActive={false}
+                wrapperStyle={{ zIndex: 50, pointerEvents: 'none' }}
                 content={
-                  <SeriesTooltip activeDataKey={activeDataKey} unit={unit} />
+                  <SeriesTooltip
+                    activeDataKey={activeDataKey}
+                    unit={unit}
+                    testId={`${definition.id}-tooltip`}
+                  />
                 }
               />
               {orderedSeries.map(({ entity, valueKey }) => {
@@ -465,6 +594,8 @@ function ChartPanel({
   );
 }
 
+const MemoizedChartPanel = memo(ChartPanel);
+
 export function OverviewCharts({
   snapshot,
   connection,
@@ -473,12 +604,7 @@ export function OverviewCharts({
   onChartWindowChange,
   loadHistory,
 }: Props) {
-  const { entities, points, loading, failedEntities } = useOverviewHistory(
-    snapshot,
-    loadHistory,
-    chartWindowMs,
-    retentionMs,
-  );
+  const entities = useMemo(() => buildOverviewEntities(snapshot), [snapshot]);
   const rangeLabel = formatDuration(chartWindowMs);
   const physicalEntities = useMemo(
     () => entities.filter((entity) => entity.scope === 'physical_gpu'),
@@ -526,9 +652,18 @@ export function OverviewCharts({
         id: 'memory-activity-chart',
         title: 'Memory Activity',
         metric: 'memory_activity',
-        description: `${rangeLabel} · DRAM activity by GI · memory activity for full GPUs`,
+        description: `${rangeLabel} · DRAM bandwidth utilization by GI · read/write busy time for full GPUs`,
         unit: '%',
         entities: activityEntities,
+      },
+      {
+        id: 'pcie-throughput-chart',
+        title: 'PCIe Transfer',
+        metric: 'pcie_total',
+        description: `${rangeLabel} · Exact Host → GPU + GPU → Host by GPU / GI`,
+        unit: 'bytes_per_second',
+        entities: activityEntities,
+        fullWidth: true,
       },
     ],
     [activityEntities, physicalEntities, rangeLabel],
@@ -543,16 +678,17 @@ export function OverviewCharts({
         className="mt-4"
       />
       <div
-        className="mt-2 grid grid-cols-1 gap-4 md:grid-cols-2"
+        className="relative z-10 mt-2 grid grid-cols-1 gap-4 md:grid-cols-2"
         aria-label={`${rangeLabel} GPU history`}
       >
         {definitions.map((definition) => (
-          <ChartPanel
+          <MemoizedChartPanel
             key={definition.id}
             definition={definition}
-            points={points}
-            loading={loading}
-            failedEntities={failedEntities}
+            snapshot={snapshot}
+            loadHistory={loadHistory}
+            chartWindowMs={chartWindowMs}
+            retentionMs={retentionMs}
             connection={connection}
             rangeLabel={rangeLabel}
           />

@@ -16,9 +16,11 @@ import (
 )
 
 type Engine struct {
-	provider provider.Provider
-	history  *history.Buffer
-	window   time.Duration
+	provider        provider.Provider
+	history         *history.Buffer
+	window          time.Duration
+	profileInterval time.Duration
+	processInterval time.Duration
 
 	current    atomic.Pointer[model.Snapshot]
 	seq        atomic.Uint64
@@ -34,6 +36,13 @@ type Engine struct {
 	lastErr     error
 }
 
+type Options struct {
+	SamplingInterval time.Duration
+	HistoryWindow    time.Duration
+	ProfileInterval  time.Duration
+	ProcessInterval  time.Duration
+}
+
 type generationState struct {
 	value     uint64
 	active    bool
@@ -42,16 +51,33 @@ type generationState struct {
 }
 
 func New(source provider.Provider, interval, window time.Duration) *Engine {
-	engine := &Engine{
-		provider:    source,
-		history:     history.New(window, interval),
-		window:      window,
-		reschedule:  make(chan struct{}, 1),
-		subscribers: make(map[uint64]chan model.Snapshot),
-		generations: make(map[string]*generationState),
-		done:        make(chan struct{}),
+	return NewWithOptions(source, Options{
+		SamplingInterval: interval,
+		HistoryWindow:    window,
+		ProfileInterval:  2 * time.Second,
+		ProcessInterval:  2 * time.Second,
+	})
+}
+
+func NewWithOptions(source provider.Provider, options Options) *Engine {
+	if options.ProfileInterval <= 0 {
+		options.ProfileInterval = 2 * time.Second
 	}
-	engine.interval.Store(int64(interval))
+	if options.ProcessInterval <= 0 {
+		options.ProcessInterval = 2 * time.Second
+	}
+	engine := &Engine{
+		provider:        source,
+		history:         history.New(options.HistoryWindow, options.SamplingInterval),
+		window:          options.HistoryWindow,
+		profileInterval: options.ProfileInterval,
+		processInterval: options.ProcessInterval,
+		reschedule:      make(chan struct{}, 1),
+		subscribers:     make(map[uint64]chan model.Snapshot),
+		generations:     make(map[string]*generationState),
+		done:            make(chan struct{}),
+	}
+	engine.interval.Store(int64(options.SamplingInterval))
 	return engine
 }
 
@@ -115,6 +141,8 @@ func (e *Engine) RuntimeSettings() model.RuntimeSettings {
 	allowed := append([]int64(nil), allowedSamplingIntervalsMs...)
 	return model.RuntimeSettings{
 		SamplingIntervalMs:         e.SamplingInterval().Milliseconds(),
+		ProfileIntervalMs:          e.profileInterval.Milliseconds(),
+		ProcessIntervalMs:          e.processInterval.Milliseconds(),
 		HistoryWindowMs:            e.window.Milliseconds(),
 		AllowedSamplingIntervalsMs: allowed,
 	}
@@ -165,6 +193,9 @@ func (e *Engine) recordPollError(at time.Time, err error) {
 	e.mu.Lock()
 	e.lastErr = err
 	e.mu.Unlock()
+	if e.history != nil {
+		e.history.AddGap(at)
+	}
 	current, ok := e.Current()
 	if !ok {
 		return
@@ -330,18 +361,7 @@ func (e *Engine) Current() (model.Snapshot, bool) {
 
 func (e *Engine) History(entity string, metrics []string, window time.Duration, now time.Time) history.Series {
 	if snapshot, ok := e.Current(); ok {
-		for _, gpu := range snapshot.GPUs {
-			for _, gi := range gpu.GPUInstances {
-				if entity == gi.UUID && gi.Generation != "" {
-					entity = gi.Generation
-				}
-				for _, ci := range gi.ComputeInstances {
-					if entity == ci.UUID && ci.Generation != "" {
-						entity = ci.Generation
-					}
-				}
-			}
-		}
+		entity = resolveHistoryEntity(snapshot, entity)
 	}
 	result := e.history.Query(entity, metrics, window, now)
 	if at := len(result.Entity); at > 0 {
@@ -351,6 +371,48 @@ func (e *Engine) History(entity string, metrics []string, window time.Duration, 
 		}
 	}
 	return result
+}
+
+// AlignedHistory resolves every stable UUID against one immutable topology
+// snapshot, then reads and limits all series together on the buffer's shared
+// timestamp set. Response descriptors retain the caller's stable UUIDs.
+func (e *Engine) AlignedHistory(descriptors []history.SeriesDescriptor, window time.Duration, maxPoints int, now time.Time) history.AlignedSeries {
+	requested := make([]history.SeriesDescriptor, len(descriptors))
+	resolved := make([]history.SeriesDescriptor, len(descriptors))
+	copy(requested, descriptors)
+	copy(resolved, descriptors)
+	for index := range descriptors {
+		requested[index].Metrics = append([]string(nil), descriptors[index].Metrics...)
+		resolved[index].Metrics = append([]string(nil), descriptors[index].Metrics...)
+	}
+	queryAt := now
+	if snapshot, ok := e.Current(); ok {
+		for index := range resolved {
+			resolved[index].Entity = resolveHistoryEntity(snapshot, resolved[index].Entity)
+		}
+		if !snapshot.SampledAt.IsZero() {
+			queryAt = snapshot.SampledAt
+		}
+	}
+	result := e.history.QueryAligned(resolved, window, maxPoints, queryAt)
+	result.Series = requested
+	return result
+}
+
+func resolveHistoryEntity(snapshot model.Snapshot, entity string) string {
+	for _, gpu := range snapshot.GPUs {
+		for _, gi := range gpu.GPUInstances {
+			if entity == gi.UUID && gi.Generation != "" {
+				return gi.Generation
+			}
+			for _, ci := range gi.ComputeInstances {
+				if entity == ci.UUID && ci.Generation != "" {
+					return ci.Generation
+				}
+			}
+		}
+	}
+	return entity
 }
 
 func lastGenerationSeparator(value string) int {
