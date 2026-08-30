@@ -195,7 +195,7 @@ func TestFleetStateJSONContainsNoCredentialFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
-	for _, forbidden := range []string{"metadata", "tags", "adminPass", "password", "token", "agentEndpoint"} {
+	for _, forbidden := range []string{"metadata", "tags", "adminPass", "password", "token", "agentEndpoint", "creatorId", "user_id"} {
 		if strings.Contains(strings.ToLower(string(encoded)), strings.ToLower(forbidden)) {
 			t.Fatalf("fleet state contains forbidden field %q: %s", forbidden, encoded)
 		}

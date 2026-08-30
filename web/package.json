@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "generate:api": "openapi-typescript ../api/openapi.yaml -o src/api.gen.ts",
+    "generate:api": "openapi-typescript ../api/openapi.yaml -o src/api.gen.ts && openapi-typescript ../api/fleet-openapi.yaml -o src/fleet-api.gen.ts",
     "license:check": "node scripts/check-licenses.mjs",
     "license:save": "node scripts/save-licenses.mjs",
     "lint": "oxlint",

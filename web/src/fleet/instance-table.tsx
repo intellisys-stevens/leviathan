@@ -31,6 +31,7 @@ const cloudLabels: Record<CloudState, string> = {
 
 const agentLabels: Record<AgentStatus, string> = {
   not_managed: 'Not monitored',
+  not_configured: 'Not configured',
   available: 'Live',
   unreachable: 'Unreachable',
   stale: 'Stale',
@@ -39,6 +40,7 @@ const agentLabels: Record<AgentStatus, string> = {
 
 const policyLabels: Record<PolicyReason, string> = {
   allowed: 'Approved test scope',
+  agent_not_configured: 'Approved · agent not configured',
   not_allowlisted: 'Inventory only',
   creator_mismatch: 'Creator mismatch',
   cloud_not_active: 'Not running',
@@ -78,7 +80,7 @@ export function telemetryState(
   return 'healthy';
 }
 
-export function activeGPUUsers(observation: InstanceObservation): string[] {
+export function gpuConnectedUsers(observation: InstanceObservation): string[] {
   const users = observation.agent.snapshot?.processes
     .map(({ user }) => user?.trim() ?? '')
     .filter(Boolean);
@@ -147,7 +149,7 @@ export function InstanceTable({
             Jetstream instances
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Creator identity and active GPU users are reported independently.
+            Creator identity and GPU-connected users are reported independently.
           </p>
         </div>
         <Badge variant="outline">
@@ -194,7 +196,7 @@ export function InstanceTable({
                 <TableHead>Cloud</TableHead>
                 <TableHead>Agent</TableHead>
                 <TableHead>Telemetry</TableHead>
-                <TableHead>Active GPU users</TableHead>
+                <TableHead>GPU-connected users</TableHead>
                 <TableHead>Resources</TableHead>
                 <TableHead>Scope</TableHead>
               </TableRow>
@@ -202,7 +204,7 @@ export function InstanceTable({
             <TableBody>
               {instances.map((observation) => {
                 const { instance, agent } = observation;
-                const users = activeGPUUsers(observation);
+                const users = gpuConnectedUsers(observation);
                 const telemetry = telemetryState(observation);
                 return (
                   <TableRow

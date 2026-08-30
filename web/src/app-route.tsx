@@ -1,14 +1,13 @@
 import { lazy, Suspense } from 'react';
 import { App } from './App';
+import { isFleetPathname } from './fleet/paths';
 
 const FleetApp = lazy(() => import('./fleet/FleetApp'));
 
 export type AppRouteKind = 'host' | 'fleet';
 
 export function resolveAppRoute(pathname: string): AppRouteKind {
-  return pathname === '/fleet' || pathname === '/fleet/jetstream'
-    ? 'fleet'
-    : 'host';
+  return isFleetPathname(pathname) ? 'fleet' : 'host';
 }
 
 function FleetLoading() {

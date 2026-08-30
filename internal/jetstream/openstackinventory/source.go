@@ -268,6 +268,9 @@ func (source *Source) List(ctx context.Context) (fleet.InventoryObservation, err
 			if !canonicalServerUUID.MatchString(server.ID) {
 				return fleet.InventoryObservation{}, errInvalidServerResponse
 			}
+			if !validOpaqueIdentifier(server.UserID) {
+				return fleet.InventoryObservation{}, errInvalidServerResponse
+			}
 			if _, duplicate := seen[server.ID]; duplicate {
 				return fleet.InventoryObservation{}, errInvalidServerResponse
 			}
@@ -320,6 +323,7 @@ func mapServer(server novaServer, creatorName string) fleet.Instance {
 		UUID:            server.ID,
 		Name:            sanitizedName(server.Name),
 		CreatorUsername: creatorName,
+		CreatorID:       server.UserID,
 		CloudState:      fleet.NormalizeCloudState(rawState),
 		RawCloudState:   rawState,
 		Flavor:          flavorID(server.Flavor.ID),

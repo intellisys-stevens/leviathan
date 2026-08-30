@@ -151,12 +151,21 @@ func (c *Controller) Refresh(ctx context.Context) Snapshot {
 
 	for index, instance := range instances {
 		decision := c.policy.Evaluate(instance)
+		if decision.Allowlisted && decision.CreatorUsername != "" {
+			// Replace advisory cloud metadata with the trusted label paired with
+			// the authoritative Nova user_id in controller configuration.
+			instance.CreatorUsername = decision.CreatorUsername
+		}
+		agentStatus := AgentNotManaged
+		if decision.Reason == PolicyAgentNotConfigured {
+			agentStatus = AgentNotConfigured
+		}
 		results[index] = InstanceObservation{
 			Instance:           instance,
 			Managed:            decision.Allowlisted,
 			AgentProbeEligible: decision.AgentProbeEligible,
 			PolicyReason:       decision.Reason,
-			Agent:              AgentObservation{Status: AgentNotManaged},
+			Agent:              AgentObservation{Status: agentStatus},
 		}
 		if !decision.AgentProbeEligible {
 			continue

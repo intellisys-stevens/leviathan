@@ -27,12 +27,14 @@ request_timeout = "10s"
 
 [[instances]]
 uuid = "11111111-1111-4111-8111-111111111111"
+creator_id = "nova-user-a"
 creator_username = "owner-a@example.test"
 agent_url = "https://agent-a.example.test"
 agent_hostname = "gpu-agent-a"
 
 [[instances]]
 uuid = "22222222-2222-4222-8222-222222222222"
+creator_id = "nova-user-b"
 creator_username = "owner-b@example.test"
 `
 
@@ -45,7 +47,7 @@ func TestLoadValidNonSecretConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Policy() error = %v", err)
 	}
-	if decision := policy.Evaluate(testInstance("11111111-1111-4111-8111-111111111111", "owner-a@example.test")); !decision.AgentProbeEligible {
+	if decision := policy.Evaluate(testInstance("11111111-1111-4111-8111-111111111111", "nova-user-a", "untrusted-metadata@example.test")); !decision.AgentProbeEligible || decision.CreatorUsername != "owner-a@example.test" {
 		t.Fatalf("approved instance decision = %+v", decision)
 	}
 	bindings := config.AgentBindings()
@@ -85,6 +87,7 @@ func TestLoadRejectsUnsafeScopeAndBindings(t *testing.T) {
 		{name: "http nidhogg", old: `https://nidhogg.example.test/`, new: `http://nidhogg.example.test/`},
 		{name: "missing project allowlist", old: `allowed_project_ids = ["project-test"]`, new: `allowed_project_ids = []`},
 		{name: "wildcard creator", old: `owner-a@example.test`, new: `*@example.test`},
+		{name: "missing creator ID", old: `creator_id = "nova-user-a"`, new: `creator_id = ""`},
 		{name: "http agent", old: `https://agent-a.example.test`, new: `http://agent-a.example.test`},
 		{name: "missing hostname", old: `agent_hostname = "gpu-agent-a"`, new: `agent_hostname = ""`},
 		{name: "duplicate UUID", old: `uuid = "22222222-2222-4222-8222-222222222222"`, new: `uuid = "11111111-1111-4111-8111-111111111111"`},
@@ -117,6 +120,6 @@ func writeConfig(t *testing.T, text string) string {
 	return path
 }
 
-func testInstance(uuid, creator string) fleet.Instance {
-	return fleet.Instance{UUID: uuid, CreatorUsername: creator, CloudState: fleet.CloudStateActive}
+func testInstance(uuid, creatorID, creator string) fleet.Instance {
+	return fleet.Instance{UUID: uuid, CreatorID: creatorID, CreatorUsername: creator, CloudState: fleet.CloudStateActive}
 }

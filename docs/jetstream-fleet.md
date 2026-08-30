@@ -41,19 +41,24 @@ An instance is eligible for an agent probe only when all of these are true:
 
 1. its normalized cloud state is active;
 2. its canonical lowercase UUID is explicitly configured;
-3. its discovered creator username exactly matches the configured creator; and
+3. its authoritative Nova `user_id` exactly matches the configured creator
+   ID; and
 4. that UUID has an explicit credential-free HTTPS agent URL and expected
    snapshot hostname.
 
-There are no wildcard UUIDs, creators, projects, or hosts. The agent client
-follows no redirect and sends only `GET /api/v1/snapshot` and
+The paired creator username is a trusted display label. Exosphere creator
+metadata may be retained for inventory-only display, but is never an
+authorization factor. There are no wildcard UUIDs, creators, projects, or
+hosts. The agent client follows no redirect and sends only
+`GET /api/v1/snapshot` and
 `GET /api/v1/version`. It accepts the result only after the snapshot reports
 schema `v1` and its hostname exactly matches the binding. Response bodies and
 timeouts are bounded, and errors do not include response bodies or URLs.
 
-Instances missing from the exact UUID-and-creator list are still visible in the
-sanitized inventory, but remain inventory-only. Shelved, stopped, mismatched,
-unknown, or unbound instances receive no successful telemetry association. The
+Instances missing from the exact UUID-and-Nova-creator-ID list are still
+visible in the sanitized inventory, but remain inventory-only. Shelved,
+stopped, mismatched, unknown, or unbound instances receive no successful
+telemetry association. The
 controller never uses an instance name as an identity or authorization key.
 
 ### 3. Fleet telemetry
@@ -89,12 +94,14 @@ request_timeout = "10s"
 
 [[instances]]
 uuid = "11111111-1111-4111-8111-111111111111"
+creator_id = "nova-user-a"
 creator_username = "owner-a@example.test"
 agent_url = "https://gpu-agent-a.example.test"
 agent_hostname = "gpu-agent-a"
 
 [[instances]]
 uuid = "22222222-2222-4222-8222-222222222222"
+creator_id = "nova-user-b"
 creator_username = "owner-b@example.test"
 agent_url = "https://gpu-agent-b.example.test"
 agent_hostname = "gpu-agent-b"

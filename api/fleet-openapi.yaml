@@ -127,20 +127,20 @@ components:
         instance: { $ref: "#/components/schemas/Instance" }
         managed:
           type: boolean
-          description: UUID and creator username exactly match the controller allowlist.
+          description: UUID and authoritative Nova creator ID exactly match the controller allowlist.
         agentProbeEligible:
           type: boolean
-          description: The exact allowlist matched and the cloud state permits a read-only agent request.
+          description: The exact UUID and authoritative Nova creator ID matched, the cloud state is active, and an explicit HTTPS agent binding exists.
         policyReason:
           type: string
-          enum: [allowed, not_allowlisted, creator_mismatch, cloud_not_active]
+          enum: [allowed, not_allowlisted, creator_mismatch, cloud_not_active, agent_not_configured]
         agent: { $ref: "#/components/schemas/AgentObservation" }
     AgentObservation:
       type: object
       additionalProperties: false
       required: [status]
       properties:
-        status: { type: string, enum: [not_managed, available, unreachable, stale, incompatible] }
+        status: { type: string, enum: [not_managed, not_configured, available, unreachable, stale, incompatible] }
         lastAttemptAt: { type: string, format: date-time }
         lastSuccessAt: { type: string, format: date-time }
         observedAt: { type: string, format: date-time }

@@ -33,6 +33,7 @@ fi
 
 for required_path in \
   "${archive_root}/miglens" \
+  "${archive_root}/miglens-hub" \
   "${archive_root}/LICENSE" \
   "${archive_root}/NOTICE" \
   "${archive_root}/README.md" \
@@ -54,8 +55,10 @@ for required_path in \
   "${archive_root}/docs/architecture.md" \
   "${archive_root}/docs/assets/architecture.svg" \
   "${archive_root}/docs/config.example.toml" \
+  "${archive_root}/docs/jetstream-fleet.md" \
   "${archive_root}/docs/kubernetes-attribution.md" \
   "${archive_root}/docs/permissions.md" \
+  "${archive_root}/api/fleet-openapi.yaml" \
   "${archive_root}/api/openapi.yaml" \
   "${archive_root}/web/public/miglens-mark.png" \
   "${archive_root}/openapi.yaml" \
@@ -73,6 +76,7 @@ done
 tar -xzf "${archive}" -C "${temporary_directory}"
 root="${temporary_directory}/${archive_root}"
 [[ -x "${root}/miglens" ]] || { echo "miglens is not executable" >&2; exit 1; }
+[[ -x "${root}/miglens-hub" ]] || { echo "miglens-hub is not executable" >&2; exit 1; }
 grep -Fx 'User=%i' "${root}/miglens@.service" >/dev/null
 grep -Fx 'ExecStart=/usr/local/bin/miglens --listen 127.0.0.1:1397 serve' "${root}/miglens@.service" >/dev/null
 grep -Fx 'EnvironmentFile=-/etc/miglens/miglens.env' "${root}/miglens@.service" >/dev/null
@@ -99,6 +103,8 @@ cmp "${root}/openapi.yaml" "${root}/api/openapi.yaml" >/dev/null
 
 version_output="$("${root}/miglens" version --format json)"
 grep -F "\"version\":\"${version}\"" <<<"${version_output}" >/dev/null
+hub_version_output="$("${root}/miglens-hub" version --json)"
+grep -F "\"version\":\"${version}\"" <<<"${hub_version_output}" >/dev/null
 grep -Fx "  version: ${version}" "${root}/openapi.yaml" >/dev/null
 
 chart="${root}/charts/miglens-attribution/Chart.yaml"
@@ -116,9 +122,11 @@ grep -F 'readOnlyRootFilesystem: true' "${root}/charts/miglens-attribution/value
 grep -F 'resources: ["resourceslices"]' "${root}/charts/miglens-attribution/templates/rbac.yaml" >/dev/null
 grep -F 'resources: ["resourceclaims"]' "${root}/charts/miglens-attribution/templates/rbac.yaml" >/dev/null
 
-if strings -a "${root}/miglens" | grep -Ei '(/home/[^/[:space:]]+/|/Users/[^/[:space:]]+/|(MIG-)?GPU-[0-9a-f]{8}-[0-9a-f-]{27})' >/dev/null; then
-  echo "binary contains a host path or hardware identifier" >&2
-  exit 1
-fi
+for binary in miglens miglens-hub; do
+  if strings -a "${root}/${binary}" | grep -Ei '(/home/[^/[:space:]]+/|/Users/[^/[:space:]]+/|(MIG-)?GPU-[0-9a-f]{8}-[0-9a-f-]{27})' >/dev/null; then
+    echo "${binary} contains a host path or hardware identifier" >&2
+    exit 1
+  fi
+done
 
 echo "release archive verified: ${expected_name}"

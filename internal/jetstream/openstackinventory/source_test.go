@@ -184,6 +184,9 @@ func TestMapServerStatusAndCreatorBoundaries(t *testing.T) {
 			if mapped.CreatorUsername != "trusted-user" {
 				t.Fatalf("creator mapping username = %q", mapped.CreatorUsername)
 			}
+			if mapped.CreatorID != "raw-user-id" {
+				t.Fatalf("creator identity pin = %q", mapped.CreatorID)
+			}
 			if strings.Contains(mapped.RawCloudState, testCanary) {
 				t.Fatalf("raw state retained canary: %q", mapped.RawCloudState)
 			}

@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { InstanceTable } from './instance-table';
+import { isJetstreamFleetPathname } from './paths';
 import { PlatformOverview } from './platform-overview';
 import type { FleetConnectionState, PlatformObservation } from './types';
 import { useFleet } from './use-fleet';
@@ -79,7 +80,7 @@ export default function FleetApp({ pathname }: { pathname: string }) {
   const { snapshot, connection, error } = useFleet();
   const jetstream = findJetstream(snapshot?.platforms);
   const nidhogg = findNidhogg(snapshot?.platforms);
-  const showJetstreamInstances = pathname === '/fleet/jetstream';
+  const showJetstreamInstances = isJetstreamFleetPathname(pathname);
 
   useEffect(() => {
     const dark = localStorage.getItem(themeKey) !== 'light';

@@ -182,18 +182,22 @@ func (s *Source) Observe(ctx context.Context, instance fleet.Instance) (fleet.Ag
 	}
 
 	var snapshot model.Snapshot
-	if err := s.getJSON(ctx, binding, "/api/v1/snapshot", s.maxSnapshotBytes, &snapshot); err != nil {
+	snapshotDocument, err := s.getJSON(ctx, binding, "/api/v1/snapshot", s.maxSnapshotBytes, &snapshot)
+	if err != nil {
 		return fleet.AgentSample{}, err
 	}
 	if snapshot.SchemaVersion != "v1" {
 		return fleet.AgentSample{}, ErrIncompatibleSchema
+	}
+	if err := validateSnapshotContainers(snapshotDocument, snapshot); err != nil {
+		return fleet.AgentSample{}, ErrInvalidResponse
 	}
 	if snapshot.Host.Hostname != binding.expectedHostname {
 		return fleet.AgentSample{}, ErrSnapshotHostMismatch
 	}
 
 	var buildInfo model.BuildInfo
-	if err := s.getJSON(ctx, binding, "/api/v1/version", s.maxVersionBytes, &buildInfo); err != nil {
+	if _, err := s.getJSON(ctx, binding, "/api/v1/version", s.maxVersionBytes, &buildInfo); err != nil {
 		return fleet.AgentSample{}, err
 	}
 
@@ -207,7 +211,7 @@ func (s *Source) Observe(ctx context.Context, instance fleet.Instance) (fleet.Ag
 	}, nil
 }
 
-func (s *Source) getJSON(ctx context.Context, binding trustedBinding, endpointPath string, limit int64, destination any) error {
+func (s *Source) getJSON(ctx context.Context, binding trustedBinding, endpointPath string, limit int64, destination any) ([]byte, error) {
 	endpoint := binding.baseURL
 	endpoint.Path = strings.TrimSuffix(endpoint.Path, "/") + endpointPath
 	endpoint.RawPath = ""
@@ -217,45 +221,118 @@ func (s *Source) getJSON(ctx context.Context, binding trustedBinding, endpointPa
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
-		return ErrAgentUnavailable
+		return nil, ErrAgentUnavailable
 	}
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("User-Agent", "miglens-fleet-agent-client")
 	response, err := s.client.Do(request)
 	if err != nil {
 		if contextErr := ctx.Err(); contextErr != nil {
-			return contextErr
+			return nil, contextErr
 		}
 		if errors.Is(err, ErrRedirectBlocked) {
-			return ErrRedirectBlocked
+			return nil, ErrRedirectBlocked
 		}
-		return ErrAgentUnavailable
+		return nil, ErrAgentUnavailable
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4<<10))
-		return ErrUnexpectedStatus
+		return nil, ErrUnexpectedStatus
 	}
 	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
-		return ErrInvalidResponse
+		return nil, ErrInvalidResponse
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil {
 		if contextErr := ctx.Err(); contextErr != nil {
-			return contextErr
+			return nil, contextErr
 		}
-		return ErrAgentUnavailable
+		return nil, ErrAgentUnavailable
 	}
 	if int64(len(data)) > limit {
-		return ErrResponseTooLarge
+		return nil, ErrResponseTooLarge
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	if err := decoder.Decode(destination); err != nil {
-		return ErrInvalidResponse
+		return nil, ErrInvalidResponse
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return nil, ErrInvalidResponse
+	}
+	return data, nil
+}
+
+// validateSnapshotContainers enforces the schema-v1 fields whose absence or
+// null value would otherwise survive Go's JSON decoding as zero values and
+// produce a fleet document that violates the existing OpenAPI contract.
+func validateSnapshotContainers(document []byte, snapshot model.Snapshot) error {
+	root, err := requiredObject(document,
+		"schemaVersion", "sequence", "sampledAt", "host", "gpus", "processes", "capabilities", "diagnostics",
+	)
+	if err != nil || snapshot.SampledAt.IsZero() || snapshot.GPUs == nil || snapshot.Processes == nil || snapshot.Diagnostics == nil {
 		return ErrInvalidResponse
 	}
+	if _, err := requiredRawObject(root["host"], "hostname", "os", "arch"); err != nil {
+		return ErrInvalidResponse
+	}
+	capabilities, err := requiredRawObject(root["capabilities"], "nvml", "gpm", "dcgm", "proc", "profileMetrics")
+	if err != nil {
+		return ErrInvalidResponse
+	}
+	for _, provider := range []string{"nvml", "gpm", "dcgm", "proc"} {
+		if _, err := requiredRawObject(capabilities[provider], "name", "available", "status"); err != nil {
+			return ErrInvalidResponse
+		}
+	}
+	for _, gpu := range snapshot.GPUs {
+		if gpu.Metrics == nil || gpu.GPUInstances == nil {
+			return ErrInvalidResponse
+		}
+		for _, gpuInstance := range gpu.GPUInstances {
+			if gpuInstance.Metrics == nil || gpuInstance.ComputeInstances == nil {
+				return ErrInvalidResponse
+			}
+			for _, computeInstance := range gpuInstance.ComputeInstances {
+				if computeInstance.Metrics == nil {
+					return ErrInvalidResponse
+				}
+			}
+		}
+	}
 	return nil
+}
+
+func requiredObject(document []byte, fields ...string) (map[string]json.RawMessage, error) {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(document, &object); err != nil || object == nil {
+		return nil, ErrInvalidResponse
+	}
+	return requireRawFields(object, fields...)
+}
+
+func requiredRawObject(document json.RawMessage, fields ...string) (map[string]json.RawMessage, error) {
+	if isJSONNull(document) {
+		return nil, ErrInvalidResponse
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(document, &object); err != nil || object == nil {
+		return nil, ErrInvalidResponse
+	}
+	return requireRawFields(object, fields...)
+}
+
+func requireRawFields(object map[string]json.RawMessage, fields ...string) (map[string]json.RawMessage, error) {
+	for _, field := range fields {
+		value, found := object[field]
+		if !found || isJSONNull(value) {
+			return nil, ErrInvalidResponse
+		}
+	}
+	return object, nil
+}
+
+func isJSONNull(value []byte) bool {
+	return len(value) == 0 || bytes.Equal(bytes.TrimSpace(value), []byte("null"))
 }

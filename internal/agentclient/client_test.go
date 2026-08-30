@@ -129,6 +129,62 @@ func TestObserveRejectsSnapshotIdentityBeforeAssigningUUID(t *testing.T) {
 	}
 }
 
+func TestObserveRejectsIncompleteSnapshotContainers(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{name: "missing gpus", mutate: func(document map[string]any) { delete(document, "gpus") }},
+		{name: "null processes", mutate: func(document map[string]any) { document["processes"] = nil }},
+		{name: "missing capability provider", mutate: func(document map[string]any) {
+			delete(document["capabilities"].(map[string]any), "proc")
+		}},
+		{name: "null nested gpu instances", mutate: func(document map[string]any) {
+			document["gpus"].([]any)[0].(map[string]any)["gpuInstances"] = nil
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			snapshot := validSnapshot(time.Now().UTC(), testHostname)
+			snapshot.GPUs = []model.GPU{{
+				UUID: "GPU-synthetic", Name: "Synthetic", Metrics: model.MetricSet{}, GPUInstances: []model.GPUInstance{},
+			}}
+			encoded, err := json.Marshal(snapshot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var document map[string]any
+			if err := json.Unmarshal(encoded, &document); err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(document)
+
+			var versionCalls atomic.Int32
+			server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				if request.URL.Path == "/api/v1/version" {
+					versionCalls.Add(1)
+					_ = json.NewEncoder(writer).Encode(model.BuildInfo{})
+					return
+				}
+				_ = json.NewEncoder(writer).Encode(document)
+			}))
+			defer server.Close()
+			source := newTLSSource(t, server, map[string]Binding{
+				testInstanceUUID: {BaseURL: server.URL, ExpectedHostname: testHostname},
+			}, Options{})
+
+			sample, err := source.Observe(context.Background(), fleet.Instance{UUID: testInstanceUUID})
+			if !errors.Is(err, ErrInvalidResponse) || sample.InstanceUUID != "" {
+				t.Fatalf("sample=%+v err=%v", sample, err)
+			}
+			if versionCalls.Load() != 0 {
+				t.Fatalf("version requests = %d", versionCalls.Load())
+			}
+		})
+	}
+}
+
 func TestNewRejectsUnsafeBindings(t *testing.T) {
 	tests := []struct {
 		name    string

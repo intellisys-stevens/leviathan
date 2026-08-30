@@ -55,9 +55,12 @@ The hub has three distinct read-only layers:
    rejects redirects, non-HTTPS URLs, `all_tenants`, non-allowlisted hosts, and
    every other mutation method.
 2. The agent layer considers an active instance probe-eligible only when its
-   UUID and creator username exactly match one configured pair. It then uses a
-   separate explicit UUID-to-HTTPS binding, reads only `/api/v1/snapshot` and
-   `/api/v1/version`, rejects redirects and credential-bearing URLs, and checks
+   UUID and authoritative Nova `user_id` exactly match one configured pair and
+   an explicit agent binding exists. The paired creator username is a trusted
+   display label; mutable Exosphere metadata is not an authorization factor.
+   It then uses a separate explicit UUID-to-HTTPS binding, reads only
+   `/api/v1/snapshot` and `/api/v1/version`, rejects redirects and
+   credential-bearing URLs, and checks
    snapshot schema `v1` plus the exact expected hostname before accepting the
    instance identity.
 3. The telemetry layer wraps the accepted single-host snapshot in fleet state,

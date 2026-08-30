@@ -17,20 +17,24 @@ describe('application routing', () => {
     expect(resolveAppRoute('/')).toBe('host');
     expect(resolveAppRoute('/anything-else')).toBe('host');
     expect(resolveAppRoute('/fleet/jetstream/instance-id')).toBe('host');
+    expect(resolveAppRoute('/fleet/unknown/')).toBe('host');
 
     render(<AppRoute pathname="/" />);
     expect(screen.getByText('single-host-dashboard')).toBeInTheDocument();
   });
 
-  it.each(['/fleet', '/fleet/jetstream'])(
-    'lazy-loads the fleet surface only for %s',
-    async (pathname) => {
-      expect(resolveAppRoute(pathname)).toBe('fleet');
-      render(<AppRoute pathname={pathname} />);
-      expect(
-        await screen.findByText(`fleet-dashboard:${pathname}`),
-      ).toBeInTheDocument();
-      expect(screen.queryByText('single-host-dashboard')).toBeNull();
-    },
-  );
+  it.each([
+    '/fleet',
+    '/fleet/',
+    '/fleet///',
+    '/fleet/jetstream',
+    '/fleet/jetstream/',
+  ])('lazy-loads the fleet surface only for %s', async (pathname) => {
+    expect(resolveAppRoute(pathname)).toBe('fleet');
+    render(<AppRoute pathname={pathname} />);
+    expect(
+      await screen.findByText(`fleet-dashboard:${pathname}`),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('single-host-dashboard')).toBeNull();
+  });
 });

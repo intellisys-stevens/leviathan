@@ -16,8 +16,8 @@ const agentSnapshot: AgentSnapshot = {
   host: { hostname: 'jetstream-agent', os: 'linux', arch: 'amd64' },
   gpus: [],
   processes: [
-    { pid: 101, user: 'active-user', status: 'available' },
-    { pid: 102, user: 'active-user', status: 'available' },
+    { pid: 101, user: 'gpu-connected-user', status: 'available' },
+    { pid: 102, user: 'gpu-connected-user', status: 'available' },
   ],
   capabilities: {
     nvml: { name: 'NVML', available: true, status: 'available' },
@@ -99,6 +99,18 @@ const fleetState: FleetSnapshot = {
           policyReason: 'not_allowlisted',
           agent: { status: 'not_managed' },
         },
+        {
+          instance: {
+            uuid: '11111111-3333-4333-8444-555555555555',
+            name: 'Approved without agent endpoint',
+            creatorUsername: 'owner-c@example.test',
+            cloudState: 'active',
+          },
+          managed: true,
+          agentProbeEligible: false,
+          policyReason: 'agent_not_configured',
+          agent: { status: 'not_configured' },
+        },
       ],
     },
   ],
@@ -129,8 +141,8 @@ describe('FleetApp', () => {
     expect(screen.queryByRole('table')).toBeNull();
   });
 
-  it('separates cloud, agent, telemetry, creator, and active-user state', () => {
-    render(<FleetApp pathname="/fleet/jetstream" />);
+  it('separates cloud, agent, telemetry, creator, and GPU-connected-user state', () => {
+    render(<FleetApp pathname="/fleet/jetstream/" />);
 
     const table = screen.getByRole('table', { name: 'Jetstream instances' });
     for (const heading of [
@@ -138,7 +150,7 @@ describe('FleetApp', () => {
       'Cloud',
       'Agent',
       'Telemetry',
-      'Active GPU users',
+      'GPU-connected users',
     ]) {
       expect(
         within(table).getByRole('columnheader', { name: heading }),
@@ -146,18 +158,21 @@ describe('FleetApp', () => {
     }
 
     const rows = within(table).getAllByTestId('fleet-instance-row');
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     expect(rows[0]).toHaveTextContent('owner-a@example.test');
     expect(rows[0]).toHaveTextContent('Running');
     expect(rows[0]).toHaveTextContent('Live');
     expect(rows[0]).toHaveTextContent('Degraded');
-    expect(rows[0]).toHaveTextContent('active-user');
+    expect(rows[0]).toHaveTextContent('gpu-connected-user');
     expect(rows[0]).toHaveTextContent('Approved test scope');
     expect(rows[1]).toHaveTextContent('owner-b@example.test');
     expect(rows[1]).toHaveTextContent('Shelved offloaded');
     expect(rows[1]).toHaveTextContent('Not monitored');
     expect(rows[1]).toHaveTextContent('Unavailable');
     expect(rows[1]).toHaveTextContent('Inventory only');
+    expect(rows[2]).toHaveTextContent('owner-c@example.test');
+    expect(rows[2]).toHaveTextContent('Not configured');
+    expect(rows[2]).toHaveTextContent('Approved · agent not configured');
   });
 
   it('renders only safe fleet fields and exposes no resource mutation controls', () => {

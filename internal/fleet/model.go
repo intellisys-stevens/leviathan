@@ -62,16 +62,19 @@ func NormalizeCloudState(raw string) CloudState {
 	}
 }
 
-// Instance contains only inventory fields safe to expose through the fleet
-// API. Cloud metadata, tags, credentials, and agent endpoints do not belong in
-// this type.
+// Instance contains sanitized inventory plus one controller-only identity pin.
+// Cloud metadata, tags, credentials, agent endpoints, and CreatorID never cross
+// the fleet API boundary.
 type Instance struct {
-	UUID            string     `json:"uuid"`
-	Name            string     `json:"name"`
-	CreatorUsername string     `json:"creatorUsername"`
-	CloudState      CloudState `json:"cloudState"`
-	RawCloudState   string     `json:"rawCloudState,omitempty"`
-	Flavor          string     `json:"flavor,omitempty"`
+	UUID            string `json:"uuid"`
+	Name            string `json:"name"`
+	CreatorUsername string `json:"creatorUsername"`
+	// CreatorID is the authoritative Nova user_id used only for controller
+	// policy evaluation. It must never cross the fleet API boundary.
+	CreatorID     string     `json:"-"`
+	CloudState    CloudState `json:"cloudState"`
+	RawCloudState string     `json:"rawCloudState,omitempty"`
+	Flavor        string     `json:"flavor,omitempty"`
 }
 
 type InventoryStatus string
@@ -93,20 +96,22 @@ type InventoryHealth struct {
 type AgentStatus string
 
 const (
-	AgentNotManaged   AgentStatus = "not_managed"
-	AgentAvailable    AgentStatus = "available"
-	AgentUnreachable  AgentStatus = "unreachable"
-	AgentStale        AgentStatus = "stale"
-	AgentIncompatible AgentStatus = "incompatible"
+	AgentNotManaged    AgentStatus = "not_managed"
+	AgentNotConfigured AgentStatus = "not_configured"
+	AgentAvailable     AgentStatus = "available"
+	AgentUnreachable   AgentStatus = "unreachable"
+	AgentStale         AgentStatus = "stale"
+	AgentIncompatible  AgentStatus = "incompatible"
 )
 
 type PolicyReason string
 
 const (
-	PolicyAllowed         PolicyReason = "allowed"
-	PolicyNotAllowlisted  PolicyReason = "not_allowlisted"
-	PolicyCreatorMismatch PolicyReason = "creator_mismatch"
-	PolicyCloudNotActive  PolicyReason = "cloud_not_active"
+	PolicyAllowed            PolicyReason = "allowed"
+	PolicyNotAllowlisted     PolicyReason = "not_allowlisted"
+	PolicyCreatorMismatch    PolicyReason = "creator_mismatch"
+	PolicyCloudNotActive     PolicyReason = "cloud_not_active"
+	PolicyAgentNotConfigured PolicyReason = "agent_not_configured"
 )
 
 type AgentObservation struct {

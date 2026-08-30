@@ -30,6 +30,7 @@ type OpenStack struct {
 
 type Instance struct {
 	UUID            string `toml:"uuid"`
+	CreatorID       string `toml:"creator_id"`
 	CreatorUsername string `toml:"creator_username"`
 	AgentURL        string `toml:"agent_url"`
 	AgentHostname   string `toml:"agent_hostname"`
@@ -128,13 +129,15 @@ func validate(config Config) error {
 		}
 	}
 
-	allowlist := make(map[string]string, len(config.Instances))
+	allowlist := make(map[string]fleet.AllowedIdentity, len(config.Instances))
 	bindings := make(map[string]agentclient.Binding)
 	for _, instance := range config.Instances {
 		if _, duplicate := allowlist[instance.UUID]; duplicate {
 			return errors.New("instance UUIDs must be unique")
 		}
-		allowlist[instance.UUID] = instance.CreatorUsername
+		allowlist[instance.UUID] = fleet.AllowedIdentity{
+			CreatorID: instance.CreatorID, CreatorUsername: instance.CreatorUsername, AgentConfigured: instance.AgentURL != "",
+		}
 		if (instance.AgentURL == "") != (instance.AgentHostname == "") {
 			return errors.New("agent_url and agent_hostname must be configured together")
 		}
@@ -160,9 +163,11 @@ func validateDashboardURL(raw string) error {
 }
 
 func (config Config) Policy() (fleet.Policy, error) {
-	entries := make(map[string]string, len(config.Instances))
+	entries := make(map[string]fleet.AllowedIdentity, len(config.Instances))
 	for _, instance := range config.Instances {
-		entries[instance.UUID] = instance.CreatorUsername
+		entries[instance.UUID] = fleet.AllowedIdentity{
+			CreatorID: instance.CreatorID, CreatorUsername: instance.CreatorUsername, AgentConfigured: instance.AgentURL != "",
+		}
 	}
 	return fleet.NewPolicy(entries)
 }

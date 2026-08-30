@@ -33,6 +33,10 @@ CGO_CFLAGS="${CGO_CFLAGS:--Wno-deprecated-declarations}" "${go_command}" build \
   -trimpath -buildvcs=false \
   -ldflags "-s -w -X github.com/intellisys-stevens/miglens/internal/cli.Version=${release_version} -X github.com/intellisys-stevens/miglens/internal/cli.Commit=${commit} -X github.com/intellisys-stevens/miglens/internal/cli.BuildDate=${build_date}" \
   -o "${stage}/miglens" ./cmd/miglens
+CGO_ENABLED=0 "${go_command}" build \
+  -trimpath -buildvcs=false \
+  -ldflags "-s -w -X github.com/intellisys-stevens/miglens/internal/hubcli.Version=${release_version} -X github.com/intellisys-stevens/miglens/internal/hubcli.Commit=${commit} -X github.com/intellisys-stevens/miglens/internal/hubcli.BuildDate=${build_date}" \
+  -o "${stage}/miglens-hub" ./cmd/miglens-hub
 
 command -v objdump >/dev/null 2>&1 || {
   echo "objdump is required to verify the glibc baseline" >&2
@@ -65,11 +69,11 @@ cp -R charts/miglens-attribution "${stage}/charts/"
 cp -R contrib/systemd "${stage}/contrib/"
 cp -R docs "${stage}/"
 cp -R licenses "${stage}/"
-cp api/openapi.yaml "${stage}/api/openapi.yaml"
+cp api/openapi.yaml api/fleet-openapi.yaml "${stage}/api/"
 cp web/public/miglens-mark.png "${stage}/web/public/miglens-mark.png"
 cp api/openapi.yaml "${stage}/openapi.yaml"
 cp licenses/* "${stage}/THIRD_PARTY_LICENSES/assets/"
-CGO_CFLAGS="${CGO_CFLAGS:--Wno-deprecated-declarations}" "${go_command}" run github.com/google/go-licenses/v2@v2.0.1 save ./cmd/miglens --save_path "${stage}/THIRD_PARTY_LICENSES/go" >&2
+CGO_CFLAGS="${CGO_CFLAGS:--Wno-deprecated-declarations}" "${go_command}" run github.com/google/go-licenses/v2@v2.0.1 save ./cmd/miglens ./cmd/miglens-hub --save_path "${stage}/THIRD_PARTY_LICENSES/go" >&2
 "${node_command}" web/scripts/save-licenses.mjs "${stage}/THIRD_PARTY_LICENSES/web" >&2
 
 tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@${source_date_epoch}" -C "${stage_parent}" -cf - "${archive_root}" | gzip -n -9 > "${archive}"

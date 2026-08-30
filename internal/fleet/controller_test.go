@@ -34,7 +34,16 @@ func (source *scriptedInventory) List(context.Context) (InventoryObservation, er
 	if index >= len(source.results) {
 		index = len(source.results) - 1
 	}
-	return source.results[index].observation, source.results[index].err
+	observation := source.results[index].observation
+	observation.Instances = append([]Instance(nil), observation.Instances...)
+	for instanceIndex := range observation.Instances {
+		if observation.Instances[instanceIndex].CreatorID == "" {
+			// Controller tests use the synthetic display name as the synthetic
+			// authoritative ID unless a test supplies a distinct ID explicitly.
+			observation.Instances[instanceIndex].CreatorID = observation.Instances[instanceIndex].CreatorUsername
+		}
+	}
+	return observation, source.results[index].err
 }
 
 type scriptedAgent struct {
@@ -101,6 +110,39 @@ func TestControllerOnlyContactsExactAllowedActiveInstances(t *testing.T) {
 	assertObservation(t, observations[3], false, false, PolicyNotAllowlisted, AgentNotManaged)
 	if observations[0].Agent.Snapshot == nil || observations[0].Agent.Snapshot.SchemaVersion != "v1" {
 		t.Fatalf("nested agent snapshot was changed: %+v", observations[0].Agent.Snapshot)
+	}
+}
+
+func TestControllerDoesNotProbeUnconfiguredAgentAndUsesTrustedCreatorLabel(t *testing.T) {
+	now := time.Date(2026, time.August, 30, 18, 2, 0, 0, time.UTC)
+	inventory := &scriptedInventory{results: []inventoryResult{{observation: InventoryObservation{
+		ObservedAt: now,
+		Instances: []Instance{{
+			UUID: instanceOne, Name: "Alpha", CreatorID: "nova-user-a", CreatorUsername: "spoofed-metadata@example.test", CloudState: CloudStateActive,
+		}},
+	}}}}
+	agents := &scriptedAgent{samples: map[string]AgentSample{}, errors: map[string]error{}}
+	policy, err := NewPolicy(map[string]AllowedIdentity{instanceOne: {
+		CreatorID: "nova-user-a", CreatorUsername: "owner-a@example.test", AgentConfigured: false,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := mustController(t, inventory, agents, policy, now).Refresh(context.Background())
+	if calls := agents.calledUUIDs(); len(calls) != 0 {
+		t.Fatalf("agent calls = %v, want none", calls)
+	}
+	observation := state.Platforms[0].Instances[0]
+	assertObservation(t, observation, true, false, PolicyAgentNotConfigured, AgentNotConfigured)
+	if observation.Instance.CreatorUsername != "owner-a@example.test" {
+		t.Fatalf("creator username = %q, want trusted configured label", observation.Instance.CreatorUsername)
+	}
+	encoded, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "nova-user-a") || strings.Contains(string(encoded), "spoofed-metadata") {
+		t.Fatalf("fleet JSON leaked a private creator ID or advisory metadata: %s", encoded)
 	}
 }
 
@@ -561,7 +603,11 @@ func sampleAt(at time.Time, hostname, instanceUUID string) AgentSample {
 
 func mustPolicy(t *testing.T, entries map[string]string) Policy {
 	t.Helper()
-	policy, err := NewPolicy(entries)
+	identities := make(map[string]AllowedIdentity, len(entries))
+	for instanceUUID, creator := range entries {
+		identities[instanceUUID] = AllowedIdentity{CreatorID: creator, CreatorUsername: creator, AgentConfigured: true}
+	}
+	policy, err := NewPolicy(identities)
 	if err != nil {
 		t.Fatalf("NewPolicy() error = %v", err)
 	}

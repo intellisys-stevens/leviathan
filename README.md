@@ -152,7 +152,9 @@ hub does not proxy, replace, or modify the Nidhogg entry or API.
 
 Hub configuration is fail-closed. It requires exact OpenStack project, identity
 host, and compute host allowlists. Each test-enabled instance must also match
-one exact lowercase UUID and creator username pair; wildcards are rejected.
+one exact lowercase UUID and authoritative Nova creator ID; wildcards are
+rejected. The paired creator username is a trusted display label, not
+metadata-based authorization.
 Instances discovered outside that list remain inventory-only and receive no
 agent request. OpenStack credentials are accepted only through standard `OS_*`
 environment variables and never through the non-secret TOML file.
