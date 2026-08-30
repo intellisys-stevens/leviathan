@@ -296,7 +296,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "$HELM_PASSWORD" | helm registry login ghcr.io --username "$HELM_USERNAME" --password-stdin
-          output=$(helm push "dist/miglens-attribution-${{ needs.release-metadata.outputs.version }}.tgz" "oci://$CHART_REGISTRY")
+          output=$(helm push "dist/miglens-attribution-${{ needs.release-metadata.outputs.version }}.tgz" "oci://$CHART_REGISTRY" 2>&1)
           printf '%s\n' "$output"
           digest=$(awk '$1 == "Digest:" { print $2 }' <<<"$output")
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
