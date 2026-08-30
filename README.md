@@ -15,7 +15,9 @@
 MIGLens is a Linux-only, read-only monitor that understands the physical GPU →
 GPU Instance (GI) → Compute Instance (CI) hierarchy. One Go binary includes an
 interactive TUI, scriptable output, and a local React dashboard; an optional
-Kubernetes bridge adds scheduler-authoritative workspace assignments.
+Kubernetes bridge adds scheduler-authoritative workspace assignments. The
+separate `miglens-hub` process can add a read-only Jetstream fleet view without
+changing or replacing any existing single-host deployment.
 
 ## ✨ Highlights
 
@@ -56,6 +58,8 @@ miglens --fixture blackwell serve
 | `miglens serve` | Local dashboard on `127.0.0.1:1397` |
 | `miglens doctor -f text\|json` | Capability and permission report |
 | `miglens version` | Version, commit, and build time |
+| `miglens-hub --config hub.toml inventory` | Sanitized, project-scoped Jetstream inventory |
+| `miglens-hub --config hub.toml serve` | Fleet dashboard on `127.0.0.1:1398/fleet` |
 
 The TUI supports arrows or `j`/`k`, `Tab`, `/`, `Enter`, `p`, `?`, and `q`.
 Use `NO_COLOR=1`, `--no-color`, or `--ascii` for terminal fallbacks.
@@ -134,17 +138,41 @@ environment file. See [Kubernetes attribution](docs/kubernetes-attribution.md)
 for Kubernetes 1.34 and NVIDIA DRA prerequisites, RBAC, privacy, and failure
 behavior.
 
+## Optional Jetstream fleet controller
+
+`miglens` and `miglens-hub` are independent processes. The local `miglens`
+agent continues to own one host's NVML/DCGM collection and unchanged
+`/api/v1/*` API. `miglens-hub` does not start a GPU collector; it reads a
+project-scoped OpenStack inventory and, only for explicitly approved active
+instances, reads an existing agent's snapshot and version over HTTPS.
+
+The fleet dashboard presents Nidhogg and Jetstream as peers. The configured
+Nidhogg entry is a credential-free HTTPS link to the existing dashboard; the
+hub does not proxy, replace, or modify the Nidhogg entry or API.
+
+Hub configuration is fail-closed. It requires exact OpenStack project, identity
+host, and compute host allowlists. Each test-enabled instance must also match
+one exact lowercase UUID and creator username pair; wildcards are rejected.
+Instances discovered outside that list remain inventory-only and receive no
+agent request. OpenStack credentials are accepted only through standard `OS_*`
+environment variables and never through the non-secret TOML file.
+
+See [Jetstream fleet controller](docs/jetstream-fleet.md) for the three-layer
+model, synthetic configuration, credential handling, and commands.
+
 ## 🔒 Providers and privacy
 
 MIGLens uses NVML for discovery and device metrics, NVML GPM for supported
 per-GI activity, and a local DCGM hostengine as an optional fallback. It never
 parses `nvidia-smi` output and never mutates GPU configuration.
 
-Process discovery reads numeric `/proc` entries and file-descriptor device
-metadata only. Command arguments are hidden unless `--show-command-line` is
-enabled. MIGLens does not read environments, contact external services, cross
-PID namespaces, or require Docker, Kubernetes, or CRI sockets. Kubernetes is
-contacted only by the explicitly installed attribution bridge.
+The local agent's process discovery reads numeric `/proc` entries and
+file-descriptor device metadata only. Command arguments are hidden unless
+`--show-command-line` is enabled. The local agent does not read environments,
+contact external services, cross PID namespaces, or require Docker,
+Kubernetes, or CRI sockets. Kubernetes is contacted only by the explicitly
+installed attribution bridge. The separate hub's bounded HTTPS destinations
+are documented in [SECURITY.md](SECURITY.md#jetstream-fleet-controller).
 
 The dashboard refuses non-loopback addresses. Metrics remain in memory and are
 discarded on restart.
@@ -165,6 +193,7 @@ profiler such as Nsight owns the profiling hardware.
 | Architecture and metric semantics | [docs/architecture.md](docs/architecture.md) |
 | Container and process visibility | [docs/permissions.md](docs/permissions.md) |
 | Optional Kubernetes/Coder attribution | [docs/kubernetes-attribution.md](docs/kubernetes-attribution.md) |
+| Optional Jetstream fleet controller | [docs/jetstream-fleet.md](docs/jetstream-fleet.md) |
 | OpenAPI 3.1 contract | [api/openapi.yaml](api/openapi.yaml) |
 | Development workflow | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Security boundary | [SECURITY.md](SECURITY.md) |
