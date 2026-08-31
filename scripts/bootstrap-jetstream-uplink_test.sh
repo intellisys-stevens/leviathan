@@ -54,8 +54,7 @@ cat >"${state_initial}" <<EOF
   "sequence": 1,
   "platforms": [
     {
-      "platform": {"id": "jetstream"},
-      "kind": "openstack",
+      "platform": {"id": "jetstream", "kind": "openstack"},
       "inventory": {"status": "available"},
       "instances": [
         {
@@ -81,8 +80,7 @@ cat >"${state_uplink}" <<EOF
   "sequence": 2,
   "platforms": [
     {
-      "platform": {"id": "jetstream"},
-      "kind": "openstack",
+      "platform": {"id": "jetstream", "kind": "openstack"},
       "inventory": {"status": "available"},
       "instances": [
         {

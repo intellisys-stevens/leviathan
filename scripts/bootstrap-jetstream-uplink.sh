@@ -249,11 +249,11 @@ fetch_state() {
     "${state_file}" >/dev/null || fail "fleet state uses an incompatible schema"
 
   local platform_count
-  platform_count=$(jq '[.platforms[] | select((((.platform.id // "") | ascii_downcase) == "jetstream") or .kind == "openstack")] | length' "${state_file}")
+  platform_count=$(jq '[.platforms[] | select((((.platform.id // "") | ascii_downcase) == "jetstream") or .platform.kind == "openstack")] | length' "${state_file}")
   [[ "${platform_count}" == 1 ]] || fail "fleet state must contain exactly one Jetstream/OpenStack platform"
 
   local inventory_status
-  inventory_status=$(jq -r '.platforms[] | select((((.platform.id // "") | ascii_downcase) == "jetstream") or .kind == "openstack") | .inventory.status // "missing"' "${state_file}")
+  inventory_status=$(jq -r '.platforms[] | select((((.platform.id // "") | ascii_downcase) == "jetstream") or .platform.kind == "openstack") | .inventory.status // "missing"' "${state_file}")
   [[ "${inventory_status}" == available ]] || fail "Jetstream inventory is ${inventory_status}; refusing to select a target"
 }
 
@@ -268,7 +268,7 @@ if [[ "${action}" == list ]]; then
   [[ "${apply_changes}" == false ]] || fail "--apply is valid only with install"
   candidates=$(jq -c '
     .platforms[]
-    | select((((.platform.id // "") | ascii_downcase) == "jetstream") or .kind == "openstack")
+    | select((((.platform.id // "") | ascii_downcase) == "jetstream") or .platform.kind == "openstack")
     | .instances[]
     | select(
         .instance.cloudState == "active"
@@ -318,7 +318,7 @@ esac
 
 target_count=$(jq --arg uuid "${instance_uuid}" '[
   .platforms[]
-  | select((((.platform.id // "") | ascii_downcase) == "jetstream") or .kind == "openstack")
+  | select((((.platform.id // "") | ascii_downcase) == "jetstream") or .platform.kind == "openstack")
   | .instances[]
   | select(.instance.uuid == $uuid)
 ] | length' "${state_file}")
@@ -326,7 +326,7 @@ target_count=$(jq --arg uuid "${instance_uuid}" '[
 
 target_summary=$(jq -c --arg uuid "${instance_uuid}" '
   .platforms[]
-  | select((((.platform.id // "") | ascii_downcase) == "jetstream") or .kind == "openstack")
+  | select((((.platform.id // "") | ascii_downcase) == "jetstream") or .platform.kind == "openstack")
   | .instances[]
   | select(.instance.uuid == $uuid)
   | {
@@ -438,14 +438,14 @@ fi
 fetch_state
 apply_target_count=$(jq --arg uuid "${instance_uuid}" '[
   .platforms[]
-  | select((((.platform.id // "") | ascii_downcase) == "jetstream") or .kind == "openstack")
+  | select((((.platform.id // "") | ascii_downcase) == "jetstream") or .platform.kind == "openstack")
   | .instances[]
   | select(.instance.uuid == $uuid)
 ] | length' "${state_file}")
 [[ "${apply_target_count}" == 1 ]] || fail "selected instance changed before apply; run the dry run again"
 apply_target_gate=$(jq -r --arg uuid "${instance_uuid}" '
   .platforms[]
-  | select((((.platform.id // "") | ascii_downcase) == "jetstream") or .kind == "openstack")
+  | select((((.platform.id // "") | ascii_downcase) == "jetstream") or .platform.kind == "openstack")
   | .instances[]
   | select(.instance.uuid == $uuid)
   | [
@@ -523,7 +523,7 @@ while true; do
   fetch_state
   acknowledgement=$(jq -r --arg uuid "${instance_uuid}" '
     .platforms[]
-    | select((((.platform.id // "") | ascii_downcase) == "jetstream") or .kind == "openstack")
+    | select((((.platform.id // "") | ascii_downcase) == "jetstream") or .platform.kind == "openstack")
     | .instances[]
     | select(.instance.uuid == $uuid)
     | [
