@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useMemo, useRef, useState } from 'react';
 import {
   CartesianGrid,
   Line,
@@ -30,6 +30,10 @@ import {
 } from '../overview-history';
 import type { Snapshot } from '../types';
 import type { ConnectionState } from '../use-leviathan';
+import {
+  ChartTooltipPortal,
+  chartTooltipPortalWrapperStyle,
+} from './chart-tooltip-portal';
 
 const colors = [
   'var(--chart-1)',
@@ -77,7 +81,7 @@ type SeriesDescriptor = {
 
 type TooltipDatum = {
   color?: string;
-  dataKey?: string | number;
+  dataKey?: string | number | ((object: unknown) => unknown);
   name?: string | number;
   value?: number | string | readonly (number | string)[];
   payload?: ChartRow;
@@ -166,38 +170,44 @@ export function SeriesTooltip({
             : 'space-y-1'
         }
       >
-        {visible.map((item) => (
-          <div
-            key={String(item.dataKey)}
-            className="flex min-w-36 items-center justify-between gap-4"
-          >
-            <span className="inline-flex min-w-0 items-center gap-1.5">
-              <span
-                aria-hidden="true"
-                className="h-0.5 w-3 shrink-0 rounded-full"
-                style={{ backgroundColor: item.color }}
-              />
-              <span className="truncate text-muted-foreground">
-                {item.name}
-              </span>
-            </span>
-            <span className="text-right font-mono font-medium text-foreground">
-              {chartValueLabel(Number(item.value), unit)}
-              {unit === 'bytes_per_second' && item.dataKey ? (
-                <span className="mt-0.5 block whitespace-nowrap text-[13px] font-normal text-muted-foreground">
-                  RX{' '}
-                  {formatBytesPerSecond(
-                    Number(item.payload?.[`${String(item.dataKey)}_rx`]),
-                  )}{' '}
-                  · TX{' '}
-                  {formatBytesPerSecond(
-                    Number(item.payload?.[`${String(item.dataKey)}_tx`]),
-                  )}
+        {visible.map((item) => {
+          const dataKey =
+            typeof item.dataKey === 'string' || typeof item.dataKey === 'number'
+              ? String(item.dataKey)
+              : null;
+          return (
+            <div
+              key={dataKey ?? String(item.name)}
+              className="flex min-w-36 items-center justify-between gap-4"
+            >
+              <span className="inline-flex min-w-0 items-center gap-1.5">
+                <span
+                  aria-hidden="true"
+                  className="h-0.5 w-3 shrink-0 rounded-full"
+                  style={{ backgroundColor: item.color }}
+                />
+                <span className="truncate text-muted-foreground">
+                  {item.name}
                 </span>
-              ) : null}
-            </span>
-          </div>
-        ))}
+              </span>
+              <span className="text-right font-mono font-medium text-foreground">
+                {chartValueLabel(Number(item.value), unit)}
+                {unit === 'bytes_per_second' && dataKey ? (
+                  <span className="mt-0.5 block whitespace-nowrap text-[13px] font-normal text-muted-foreground">
+                    RX{' '}
+                    {formatBytesPerSecond(
+                      Number(item.payload?.[`${dataKey}_rx`]),
+                    )}{' '}
+                    · TX{' '}
+                    {formatBytesPerSecond(
+                      Number(item.payload?.[`${dataKey}_tx`]),
+                    )}
+                  </span>
+                ) : null}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -398,106 +408,124 @@ function HistoryLinePlot({
 }) {
   const percent = unit === '%';
   const throughput = unit === 'bytes_per_second';
+  const tooltipAnchorRef = useRef<HTMLDivElement>(null);
   return (
-    <ResponsiveContainer
-      width="100%"
-      height="100%"
-      minWidth={0}
-      initialDimension={{ width: 600, height: 224 }}
-    >
-      <LineChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-        <CartesianGrid stroke="var(--border)" vertical={false} />
-        <XAxis
-          dataKey="time"
-          type="number"
-          domain={['dataMin', 'dataMax']}
-          tickCount={4}
-          tickFormatter={(value) =>
-            new Date(value).toLocaleTimeString([], {
-              hour: '2-digit',
-              minute: '2-digit',
-            })
-          }
-          tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
-          axisLine={false}
-          tickLine={false}
-        />
-        <YAxis
-          domain={
-            percent
-              ? [0, 100]
-              : throughput
-                ? [
-                    0,
-                    (maximum: number) =>
-                      maximum > 0 ? Math.ceil(maximum * 1.08) : 1,
-                  ]
-                : [
-                    (minimum: number) => Math.max(0, Math.floor(minimum - 5)),
-                    (maximum: number) => Math.ceil(maximum + 5),
-                  ]
-          }
-          allowDataOverflow={percent}
-          interval={percent ? 0 : undefined}
-          ticks={percent ? percentageTicks : undefined}
-          tickFormatter={(value) =>
-            throughput
-              ? formatBytesPerSecond(Number(value))
-              : percent
-                ? formatRoundedPercent(Number(value))
-                : `${Math.round(Number(value))}${unit}`
-          }
-          tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
-          axisLine={false}
-          tickLine={false}
-          tickMargin={4}
-          padding={percent ? { top: 6, bottom: 4 } : undefined}
-          width={throughput ? 72 : percent ? 44 : 52}
-        />
-        {interactive ? (
-          <Tooltip
-            isAnimationActive={false}
-            wrapperStyle={{ zIndex: 50, pointerEvents: 'none' }}
-            content={
-              <SeriesTooltip
-                activeDataKey={activeDataKey}
-                unit={unit}
-                testId={`${definitionID}-tooltip`}
-              />
+    <div ref={tooltipAnchorRef} className="h-full w-full">
+      <ResponsiveContainer
+        width="100%"
+        height="100%"
+        minWidth={0}
+        initialDimension={{ width: 600, height: 224 }}
+      >
+        <LineChart
+          data={rows}
+          margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+        >
+          <CartesianGrid stroke="var(--border)" vertical={false} />
+          <XAxis
+            dataKey="time"
+            type="number"
+            domain={['dataMin', 'dataMax']}
+            tickCount={4}
+            tickFormatter={(value) =>
+              new Date(value).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })
             }
+            tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
+            axisLine={false}
+            tickLine={false}
           />
-        ) : null}
-        {orderedSeries.map(({ entity, valueKey }) => {
-          const focused = activeKey === entity.key;
-          const muted = activeKey !== null && !focused;
-          return (
-            <Line
-              key={entity.key}
-              className={`overview-series ${
-                focused
-                  ? 'overview-series-focused'
-                  : muted
-                    ? 'overview-series-muted'
-                    : 'overview-series-default'
-              }`}
-              type="monotoneX"
-              dataKey={valueKey}
-              name={entity.label}
-              stroke={colors[entity.colorIndex % colors.length]}
-              strokeWidth={focused ? 3 : muted ? 1.5 : 2.25}
-              strokeOpacity={muted ? 0.18 : focused ? 1 : 0.9}
-              strokeDasharray={seriesDashPattern(entity.colorIndex)}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              dot={false}
-              connectNulls={false}
+          <YAxis
+            domain={
+              percent
+                ? [0, 100]
+                : throughput
+                  ? [
+                      0,
+                      (maximum: number) =>
+                        maximum > 0 ? Math.ceil(maximum * 1.08) : 1,
+                    ]
+                  : [
+                      (minimum: number) => Math.max(0, Math.floor(minimum - 5)),
+                      (maximum: number) => Math.ceil(maximum + 5),
+                    ]
+            }
+            allowDataOverflow={percent}
+            interval={percent ? 0 : undefined}
+            ticks={percent ? percentageTicks : undefined}
+            tickFormatter={(value) =>
+              throughput
+                ? formatBytesPerSecond(Number(value))
+                : percent
+                  ? formatRoundedPercent(Number(value))
+                  : `${Math.round(Number(value))}${unit}`
+            }
+            tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
+            axisLine={false}
+            tickLine={false}
+            tickMargin={4}
+            padding={percent ? { top: 6, bottom: 4 } : undefined}
+            width={throughput ? 72 : percent ? 44 : 52}
+          />
+          {interactive ? (
+            <Tooltip
               isAnimationActive={false}
-              unit={unit}
+              portal={
+                typeof document === 'undefined' ? undefined : document.body
+              }
+              wrapperStyle={chartTooltipPortalWrapperStyle}
+              content={(tooltip) => (
+                <ChartTooltipPortal
+                  active={tooltip.active}
+                  anchorRef={tooltipAnchorRef}
+                  coordinate={tooltip.coordinate}
+                >
+                  <SeriesTooltip
+                    active={tooltip.active}
+                    payload={tooltip.payload}
+                    label={tooltip.label}
+                    activeDataKey={activeDataKey}
+                    unit={unit}
+                    testId={`${definitionID}-tooltip`}
+                  />
+                </ChartTooltipPortal>
+              )}
             />
-          );
-        })}
-      </LineChart>
-    </ResponsiveContainer>
+          ) : null}
+          {orderedSeries.map(({ entity, valueKey }) => {
+            const focused = activeKey === entity.key;
+            const muted = activeKey !== null && !focused;
+            return (
+              <Line
+                key={entity.key}
+                className={`overview-series ${
+                  focused
+                    ? 'overview-series-focused'
+                    : muted
+                      ? 'overview-series-muted'
+                      : 'overview-series-default'
+                }`}
+                type="monotoneX"
+                dataKey={valueKey}
+                name={entity.label}
+                stroke={colors[entity.colorIndex % colors.length]}
+                strokeWidth={focused ? 3 : muted ? 1.5 : 2.25}
+                strokeOpacity={muted ? 0.18 : focused ? 1 : 0.9}
+                strokeDasharray={seriesDashPattern(entity.colorIndex)}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                dot={false}
+                connectNulls={false}
+                isAnimationActive={false}
+                unit={unit}
+              />
+            );
+          })}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   );
 }
 

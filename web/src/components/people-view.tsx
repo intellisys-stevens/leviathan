@@ -1,5 +1,6 @@
 import { memo, useMemo } from 'react';
 import {
+  Activity,
   Boxes,
   ChevronRight,
   Cpu,
@@ -44,7 +45,7 @@ function ResourceRow({
   resource: AssignedResource;
   onSelect: (selection: Selection) => void;
 }) {
-  const { selection, state } = resource;
+  const { selection } = resource;
   const physical = selection.kind === 'physical_gpu';
   const memory = physical ? selection.gpu.memory : selection.gi.memory;
   const activityMetric = physical
@@ -56,11 +57,12 @@ function ResourceRow({
     ? `GPU ${selection.gpu.index} · Full GPU`
     : `GPU ${selection.gpu.index} · GI ${selection.gi.id} · CI ${selection.ci.id}`;
   const hardwareName = physical ? selection.gpu.name : null;
-  const metricScope = physical
-    ? 'Physical GPU metrics'
-    : selection.gi.computeInstances.length > 1
-      ? `Parent GI metrics · shared by ${selection.gi.computeInstances.length} CIs`
-      : 'Parent GI metrics';
+  const parentGIScope = physical
+    ? null
+    : `GPU ${selection.gpu.index} GI ${selection.gi.id} parent GI`;
+  const sharedCISuffix = physical
+    ? ''
+    : `, shared by ${countLabel(selection.gi.computeInstances.length, 'CI')}`;
 
   return (
     <li className="mobile-workload-resource interactive-resource group relative grid min-w-0 gap-3 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,0.8fr)]">
@@ -87,11 +89,6 @@ function ResourceRow({
               {hardwareName}
             </span>
           ) : null}
-          <span
-            className={`mobile-resource-scope ${hardwareName ? 'mt-1' : 'mt-0.5'} block font-mono text-[13px] uppercase tracking-[0.1em] text-muted-foreground`}
-          >
-            {metricScope}
-          </span>
         </span>
         <ChevronRight
           className="resource-chevron mt-1 size-4 shrink-0 text-primary"
@@ -113,7 +110,11 @@ function ResourceRow({
           </span>
           <Progress
             value={used}
-            aria-label={`${identity} memory used`}
+            aria-label={
+              physical
+                ? `${identity} memory used`
+                : `${parentGIScope} memory used${sharedCISuffix}`
+            }
             className={`mt-1.5 h-1 ${
               used != null && used >= 85
                 ? '[&_[data-slot=progress-indicator]]:bg-amber-400'
@@ -126,9 +127,14 @@ function ResourceRow({
         </div>
         <div>
           <span className="flex items-center justify-between gap-2 text-[13px] uppercase tracking-[0.1em] text-muted-foreground">
-            <span className="mobile-only-label">{physical ? 'GPU' : 'SM'}</span>
-            <span className="desktop-only-label">
-              {physical ? 'GPU active' : 'SM active'}
+            <span className="inline-flex items-center gap-1">
+              <Activity className="size-3" aria-hidden="true" />
+              <span className="mobile-only-label">
+                {physical ? 'GPU' : 'SM'}
+              </span>
+              <span className="desktop-only-label">
+                {physical ? 'GPU active' : 'SM active'}
+              </span>
             </span>
             <span className="font-mono text-foreground">
               {formatMetric(activityMetric)}
@@ -136,16 +142,13 @@ function ResourceRow({
           </span>
           <Progress
             value={activity}
-            aria-label={`${identity} ${physical ? 'GPU activity' : 'SM activity'}`}
+            aria-label={
+              physical
+                ? `${identity} GPU activity`
+                : `${parentGIScope} SM activity${sharedCISuffix}`
+            }
             className="mt-1.5 h-1"
           />
-          <Badge
-            variant="outline"
-            className="mt-1.5 rounded border-border bg-muted/40 font-mono text-[13px] text-muted-foreground"
-            title={`Scheduler assignment state: ${state}`}
-          >
-            {state}
-          </Badge>
         </div>
       </div>
     </li>
@@ -218,7 +221,10 @@ function PeopleViewComponent({
         </p>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-2" data-testid="people-grid">
+      <div
+        className="grid gap-4 min-[1400px]:grid-cols-2"
+        data-testid="people-grid"
+      >
         {view.people.map((person, personIndex) => {
           const headingID = `person-${personIndex}`;
           return (

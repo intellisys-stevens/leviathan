@@ -42,3 +42,23 @@ For the one-time v0.3.0 repository rename:
 Never reuse a tag. A failed publish is fixed on a new version after deleting
 only incomplete v0.3.0 artifacts; the signed v0.2.1 rollback release remains
 available.
+
+## v0.3.1 patch release
+
+Prepare the `0.3.1` OpenAPI, dashboard, lockfile, Helm chart, documentation,
+and release-verifier metadata together on a pull request. Require the complete
+CI and non-publishing release dry run on the merged `main` commit before
+creating the release tag.
+
+After that exact commit is green, create and push a new annotated tag; never
+move or reuse `v0.3.0`:
+
+```bash
+git tag -a v0.3.1 -m "Leviathan v0.3.1"
+git push origin v0.3.1
+```
+
+The tag workflow must finish successfully before v0.3.1 is treated as
+published. Verify both native archives, checksums, attestations, SBOMs, the
+`leviathan-kubernetes-bridge:0.3.1` image, and the
+`leviathan-attribution:0.3.1` OCI chart.

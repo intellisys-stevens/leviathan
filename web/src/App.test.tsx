@@ -464,11 +464,14 @@ describe('Leviathan dashboard states', () => {
       name: 'Loading resource details',
     });
     expect(dialog).toHaveAttribute('data-testid', 'detail-sheet-fallback');
+    expect(dialog).toHaveClass('detail-sheet-surface');
     expect(
       document.querySelector('[data-slot="sheet-overlay"]'),
     ).not.toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    const close = screen.getByRole('button', { name: 'Close' });
+    await waitFor(() => expect(close).toHaveFocus());
+    fireEvent.click(close);
     await waitFor(() =>
       expect(onOpenChange.mock.calls.some(([open]) => open === false)).toBe(
         true,
@@ -1185,7 +1188,9 @@ describe('Leviathan dashboard states', () => {
       const wrapper = document.querySelector<HTMLElement>(
         '.recharts-tooltip-wrapper',
       );
-      expect(wrapper?.style.zIndex).toBe('50');
+      expect(wrapper?.style.zIndex).toBe('80');
+      expect(wrapper?.style.position).toBe('fixed');
+      expect(wrapper?.style.transform).toBe('none');
       expect(wrapper?.style.pointerEvents).toBe('none');
     });
     for (const panelID of [
@@ -1223,12 +1228,22 @@ describe('Leviathan dashboard states', () => {
       screen.queryByText('Unavailable metrics and provider issues.'),
     ).toBeNull();
     const footer = screen.getByRole('contentinfo');
-    expect(footer).toHaveTextContent(
+    const desktopFooter = footer.querySelector('.desktop-footer-copy');
+    const mobileFooter = footer.querySelector('.mobile-footer-copy');
+    expect(desktopFooter).toHaveTextContent(
       'Built with ⚔️ by Intellisys Dragoons and Codex · Leviathan v0.1.0',
     );
+    expect(mobileFooter).toHaveTextContent(
+      '⚔️ Intellisys Dragoons × Codex Leviathan v0.1.0',
+    );
+    expect(mobileFooter).toHaveClass('mobile-footer-copy');
+    expect(mobileFooter?.querySelector('a')).toHaveAttribute(
+      'href',
+      'https://intellisys.haow.us/team/',
+    );
     expect(
-      screen.getByRole('link', { name: 'Intellisys Dragoons' }),
-    ).toHaveAttribute('href', 'https://intellisys.haow.us/team/');
+      screen.getAllByRole('link', { name: 'Intellisys Dragoons' }),
+    ).toHaveLength(2);
     expect(footer).not.toHaveTextContent('linux/amd64');
     expect(footer).not.toHaveTextContent('localhost only');
     expect(screen.queryByText(/5s smoothing/i)).not.toBeInTheDocument();

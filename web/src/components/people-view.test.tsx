@@ -139,11 +139,25 @@ describe('people resource view', () => {
     expect(screen.getByText('GPU 1 · Full GPU')).toBeInTheDocument();
     expect(screen.queryByText('1g.synthetic · 1c.synthetic')).toBeNull();
     expect(screen.getByText('Second Synthetic GPU')).toBeInTheDocument();
-    expect(screen.getByText('Parent GI metrics')).toBeInTheDocument();
+    expect(view.container).not.toHaveTextContent('Parent GI metrics');
+    expect(view.container).not.toHaveTextContent('Physical GPU metrics');
+    expect(view.container).not.toHaveTextContent('allocated');
+    expect(view.container).not.toHaveTextContent('reserved');
     expect(view.container).not.toHaveTextContent('opaque-never-render');
 
+    const activityIcons = view.container.querySelectorAll(
+      '.mobile-workload-metrics .lucide-activity',
+    );
+    expect(activityIcons).toHaveLength(2);
+    for (const icon of activityIcons) {
+      expect(icon).toHaveAttribute('aria-hidden', 'true');
+    }
+    expect(screen.getByText('GPU active')).toBeInTheDocument();
+    expect(screen.getByText('SM active')).toBeInTheDocument();
+
     const peopleGrid = screen.getByTestId('people-grid');
-    expect(peopleGrid).toHaveClass('grid', 'gap-4', 'xl:grid-cols-2');
+    expect(peopleGrid).toHaveClass('grid', 'gap-4', 'min-[1400px]:grid-cols-2');
+    expect(peopleGrid).not.toHaveClass('xl:grid-cols-2');
     const personCards = screen.getAllByTestId('person-card');
     expect(personCards).toHaveLength(2);
     expect(
@@ -164,13 +178,28 @@ describe('people resource view', () => {
       );
       expect(workspaceGrid).not.toHaveClass('xl:grid-cols-2');
     }
-    for (const memoryBar of screen.getAllByLabelText(/memory used$/u)) {
+    for (const memoryBar of screen.getAllByLabelText(/memory used/u)) {
       expect(memoryBar).toHaveClass(
         '[&_[data-slot=progress-indicator]]:bg-primary',
       );
     }
+    expect(
+      screen.getByRole('progressbar', {
+        name: 'GPU 0 GI 1 parent GI memory used, shared by 1 CI',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('progressbar', {
+        name: 'GPU 0 GI 1 parent GI SM activity, shared by 1 CI',
+      }),
+    ).toBeInTheDocument();
     for (const progress of screen.getAllByRole('progressbar')) {
       expect(progress.closest('button')).toBeNull();
+      const resourceRow = progress.closest('.interactive-resource');
+      expect(resourceRow).toBeInTheDocument();
+      expect(
+        resourceRow?.querySelector(':scope > .interactive-resource-button'),
+      ).toBeInTheDocument();
     }
 
     const computeButton = screen.getByRole('button', {

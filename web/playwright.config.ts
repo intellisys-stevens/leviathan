@@ -9,6 +9,7 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:4173',
     browserName: 'chromium',
+    timezoneId: 'America/New_York',
     trace: 'retain-on-failure',
   },
   projects: [

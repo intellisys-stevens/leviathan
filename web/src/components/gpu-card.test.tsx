@@ -124,40 +124,106 @@ describe('GPU resource interactions', () => {
     });
   });
 
-  it('shows compact live memory, SM, and directional PCIe telemetry', () => {
+  it('shows six ordered full-GPU telemetry tiles', () => {
     const physicalGPU = gpu();
     physicalGPU.metrics = {
+      gpu_activity: physicalMetric(71.25),
       sm_activity: physicalMetric(62.5),
+      memory_activity: physicalMetric(33.75),
       pcie_rx_bytes_per_second: physicalMetric(1024 ** 3, 'bytes_per_second'),
       pcie_tx_bytes_per_second: physicalMetric(
         512 * 1024 ** 2,
         'bytes_per_second',
       ),
+      sm_clock: physicalMetric(1800, 'mhz'),
+      memory_clock: physicalMetric(13000, 'mhz'),
     };
     render(<GPUCard gpu={physicalGPU} onSelect={vi.fn()} />);
 
     const telemetry = screen.getByRole('region', {
       name: 'GPU 0 live telemetry',
     });
-    expect(within(telemetry).getByText('Memory')).toBeInTheDocument();
-    expect(within(telemetry).getByText('40.0%')).toBeInTheDocument();
-    expect(within(telemetry).getByText('40 B / 100 B')).toBeInTheDocument();
+    const tiles = telemetry.querySelectorAll<HTMLElement>(
+      '.full-gpu-metric-tile',
+    );
+    expect(tiles[0].parentElement).toHaveClass(
+      'auto-rows-fr',
+      'grid-cols-2',
+      'md:grid-cols-3',
+    );
+    expect(tiles).toHaveLength(6);
+    expect([...tiles].map((tile) => tile.getAttribute('data-metric'))).toEqual([
+      'gpu-activity',
+      'sm-activity',
+      'memory-activity',
+      'memory',
+      'pcie',
+      'clocks',
+    ]);
+    for (const heading of telemetry.querySelectorAll(
+      '.full-gpu-metric-heading',
+    )) {
+      expect(heading).toHaveClass('flex-col', 'md:flex-row');
+    }
+    expect(telemetry.querySelectorAll('.full-gpu-metric-heading')).toHaveLength(
+      4,
+    );
+
+    expect(within(telemetry).getByText('GPU active')).toBeInTheDocument();
+    expect(within(telemetry).getByText('71.3%')).toBeInTheDocument();
     expect(within(telemetry).getByText('SM active')).toBeInTheDocument();
     expect(within(telemetry).getByText('62.5%')).toBeInTheDocument();
+    expect(within(telemetry).getByText('Memory active')).toBeInTheDocument();
+    expect(within(telemetry).getByText('33.8%')).toBeInTheDocument();
+    expect(within(tiles[3]).getByText('Memory')).toBeInTheDocument();
+    expect(within(telemetry).getByText('40.0%')).toBeInTheDocument();
+    expect(within(telemetry).getByText('40 B / 100 B')).toBeInTheDocument();
     expect(within(telemetry).getByText('PCIe')).toBeInTheDocument();
     expect(within(telemetry).getByText('1.5 GiB/s')).toBeInTheDocument();
+    expect(
+      within(telemetry).getByText('RX 1.0 GiB/s · TX 512.0 MiB/s'),
+    ).toHaveClass('full-gpu-pcie-detail', 'whitespace-normal', 'md:truncate');
     expect(
       within(telemetry).getByText('RX 1.0 GiB/s · TX 512.0 MiB/s'),
     ).toHaveAttribute(
       'title',
       'Host to GPU 1.0 GiB/s; GPU to host 512.0 MiB/s',
     );
+    expect(within(telemetry).getByText('Clocks')).toBeInTheDocument();
+    expect(within(telemetry).getByText('1800 MHz')).toBeInTheDocument();
+    expect(within(telemetry).getByText('13000 MHz')).toBeInTheDocument();
+    const clockRows = telemetry.querySelectorAll('.full-gpu-clock-row');
+    expect(clockRows).toHaveLength(2);
+    for (const row of clockRows) {
+      expect(row).toHaveClass('flex-col', 'md:flex-row');
+    }
+    for (const value of telemetry.querySelectorAll('.full-gpu-clock-value')) {
+      expect(value).toHaveClass('whitespace-nowrap');
+      expect(value).not.toHaveClass('truncate');
+    }
+    expect(
+      telemetry.querySelector('[data-metric="gpu-activity"] .lucide-gauge'),
+    ).toBeInTheDocument();
+    expect(
+      telemetry.querySelector('[data-metric="sm-activity"] .lucide-cpu'),
+    ).toBeInTheDocument();
+    expect(
+      telemetry.querySelector(
+        '[data-metric="memory-activity"] .lucide-activity',
+      ),
+    ).toBeInTheDocument();
     expect(
       within(telemetry).getByLabelText('GPU 0 memory used'),
     ).toHaveAttribute('aria-valuenow', '40');
     expect(
+      within(telemetry).getByLabelText('GPU 0 GPU activity'),
+    ).toHaveAttribute('aria-valuenow', '71.25');
+    expect(
       within(telemetry).getByLabelText('GPU 0 SM activity'),
     ).toHaveAttribute('aria-valuenow', '62.5');
+    expect(
+      within(telemetry).getByLabelText('GPU 0 memory activity'),
+    ).toHaveAttribute('aria-valuenow', '33.75');
   });
 
   it('keeps unavailable full-GPU telemetry distinct from real zero values', () => {
@@ -168,12 +234,17 @@ describe('GPU resource interactions', () => {
       status: 'error',
     };
     physicalGPU.metrics = {
+      gpu_activity: physicalMetric(0),
       sm_activity: physicalMetric(0, 'percent', 'stale'),
-      pcie_rx_bytes_per_second: physicalMetric(
+      memory_activity: physicalMetric(0, 'percent', 'permission_denied'),
+      pcie_rx_bytes_per_second: physicalMetric(0, 'bytes_per_second'),
+      pcie_tx_bytes_per_second: physicalMetric(
         0,
         'bytes_per_second',
         'permission_denied',
       ),
+      sm_clock: physicalMetric(0, 'mhz'),
+      memory_clock: physicalMetric(0, 'mhz', 'error'),
     };
     render(<GPUCard gpu={physicalGPU} onSelect={vi.fn()} />);
 
@@ -181,15 +252,21 @@ describe('GPU resource interactions', () => {
       name: 'GPU 0 live telemetry',
     });
     const progressBars = within(telemetry).getAllByRole('progressbar');
-    expect(progressBars).toHaveLength(2);
-    for (const progress of progressBars) {
+    expect(progressBars).toHaveLength(4);
+    expect(
+      within(telemetry).getByLabelText('GPU 0 GPU activity'),
+    ).toHaveAttribute('aria-valuenow', '0');
+    for (const progress of progressBars.slice(1)) {
       expect(progress).not.toHaveAttribute('aria-valuenow');
       expect(progress).toHaveAttribute('aria-valuetext', 'Unavailable');
     }
-    expect(within(telemetry).getAllByText('—')).toHaveLength(3);
+    expect(within(telemetry).getByText('0.0%')).toBeInTheDocument();
+    expect(within(telemetry).getByText('0 B/s')).toBeInTheDocument();
+    expect(within(telemetry).getByText('0 MHz')).toBeInTheDocument();
     expect(within(telemetry).getAllByText('Unavailable')).toHaveLength(3);
-    expect(telemetry).not.toHaveTextContent('0.0%');
-    expect(telemetry).not.toHaveTextContent('0 B/s');
+    expect(within(telemetry).getAllByText('—').length).toBeGreaterThanOrEqual(
+      4,
+    );
   });
 
   it('uses one shared minimum-height body for full-GPU and MIG cards', () => {
