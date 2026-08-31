@@ -129,6 +129,15 @@ export interface components {
       lastSuccessAt?: string;
       message?: string;
     };
+    /** @description Static Nova flavor allocation. These values are provisioned capacity, not live utilization. */
+    InstanceCapacity: {
+      /** Format: int64 */
+      vcpus: number;
+      /** Format: int64 */
+      ramMiB: number;
+      /** Format: int64 */
+      rootDiskGiB: number;
+    };
     /** @description Sanitized OpenStack inventory; metadata, tags, passwords, tokens, keypairs, and endpoints are never included. */
     Instance: {
       /** Format: uuid */
@@ -148,6 +157,7 @@ export interface components {
         | 'unknown';
       rawCloudState?: string;
       flavor?: string;
+      capacity?: components['schemas']['InstanceCapacity'];
     };
     InstanceObservation: {
       instance: components['schemas']['Instance'];

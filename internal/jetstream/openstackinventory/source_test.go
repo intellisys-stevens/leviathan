@@ -33,6 +33,9 @@ func TestListUsesProjectScopedMarkerPaginationAndMapsOnlySafeFields(t *testing.T
 		if request.Method != http.MethodGet {
 			t.Errorf("method = %s, want GET", request.Method)
 		}
+		if got := request.Header.Get("X-OpenStack-Nova-API-Version"); got != novaFlavorMicroversion {
+			t.Errorf("Nova microversion = %q, want %q", got, novaFlavorMicroversion)
+		}
 		if request.URL.Path != "/v2.1/"+testProjectID+"/servers/detail" {
 			t.Errorf("path = %q", request.URL.Path)
 		}
@@ -79,6 +82,12 @@ func TestListUsesProjectScopedMarkerPaginationAndMapsOnlySafeFields(t *testing.T
 	}
 	if observation.Instances[1].CreatorUsername != "fallback-owner-b@example.test" {
 		t.Fatalf("metadata creator fallback = %q", observation.Instances[1].CreatorUsername)
+	}
+	for _, instance := range observation.Instances {
+		if instance.Flavor != "g3.medium" || instance.Capacity == nil ||
+			instance.Capacity.VCPUs != 8 || instance.Capacity.RAMMiB != 30_720 || instance.Capacity.RootDiskGiB != 60 {
+			t.Fatalf("static flavor capacity = %+v, flavor %q", instance.Capacity, instance.Flavor)
+		}
 	}
 	if resolverCalls["user-a"] != 1 || resolverCalls["user-b"] != 1 {
 		t.Fatalf("resolver calls = %v", resolverCalls)
@@ -254,6 +263,65 @@ func TestCreatorMetadataUsesOnlyExactBoundedUsername(t *testing.T) {
 	}
 	if strings.Contains(string(encoded), testCanary) || strings.Contains(string(encoded), "metadata") {
 		t.Fatalf("mapped instance retained unapproved metadata: %s", encoded)
+	}
+}
+
+func TestNovaFlavorAcceptsLegacyIDAndBoundedStaticCapacity(t *testing.T) {
+	var legacy novaFlavor
+	if err := json.Unmarshal([]byte(`{"id":"g3.medium","links":[]}`), &legacy); err != nil {
+		t.Fatalf("legacy flavor decode: %v", err)
+	}
+	legacyInstance := mapServer(novaServer{Flavor: legacy}, "")
+	if legacyInstance.Flavor != "g3.medium" || legacyInstance.Capacity != nil {
+		t.Fatalf("legacy flavor mapped as %+v", legacyInstance)
+	}
+
+	var modern novaFlavor
+	if err := json.Unmarshal([]byte(`{
+		"original_name":"g3.medium",
+		"vcpus":8,
+		"ram":30720,
+		"disk":0,
+		"ephemeral":0,
+		"swap":0,
+		"rxtx_factor":1,
+		"is_public":true,
+		"extra_specs":{}
+	}`), &modern); err != nil {
+		t.Fatalf("modern flavor decode: %v", err)
+	}
+	modernInstance := mapServer(novaServer{Flavor: modern}, "")
+	if modernInstance.Flavor != "g3.medium" || modernInstance.Capacity == nil ||
+		modernInstance.Capacity.VCPUs != 8 || modernInstance.Capacity.RAMMiB != 30_720 || modernInstance.Capacity.RootDiskGiB != 0 {
+		t.Fatalf("modern flavor mapped as %+v", modernInstance)
+	}
+}
+
+func TestNovaFlavorOmitsInvalidCapacityAndRejectsUnknownFields(t *testing.T) {
+	invalidDocuments := []string{
+		`{"original_name":"g3.medium","vcpus":0,"ram":30720,"disk":60}`,
+		`{"original_name":"g3.medium","vcpus":8,"ram":2147483648,"disk":60}`,
+		`{"original_name":"g3.medium","vcpus":8,"ram":30720,"disk":-1}`,
+		`{"original_name":"g3.medium","vcpus":"eight","ram":30720,"disk":60}`,
+	}
+	for _, document := range invalidDocuments {
+		var flavor novaFlavor
+		if err := json.Unmarshal([]byte(document), &flavor); err != nil {
+			t.Fatalf("invalid capacity should be safely omitted, got %v", err)
+		}
+		if instance := mapServer(novaServer{Flavor: flavor}, ""); instance.Capacity != nil {
+			t.Fatalf("invalid capacity was published: %+v", instance.Capacity)
+		}
+	}
+
+	for _, document := range []string{
+		`{"id":"g3.medium","future_field":true}`,
+		`{"id":"first","id":"second"}`,
+	} {
+		var flavor novaFlavor
+		if err := json.Unmarshal([]byte(document), &flavor); !errors.Is(err, errInvalidServerResponse) {
+			t.Fatalf("strict flavor decode error = %v", err)
+		}
 	}
 }
 
@@ -573,7 +641,17 @@ func testServerPayload(id, userID, name, status string) map[string]any {
 		"user_id":   userID,
 		"name":      name,
 		"status":    status,
-		"flavor":    map[string]any{"id": "g3.medium", "secret": testCanary},
+		"flavor": map[string]any{
+			"original_name": "g3.medium",
+			"vcpus":         8,
+			"ram":           30_720,
+			"disk":          60,
+			"ephemeral":     0,
+			"swap":          0,
+			"rxtx_factor":   1,
+			"is_public":     true,
+			"extra_specs":   map[string]string{"discarded": testCanary},
+		},
 		"metadata": map[string]string{
 			"exoCreatorUsername": " " + metadataCreator(userID) + " ",
 			"secret":             testCanary,

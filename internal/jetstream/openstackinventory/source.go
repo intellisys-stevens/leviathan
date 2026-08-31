@@ -41,6 +41,8 @@ const (
 	// but a byte limit is required before Gophercloud materializes a JSON page.
 	maxAuthResponseBytes      = int64(2 << 20)
 	maxInventoryResponseBytes = int64(16 << 20)
+	novaFlavorMicroversion    = "2.47"
+	maxFlavorCapacityValue    = int64(1<<31 - 1)
 )
 
 // CreatorResolver converts a Nova user ID into a trusted display username.
@@ -84,15 +86,95 @@ var _ fleet.InventorySource = (*Source)(nil)
 // fault details, keypair names, addresses, and response links never enter the
 // adapter's retained representation.
 type novaServer struct {
-	ID       string `json:"id"`
-	TenantID string `json:"tenant_id"`
-	UserID   string `json:"user_id"`
-	Name     string `json:"name"`
-	Status   string `json:"status"`
-	Flavor   struct {
-		ID string `json:"id"`
-	} `json:"flavor"`
+	ID       string          `json:"id"`
+	TenantID string          `json:"tenant_id"`
+	UserID   string          `json:"user_id"`
+	Name     string          `json:"name"`
+	Status   string          `json:"status"`
+	Flavor   novaFlavor      `json:"flavor"`
 	Metadata creatorMetadata `json:"metadata"`
+}
+
+// novaFlavor accepts the legacy ID-only server flavor and the bounded static
+// capacity embedded by Nova compute microversion 2.47. Known Nova fields that
+// are outside Yggdrasill's public inventory contract are decoded and dropped;
+// unrecognized fields fail the inventory page atomically.
+type novaFlavor struct {
+	ID           string
+	OriginalName string
+	VCPUs        *int64
+	RAMMiB       *int64
+	RootDiskGiB  *int64
+}
+
+func (flavor *novaFlavor) UnmarshalJSON(data []byte) error {
+	*flavor = novaFlavor{}
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return nil
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	opening, err := decoder.Token()
+	if err != nil || opening != json.Delim('{') {
+		return errInvalidServerResponse
+	}
+	seen := make(map[string]struct{}, 12)
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		key, ok := keyToken.(string)
+		if err != nil || !ok {
+			return errInvalidServerResponse
+		}
+		if _, duplicate := seen[key]; duplicate {
+			return errInvalidServerResponse
+		}
+		seen[key] = struct{}{}
+
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			return errInvalidServerResponse
+		}
+		switch key {
+		case "id":
+			flavor.ID = decodedFlavorString(raw)
+		case "original_name":
+			flavor.OriginalName = decodedFlavorString(raw)
+		case "vcpus":
+			flavor.VCPUs = decodedFlavorCapacity(raw, 1)
+		case "ram":
+			flavor.RAMMiB = decodedFlavorCapacity(raw, 1)
+		case "disk":
+			flavor.RootDiskGiB = decodedFlavorCapacity(raw, 0)
+		case "ephemeral", "swap", "rxtx_factor", "is_public", "extra_specs", "links":
+			// These are documented flavor fields but are intentionally outside
+			// the sanitized static-capacity projection.
+		default:
+			return errInvalidServerResponse
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim('}') {
+		return errInvalidServerResponse
+	}
+	if token, err := decoder.Token(); err != io.EOF || token != nil {
+		return errInvalidServerResponse
+	}
+	return nil
+}
+
+func decodedFlavorString(raw json.RawMessage) string {
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return ""
+	}
+	return value
+}
+
+func decodedFlavorCapacity(raw json.RawMessage, minimum int64) *int64 {
+	var value int64
+	if err := json.Unmarshal(raw, &value); err != nil || value < minimum || value > maxFlavorCapacityValue {
+		return nil
+	}
+	return &value
 }
 
 // creatorMetadata consumes the metadata object but retains only the one exact
@@ -236,6 +318,7 @@ func NewFromEnv(ctx context.Context, config Config) (*Source, error) {
 }
 
 func newSource(compute *gophercloud.ServiceClient, projectID string, config Config) *Source {
+	compute.Microversion = novaFlavorMicroversion
 	return &Source{
 		compute:         compute,
 		projectID:       projectID,
@@ -419,7 +502,26 @@ func mapServer(server novaServer, creatorName string) fleet.Instance {
 		CreatorID:       server.UserID,
 		CloudState:      fleet.NormalizeCloudState(rawState),
 		RawCloudState:   rawState,
-		Flavor:          flavorID(server.Flavor.ID),
+		Flavor:          flavorName(server.Flavor),
+		Capacity:        flavorCapacity(server.Flavor),
+	}
+}
+
+func flavorName(flavor novaFlavor) string {
+	if name := flavorID(flavor.OriginalName); name != "" {
+		return name
+	}
+	return flavorID(flavor.ID)
+}
+
+func flavorCapacity(flavor novaFlavor) *fleet.InstanceCapacity {
+	if flavor.VCPUs == nil || flavor.RAMMiB == nil || flavor.RootDiskGiB == nil {
+		return nil
+	}
+	return &fleet.InstanceCapacity{
+		VCPUs:       *flavor.VCPUs,
+		RAMMiB:      *flavor.RAMMiB,
+		RootDiskGiB: *flavor.RootDiskGiB,
 	}
 }
 

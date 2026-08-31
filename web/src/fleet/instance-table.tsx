@@ -21,6 +21,10 @@ import {
   gpuConnectedUsersLabel,
   processInspectionState,
 } from './process-inspection';
+import {
+  hostUsageUnavailableLabel,
+  staticCapacityLabel,
+} from './instance-capacity';
 
 const cloudLabels: Record<CloudState, string> = {
   active: 'Running',
@@ -216,6 +220,7 @@ export function InstanceTable({
                 const { instance, agent } = observation;
                 const users = gpuConnectedUsersLabel(observation);
                 const telemetry = telemetryState(observation);
+                const capacity = staticCapacityLabel(instance);
                 return (
                   <TableRow
                     key={instance.uuid}
@@ -274,8 +279,17 @@ export function InstanceTable({
                         </p>
                       ) : null}
                     </TableCell>
-                    <TableCell className="font-mono text-[10px]">
-                      {resourceSummary(observation)}
+                    <TableCell className="min-w-52 font-mono text-[10px]">
+                      <p>{resourceSummary(observation)}</p>
+                      <p
+                        className="mt-1 text-[9px] text-muted-foreground"
+                        data-testid="jetstream-static-capacity"
+                      >
+                        Static capacity: {capacity ?? 'Unavailable'}
+                      </p>
+                      <p className="mt-0.5 text-[9px] text-muted-foreground">
+                        {hostUsageUnavailableLabel}
+                      </p>
                     </TableCell>
                     <TableCell>
                       <Badge

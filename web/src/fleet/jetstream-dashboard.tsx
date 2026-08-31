@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
   Boxes,
+  ChevronRight,
   Database,
   Gauge,
   Server,
@@ -12,6 +13,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { readBrowserSetting, writeBrowserSetting } from '../browser-storage';
 import { GPUCard } from '../components/gpu-card';
+import type { Attribution, Selection, SelectionKey } from '../types';
 import {
   InstanceTable,
   observationSourceLabel,
@@ -26,9 +28,60 @@ import {
   processInspectionSummary,
 } from './process-inspection';
 import type { InstanceObservation, PlatformObservation } from './types';
+import {
+  hostUsageUnavailableLabel,
+  staticCapacityLabel,
+} from './instance-capacity';
 
+const DetailSheet = lazy(() => import('../components/detail-sheet'));
 const dashboardViewKey = 'leviathan.jetstreamDashboardView.v1';
 type DashboardView = 'gpus' | 'people';
+
+type JetstreamSelectionKey = {
+  instanceUUID: string;
+  entity: SelectionKey;
+};
+
+type JetstreamSelection = {
+  selection: Selection;
+  attribution?: Attribution;
+};
+
+function selectedJetstreamEntity(
+  instances: InstanceObservation[],
+  key: JetstreamSelectionKey | null,
+): JetstreamSelection | null {
+  if (!key) return null;
+  const snapshot = instances.find(
+    ({ instance }) => instance.uuid === key.instanceUUID,
+  )?.agent.snapshot;
+  if (!snapshot) return null;
+  if (key.entity.kind === 'physical_gpu') {
+    const gpu = snapshot.gpus.find(
+      (candidate) => candidate.uuid === key.entity.uuid,
+    );
+    return gpu
+      ? {
+          selection: { kind: 'physical_gpu', gpu },
+          attribution: snapshot.attribution,
+        }
+      : null;
+  }
+  for (const gpu of snapshot.gpus) {
+    for (const gi of gpu.gpuInstances) {
+      const ci = gi.computeInstances.find(
+        (candidate) => candidate.uuid === key.entity.uuid,
+      );
+      if (ci) {
+        return {
+          selection: { kind: 'compute_instance', gpu, gi, ci },
+          attribution: snapshot.attribution,
+        };
+      }
+    }
+  }
+  return null;
+}
 
 const cloudLabels: Record<string, string> = {
   active: 'Running',
@@ -184,6 +237,7 @@ function InstanceIdentity({
   const { instance, agent } = observation;
   const users = gpuConnectedUsersLabel(observation);
   const telemetry = telemetryState(observation);
+  const capacity = staticCapacityLabel(instance);
   return (
     <div
       className={`flex min-w-0 flex-wrap items-center justify-between gap-3 ${compact ? '' : 'border border-border/75 bg-card/75 px-4 py-3'}`}
@@ -230,6 +284,13 @@ function InstanceIdentity({
           <span className="font-mono text-foreground">{users}</span>
         </p>
       ) : null}
+      <p
+        className="w-full font-mono text-[9px] text-muted-foreground"
+        data-testid="jetstream-static-capacity"
+      >
+        Static capacity: {capacity ?? 'Unavailable'} ·{' '}
+        {hostUsageUnavailableLabel}
+      </p>
     </div>
   );
 }
@@ -253,7 +314,13 @@ function SnapshotHealthNotice({
   );
 }
 
-function JetstreamGPUView({ instances }: { instances: InstanceObservation[] }) {
+function JetstreamGPUView({
+  instances,
+  onSelect,
+}: {
+  instances: InstanceObservation[];
+  onSelect: (instanceUUID: string, selection: Selection) => void;
+}) {
   const observed = snapshotInstances(instances);
   const withoutSnapshot = instances.filter(
     ({ instance, agent }) =>
@@ -285,11 +352,33 @@ function JetstreamGPUView({ instances }: { instances: InstanceObservation[] }) {
               </div>
             ) : (
               observation.agent.snapshot!.gpus.map((gpu) => (
-                <GPUCard
-                  key={gpu.uuid}
-                  gpu={gpu}
-                  attribution={observation.agent.snapshot!.attribution}
-                />
+                <div key={gpu.uuid} className="space-y-2">
+                  {gpu.migEnabled ? (
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 border border-primary/25 bg-primary/[0.06] px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.08em] text-primary transition-colors hover:border-primary/45 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={`Open GPU ${gpu.index} physical GPU details`}
+                        onClick={() =>
+                          onSelect(observation.instance.uuid, {
+                            kind: 'physical_gpu',
+                            gpu,
+                          })
+                        }
+                      >
+                        Physical GPU details
+                        <ChevronRight className="size-3.5" aria-hidden="true" />
+                      </button>
+                    </div>
+                  ) : null}
+                  <GPUCard
+                    gpu={gpu}
+                    attribution={observation.agent.snapshot!.attribution}
+                    onSelect={(selection) =>
+                      onSelect(observation.instance.uuid, selection)
+                    }
+                  />
+                </div>
               ))
             )}
           </section>
@@ -413,6 +502,7 @@ function JetstreamPeopleView({
                 const users = gpuConnectedUsersLabel(observation);
                 const healthMessages = snapshotHealthMessages(observation);
                 const telemetry = telemetryState(observation);
+                const capacity = staticCapacityLabel(instance);
                 return (
                   <article
                     key={instance.uuid}
@@ -455,6 +545,15 @@ function JetstreamPeopleView({
                             ? `${agent.snapshot.gpus.length} GPU · ${processCountLabel(observation)}`
                             : 'Telemetry unavailable'}
                         </p>
+                        <p
+                          className="mt-1 font-mono text-[9px] text-muted-foreground"
+                          data-testid="jetstream-static-capacity"
+                        >
+                          Static capacity: {capacity ?? 'Unavailable'}
+                        </p>
+                        <p className="mt-0.5 font-mono text-[9px] text-muted-foreground">
+                          {hostUsageUnavailableLabel}
+                        </p>
                       </div>
                       <div>
                         <p className="font-mono text-[8px] uppercase tracking-[0.1em] text-muted-foreground">
@@ -490,7 +589,11 @@ export function JetstreamDashboard({
 }) {
   const [dashboardView, setDashboardView] =
     useState<DashboardView>(storedDashboardView);
+  const [selectedKey, setSelectedKey] = useState<JetstreamSelectionKey | null>(
+    null,
+  );
   const instances = platform.instances;
+  const selected = selectedJetstreamEntity(instances, selectedKey);
   const running = instances.filter(
     ({ instance }) => instance.cloudState === 'active',
   );
@@ -526,8 +629,22 @@ export function JetstreamDashboard({
     { value: owners, label: 'Known owners', icon: UserRound },
   ];
 
+  const openSelection = useCallback(
+    (instanceUUID: string, selection: Selection) => {
+      setSelectedKey({
+        instanceUUID,
+        entity:
+          selection.kind === 'physical_gpu'
+            ? { kind: selection.kind, uuid: selection.gpu.uuid }
+            : { kind: selection.kind, uuid: selection.ci.uuid },
+      });
+    },
+    [],
+  );
+
   function selectDashboardView(view: DashboardView) {
     setDashboardView(view);
+    setSelectedKey(null);
     writeBrowserSetting(dashboardViewKey, view);
   }
 
@@ -620,7 +737,7 @@ export function JetstreamDashboard({
         {dashboardView === 'people' ? (
           <JetstreamPeopleView instances={running} />
         ) : (
-          <JetstreamGPUView instances={instances} />
+          <JetstreamGPUView instances={instances} onSelect={openSelection} />
         )}
       </section>
 
@@ -642,6 +759,20 @@ export function JetstreamDashboard({
           <InstanceTable instances={instances} inventory={platform.inventory} />
         </div>
       </details>
+
+      {selected ? (
+        <Suspense fallback={null}>
+          <DetailSheet
+            selection={selected.selection}
+            attribution={selected.attribution}
+            open
+            onOpenChange={(open) => {
+              if (!open) setSelectedKey(null);
+            }}
+            historyMode="live-only"
+          />
+        </Suspense>
+      ) : null}
     </>
   );
 }

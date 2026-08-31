@@ -474,7 +474,10 @@ func TestControllerSnapshotOwnershipIsIsolated(t *testing.T) {
 	}}
 	inventory := &scriptedInventory{results: []inventoryResult{{observation: InventoryObservation{
 		ObservedAt: now,
-		Instances:  []Instance{{UUID: instanceOne, Name: "Alpha", CreatorUsername: "owner-a@example.test", CloudState: CloudStateActive}},
+		Instances: []Instance{{
+			UUID: instanceOne, Name: "Alpha", CreatorUsername: "owner-a@example.test", CloudState: CloudStateActive,
+			Capacity: &InstanceCapacity{VCPUs: 8, RAMMiB: 30_720, RootDiskGiB: 60},
+		}},
 	}}}}
 	agents := &scriptedAgent{samples: map[string]AgentSample{instanceOne: sample}, errors: map[string]error{}}
 	policy := mustPolicy(t, map[string]string{instanceOne: "owner-a@example.test"})
@@ -491,6 +494,7 @@ func TestControllerSnapshotOwnershipIsIsolated(t *testing.T) {
 	*sample.Snapshot.GPUs[0].Metrics["utilization"].Value = 99
 	returned.Platforms[0].Instances[0].Agent.Snapshot.Host.Hostname = "mutated-consumer"
 	returned.Platforms[0].Instances[0].Agent.Snapshot.GPUs[0].Metrics["utilization"] = model.Metric{Value: model.Float(7)}
+	returned.Platforms[0].Instances[0].Instance.Capacity.VCPUs = 99
 	current, ok := controller.Current()
 	if !ok {
 		t.Fatal("Current() reported no state")
@@ -499,10 +503,17 @@ func TestControllerSnapshotOwnershipIsIsolated(t *testing.T) {
 	if nested.Host.Hostname != "agent-host" || *nested.GPUs[0].Metrics["utilization"].Value != 42 {
 		t.Fatalf("controller state was mutated through an alias: %+v", nested)
 	}
+	if capacity := current.Platforms[0].Instances[0].Instance.Capacity; capacity == nil || capacity.VCPUs != 8 {
+		t.Fatalf("static capacity was mutated through an alias: %+v", capacity)
+	}
 	current.Platforms[0].Instances[0].Agent.Snapshot.Host.Hostname = "mutated-current"
+	current.Platforms[0].Instances[0].Instance.Capacity.RAMMiB = 1
 	again, _ := controller.Current()
 	if again.Platforms[0].Instances[0].Agent.Snapshot.Host.Hostname != "agent-host" {
 		t.Fatal("Current() returned a mutable alias")
+	}
+	if again.Platforms[0].Instances[0].Instance.Capacity.RAMMiB != 30_720 {
+		t.Fatal("Current() returned a mutable static-capacity alias")
 	}
 }
 

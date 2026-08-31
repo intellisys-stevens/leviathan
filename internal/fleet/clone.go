@@ -15,8 +15,18 @@ func cloneSnapshot(input Snapshot) Snapshot {
 		output.Platforms[platformIndex].Instances = make([]InstanceObservation, len(platform.Instances))
 		for instanceIndex, instance := range platform.Instances {
 			output.Platforms[platformIndex].Instances[instanceIndex] = instance
+			output.Platforms[platformIndex].Instances[instanceIndex].Instance = cloneInstance(instance.Instance)
 			output.Platforms[platformIndex].Instances[instanceIndex].Agent = cloneAgentObservation(instance.Agent)
 		}
+	}
+	return output
+}
+
+func cloneInstance(input Instance) Instance {
+	output := input
+	if input.Capacity != nil {
+		capacity := *input.Capacity
+		output.Capacity = &capacity
 	}
 	return output
 }

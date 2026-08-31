@@ -150,6 +150,27 @@ components:
         lastAttemptAt: { type: string, format: date-time }
         lastSuccessAt: { type: string, format: date-time }
         message: { type: string }
+    InstanceCapacity:
+      type: object
+      additionalProperties: false
+      required: [vcpus, ramMiB, rootDiskGiB]
+      description: Static Nova flavor allocation. These values are provisioned capacity, not live utilization.
+      properties:
+        vcpus:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 2147483647
+        ramMiB:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 2147483647
+        rootDiskGiB:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 2147483647
     Instance:
       type: object
       additionalProperties: false
@@ -164,6 +185,7 @@ components:
           enum: [active, shelved, shelved_offloaded, shutoff, building, paused, suspended, error, unknown]
         rawCloudState: { type: string }
         flavor: { type: string }
+        capacity: { $ref: "#/components/schemas/InstanceCapacity" }
     InstanceObservation:
       type: object
       additionalProperties: false

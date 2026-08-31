@@ -55,6 +55,46 @@ const agentSnapshot: AgentSnapshot = {
           sampledAt,
           status: 'available',
         },
+        gpu_activity: {
+          value: 37,
+          unit: 'percent',
+          source: 'nvml',
+          scope: 'physical_gpu',
+          sampledAt,
+          status: 'available',
+        },
+        sm_activity: {
+          value: 29,
+          unit: 'percent',
+          source: 'nvml',
+          scope: 'physical_gpu',
+          sampledAt,
+          status: 'available',
+        },
+        memory_activity: {
+          value: 14,
+          unit: 'percent',
+          source: 'nvml',
+          scope: 'physical_gpu',
+          sampledAt,
+          status: 'available',
+        },
+        sm_clock: {
+          value: 1410,
+          unit: 'mhz',
+          source: 'nvml',
+          scope: 'physical_gpu',
+          sampledAt,
+          status: 'available',
+        },
+        memory_clock: {
+          value: 1215,
+          unit: 'mhz',
+          source: 'nvml',
+          scope: 'physical_gpu',
+          sampledAt,
+          status: 'available',
+        },
       },
       gpuInstances: [],
     },
@@ -121,6 +161,7 @@ const fleetState: FleetSnapshot = {
             creatorUsername: 'owner-a@example.test',
             cloudState: 'active',
             flavor: 'g3.medium',
+            capacity: { vcpus: 8, ramMiB: 30_720, rootDiskGiB: 60 },
           },
           managed: true,
           agentProbeEligible: true,
@@ -159,6 +200,72 @@ const fleetState: FleetSnapshot = {
     },
   ],
 };
+
+function jetstreamStateWithMIG(
+  computeInstanceCount: number | null,
+): FleetSnapshot {
+  const state = structuredClone(fleetState);
+  const gpu = state.platforms[1].instances[0].agent.snapshot!.gpus[0];
+  gpu.migEnabled = true;
+  gpu.gpuInstances =
+    computeInstanceCount == null
+      ? []
+      : [
+          {
+            uuid: `${gpu.uuid}/gi/1`,
+            id: 1,
+            profile: '1g.10gb',
+            generation: `${gpu.uuid}/gi/1@g1`,
+            memory: {
+              totalBytes: 10 * 1024 ** 3,
+              usedBytes: 3 * 1024 ** 3,
+              freeBytes: 7 * 1024 ** 3,
+              source: 'nvml',
+              scope: 'gpu_instance',
+              sampledAt,
+              status: 'available',
+            },
+            metrics: {
+              sm_activity: {
+                value: 61,
+                unit: 'percent',
+                source: 'nvml_gpm',
+                scope: 'gpu_instance',
+                sampledAt,
+                status: 'available',
+              },
+              dram_activity: {
+                value: 24,
+                unit: 'percent',
+                source: 'nvml_gpm',
+                scope: 'gpu_instance',
+                sampledAt,
+                status: 'available',
+              },
+            },
+            computeInstances: Array.from(
+              { length: computeInstanceCount },
+              (_, index) => ({
+                uuid: `${gpu.uuid}/gi/1/ci/${index}`,
+                id: index,
+                profile: '1c.1g.10gb',
+                generation: `${gpu.uuid}/gi/1/ci/${index}@g1`,
+                memory: {
+                  totalBytes: null,
+                  usedBytes: null,
+                  freeBytes: null,
+                  source: 'nvml',
+                  scope: 'gpu_instance',
+                  sampledAt,
+                  status: 'unsupported',
+                },
+                metrics: {},
+              }),
+            ),
+          },
+        ];
+  return state;
+}
 
 describe('FleetApp', () => {
   beforeEach(() => {
@@ -260,6 +367,13 @@ describe('FleetApp', () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/NVIDIA A100-SXM4-40GB/u)).toBeInTheDocument();
     expect(screen.getByText(/GPU-connected users:/u)).toBeInTheDocument();
+    const gpuRegion = screen.getByRole('region', {
+      name: 'GPU test instance GPU resources',
+    });
+    expect(gpuRegion).toHaveTextContent(
+      'Static capacity: 8 vCPU · 30 GiB RAM · 60 GiB root disk',
+    );
+    expect(gpuRegion).toHaveTextContent('CPU and system RAM usage unavailable');
 
     fireEvent.click(screen.getByRole('button', { name: 'People' }));
     expect(
@@ -271,12 +385,171 @@ describe('FleetApp', () => {
     expect(within(peopleView).getByText('owner-c@example.test')).toBeVisible();
     expect(within(peopleView).queryByText('owner-b@example.test')).toBeNull();
     expect(within(peopleView).getByText('gpu-connected-user')).toBeVisible();
+    const ownerCard = within(peopleView)
+      .getByText('owner-a@example.test')
+      .closest('[data-testid="jetstream-person-card"]');
+    expect(ownerCard).not.toBeNull();
+    expect(ownerCard!).toHaveTextContent(
+      'Static capacity: 8 vCPU · 30 GiB RAM · 60 GiB root disk',
+    );
+    expect(ownerCard!).toHaveTextContent(
+      'CPU and system RAM usage unavailable',
+    );
     expect(localStorage.getItem('leviathan.jetstreamDashboardView.v1')).toBe(
       'people',
     );
     expect(
       localStorage.getItem(`${'mig' + 'lens'}.jetstreamDashboardView.v1`),
     ).toBeNull();
+  });
+
+  it('opens the full GPU metrics carried by a Jetstream snapshot', async () => {
+    const uplinkState = structuredClone(fleetState);
+    uplinkState.platforms[1].instances[0].agent.source = 'leviathan_uplink';
+    mockUseFleet.mockReturnValue({
+      snapshot: uplinkState,
+      connection: 'live',
+      error: null,
+    });
+    const view = render(<FleetApp pathname="/platforms/jetstream" />);
+
+    const gpuRegion = screen.getByRole('region', {
+      name: 'GPU test instance GPU resources',
+    });
+    expect(gpuRegion).toHaveTextContent('Leviathan uplink');
+    fireEvent.click(
+      within(gpuRegion).getByRole('button', {
+        name: 'Open GPU 0 full GPU details',
+      }),
+    );
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getAllByText('GPU activity').length).toBeGreaterThan(
+      0,
+    );
+    expect(within(dialog).getByText('37.0%')).toBeVisible();
+    expect(within(dialog).getAllByText('SM activity').length).toBeGreaterThan(
+      0,
+    );
+    expect(within(dialog).getByText('29.0%')).toBeVisible();
+    expect(
+      within(dialog).getAllByText('Memory activity').length,
+    ).toBeGreaterThan(0);
+    expect(within(dialog).getByText('14.0%')).toBeVisible();
+    expect(within(dialog).getByText('1410 MHz')).toBeVisible();
+    expect(within(dialog).getByText('1215 MHz')).toBeVisible();
+    expect(within(dialog).getByText('2.0 GiB / 40.0 GiB')).toBeVisible();
+    expect(within(dialog).getByText('Live snapshot only')).toBeVisible();
+    expect(
+      within(dialog).getByText(
+        'This view shows the latest telemetry snapshot. Historical activity and PCIe series are not retained for this source.',
+      ),
+    ).toBeVisible();
+    expect(
+      within(dialog).queryByRole('group', { name: 'Detail chart window' }),
+    ).toBeNull();
+    expect(within(dialog).queryByTestId('detail-history-chart')).toBeNull();
+    expect(within(dialog).queryByTestId('detail-pcie-chart')).toBeNull();
+
+    const updatedState = structuredClone(uplinkState);
+    updatedState.sequence += 1;
+    updatedState.observedAt = '2026-08-30T19:00:01Z';
+    const updatedSnapshot =
+      updatedState.platforms[1].instances[0].agent.snapshot!;
+    updatedSnapshot.sequence += 1;
+    updatedSnapshot.sampledAt = '2026-08-30T19:00:01Z';
+    updatedSnapshot.gpus[0].metrics.gpu_activity.value = 63;
+    mockUseFleet.mockReturnValue({
+      snapshot: updatedState,
+      connection: 'live',
+      error: null,
+    });
+    view.rerender(<FleetApp pathname="/platforms/jetstream" />);
+
+    expect(await within(dialog).findByText('63.0%')).toBeVisible();
+    expect(within(dialog).queryByText('37.0%')).toBeNull();
+  });
+
+  it('opens physical GPU details when MIG is enabled with no active GI', async () => {
+    const state = jetstreamStateWithMIG(null);
+    mockUseFleet.mockReturnValue({
+      snapshot: state,
+      connection: 'live',
+      error: null,
+    });
+    render(<FleetApp pathname="/platforms/jetstream" />);
+
+    const gpuRegion = screen.getByRole('region', {
+      name: 'GPU test instance GPU resources',
+    });
+    expect(gpuRegion).toHaveTextContent('No active MIG instances.');
+    fireEvent.click(
+      within(gpuRegion).getByRole('button', {
+        name: 'Open GPU 0 physical GPU details',
+      }),
+    );
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getAllByText('Physical GPU').length).toBeGreaterThan(
+      0,
+    );
+    expect(within(dialog).queryByText('Full GPU')).toBeNull();
+    expect(within(dialog).getByText('37.0%')).toBeVisible();
+  });
+
+  it('exposes physical and compute details for a single-CI MIG GPU', async () => {
+    const state = jetstreamStateWithMIG(1);
+    mockUseFleet.mockReturnValue({
+      snapshot: state,
+      connection: 'live',
+      error: null,
+    });
+    render(<FleetApp pathname="/platforms/jetstream" />);
+
+    const gpuRegion = screen.getByRole('region', {
+      name: 'GPU test instance GPU resources',
+    });
+    expect(
+      within(gpuRegion).getByRole('button', {
+        name: 'Open GPU 0 physical GPU details',
+      }),
+    ).toBeVisible();
+    fireEvent.click(
+      within(gpuRegion).getByRole('button', { name: /GI 1 \/ CI 0/u }),
+    );
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('GI 1 / CI 0')).toBeVisible();
+    expect(within(dialog).getByText('61.0%')).toBeVisible();
+  });
+
+  it('exposes each compute selection for a multi-CI MIG GPU', async () => {
+    const state = jetstreamStateWithMIG(2);
+    mockUseFleet.mockReturnValue({
+      snapshot: state,
+      connection: 'live',
+      error: null,
+    });
+    render(<FleetApp pathname="/platforms/jetstream" />);
+
+    const gpuRegion = screen.getByRole('region', {
+      name: 'GPU test instance GPU resources',
+    });
+    expect(
+      within(gpuRegion).getByRole('button', {
+        name: 'Open GPU 0 physical GPU details',
+      }),
+    ).toBeVisible();
+    expect(
+      within(gpuRegion).getByRole('button', { name: /CI 0/u }),
+    ).toBeVisible();
+    fireEvent.click(within(gpuRegion).getByRole('button', { name: /CI 1/u }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('GI 1 / CI 1')).toBeVisible();
+    expect(
+      within(dialog).getByText('GI metrics are shared by 2 CIs.'),
+    ).toBeVisible();
   });
 
   it.each([
@@ -504,6 +777,10 @@ describe('FleetApp', () => {
     expect(rows[0]).toHaveTextContent('Degraded');
     expect(rows[0]).toHaveTextContent('gpu-connected-user');
     expect(rows[0]).toHaveTextContent('Approved test scope');
+    expect(rows[0]).toHaveTextContent(
+      'Static capacity: 8 vCPU · 30 GiB RAM · 60 GiB root disk',
+    );
+    expect(rows[0]).toHaveTextContent('CPU and system RAM usage unavailable');
     expect(rows[1]).toHaveTextContent('owner-b@example.test');
     expect(rows[1]).toHaveTextContent('Shelved offloaded');
     expect(rows[1]).toHaveTextContent('Not monitored');

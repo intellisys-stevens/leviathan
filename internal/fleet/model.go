@@ -71,10 +71,20 @@ type Instance struct {
 	CreatorUsername string `json:"creatorUsername"`
 	// CreatorID is the authoritative Nova user_id used only for controller
 	// policy evaluation. It must never cross the fleet API boundary.
-	CreatorID     string     `json:"-"`
-	CloudState    CloudState `json:"cloudState"`
-	RawCloudState string     `json:"rawCloudState,omitempty"`
-	Flavor        string     `json:"flavor,omitempty"`
+	CreatorID     string            `json:"-"`
+	CloudState    CloudState        `json:"cloudState"`
+	RawCloudState string            `json:"rawCloudState,omitempty"`
+	Flavor        string            `json:"flavor,omitempty"`
+	Capacity      *InstanceCapacity `json:"capacity,omitempty"`
+}
+
+// InstanceCapacity is the static Nova flavor allocation for one instance. It
+// describes provisioned capacity only; it must never be presented as live CPU,
+// memory, or disk utilization.
+type InstanceCapacity struct {
+	VCPUs       int64 `json:"vcpus"`
+	RAMMiB      int64 `json:"ramMiB"`
+	RootDiskGiB int64 `json:"rootDiskGiB"`
 }
 
 type InventoryStatus string
