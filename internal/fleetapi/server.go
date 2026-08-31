@@ -120,12 +120,19 @@ func (s *Server) health(writer http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) static(writer http.ResponseWriter, request *http.Request) {
 	// The fleet hub deliberately does not expose the single-host /api/v1 API.
-	// Send its root to the fleet route so the shared SPA never boots the
+	// Send its root to the platform route so the shared SPA never boots the
 	// single-host dashboard against a server that cannot satisfy it. The
 	// existing miglens agent uses a different HTTP server and keeps serving its
 	// unchanged dashboard at /.
-	if request.URL.Path == "/" {
-		http.Redirect(writer, request, "/fleet", http.StatusTemporaryRedirect)
+	redirects := map[string]string{
+		"/":                 "/platforms",
+		"/fleet":            "/platforms",
+		"/fleet/":           "/platforms",
+		"/fleet/jetstream":  "/platforms/jetstream",
+		"/fleet/jetstream/": "/platforms/jetstream",
+	}
+	if destination, ok := redirects[request.URL.Path]; ok {
+		http.Redirect(writer, request, destination, http.StatusTemporaryRedirect)
 		return
 	}
 	if s.assets == nil {

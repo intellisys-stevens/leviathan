@@ -16,6 +16,10 @@ import type {
   PolicyReason,
   TelemetryState,
 } from './types';
+import {
+  gpuConnectedUsersLabel,
+  processInspectionState,
+} from './process-inspection';
 
 const cloudLabels: Record<CloudState, string> = {
   active: 'Running',
@@ -80,15 +84,6 @@ export function telemetryState(
   return 'healthy';
 }
 
-export function gpuConnectedUsers(observation: InstanceObservation): string[] {
-  const users = observation.agent.snapshot?.processes
-    .map(({ user }) => user?.trim() ?? '')
-    .filter(Boolean);
-  return [...new Set(users ?? [])].sort((left, right) =>
-    left.localeCompare(right),
-  );
-}
-
 function resourceSummary(observation: InstanceObservation): string {
   const gpus = observation.agent.snapshot?.gpus ?? [];
   const gpuInstances = gpus.reduce(
@@ -108,7 +103,7 @@ function resourceSummary(observation: InstanceObservation): string {
   return `${gpus.length} GPU · ${gpuInstances} GI · ${computeInstances} CI`;
 }
 
-function telemetryLabel(state: TelemetryState): string {
+export function telemetryLabel(state: TelemetryState): string {
   switch (state) {
     case 'healthy':
       return 'Healthy';
@@ -204,7 +199,7 @@ export function InstanceTable({
             <TableBody>
               {instances.map((observation) => {
                 const { instance, agent } = observation;
-                const users = gpuConnectedUsers(observation);
+                const users = gpuConnectedUsersLabel(observation);
                 const telemetry = telemetryState(observation);
                 return (
                   <TableRow
@@ -257,11 +252,12 @@ export function InstanceTable({
                       ) : null}
                     </TableCell>
                     <TableCell className="max-w-56 whitespace-normal">
-                      {agent.snapshot
-                        ? users.length > 0
-                          ? users.join(', ')
-                          : 'None observed'
-                        : 'Unavailable'}
+                      {users}
+                      {processInspectionState(observation) === 'incomplete' ? (
+                        <p className="mt-1 text-[9px] text-amber-600 dark:text-amber-300">
+                          Partial process coverage
+                        </p>
+                      ) : null}
                     </TableCell>
                     <TableCell className="font-mono text-[10px]">
                       {resourceSummary(observation)}

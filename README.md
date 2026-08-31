@@ -59,7 +59,7 @@ miglens --fixture blackwell serve
 | `miglens doctor -f text\|json` | Capability and permission report |
 | `miglens version` | Version, commit, and build time |
 | `miglens-hub --config hub.toml inventory` | Sanitized, project-scoped Jetstream inventory |
-| `miglens-hub --config hub.toml serve` | Fleet dashboard on `127.0.0.1:1398/fleet` |
+| `miglens-hub --config hub.toml serve` | Platform dashboard on `127.0.0.1:1398/platforms` |
 
 The TUI supports arrows or `j`/`k`, `Tab`, `/`, `Enter`, `p`, `?`, and `q`.
 Use `NO_COLOR=1`, `--no-color`, or `--ascii` for terminal fallbacks.

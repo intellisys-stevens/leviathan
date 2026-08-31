@@ -26,7 +26,7 @@ import { WorkspaceBadges } from './workspace-attribution';
 type Props = {
   gpu: GPU;
   attribution?: Attribution;
-  onSelect: (selection: Selection) => void;
+  onSelect?: (selection: Selection) => void;
 };
 
 const temperatureTone = {
@@ -208,10 +208,11 @@ function MigBlock({
             <button
               key={ci.uuid}
               type="button"
+              disabled={!onSelect}
               onClick={() =>
-                onSelect({ kind: 'compute_instance', gpu, gi, ci })
+                onSelect?.({ kind: 'compute_instance', gpu, gi, ci })
               }
-              className="flex w-full items-center justify-between gap-3 rounded border border-transparent px-1.5 py-1.5 text-left hover:border-primary/30 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex w-full items-center justify-between gap-3 rounded border border-transparent px-1.5 py-1.5 text-left enabled:hover:border-primary/30 enabled:hover:bg-primary/5 enabled:focus-visible:outline-none enabled:focus-visible:ring-2 enabled:focus-visible:ring-ring"
             >
               <span className="font-mono text-[10px] text-primary">
                 CI {ci.id}
@@ -239,15 +240,16 @@ function MigBlock({
     </>
   );
 
-  const className = `min-w-[210px] flex-1 border p-3 text-left transition-[border-color,background-color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${status === 'error' ? 'border-destructive/60 bg-destructive/5' : status === 'warning' ? 'border-amber-500/35 bg-amber-500/[0.035]' : 'border-border/80 bg-instance hover:border-primary/45 hover:bg-instance-hover'}`;
+  const className = `min-w-[210px] flex-1 border p-3 text-left transition-[border-color,background-color] duration-150 enabled:focus-visible:outline-none enabled:focus-visible:ring-2 enabled:focus-visible:ring-ring ${status === 'error' ? 'border-destructive/60 bg-destructive/5' : status === 'warning' ? 'border-amber-500/35 bg-amber-500/[0.035]' : `border-border/80 bg-instance ${onSelect ? 'enabled:hover:border-primary/45 enabled:hover:bg-instance-hover' : ''}`}`;
   return (
     <div className="min-w-[210px] flex-1 basis-0">
       {single ? (
         <button
           type="button"
           className={`${className} h-full w-full`}
+          disabled={!onSelect}
           onClick={() =>
-            onSelect({
+            onSelect?.({
               kind: 'compute_instance',
               gpu,
               gi,
@@ -318,17 +320,24 @@ function GPUCardComponent({ gpu, attribution, onSelect }: Props) {
           ) : (
             <button
               type="button"
-              className="flex w-full items-center justify-between gap-4 border border-dashed border-border p-5 text-left text-sm text-muted-foreground transition-[border-color,background-color,color] hover:border-primary/45 hover:bg-primary/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              aria-label={`Open GPU ${gpu.index} full GPU details`}
-              onClick={() => onSelect({ kind: 'physical_gpu', gpu })}
+              disabled={!onSelect}
+              className="flex w-full items-center justify-between gap-4 border border-dashed border-border p-5 text-left text-sm text-muted-foreground transition-[border-color,background-color,color] enabled:hover:border-primary/45 enabled:hover:bg-primary/5 enabled:hover:text-foreground enabled:focus-visible:outline-none enabled:focus-visible:ring-2 enabled:focus-visible:ring-ring"
+              aria-label={
+                onSelect
+                  ? `Open GPU ${gpu.index} full GPU details`
+                  : `GPU ${gpu.index} full GPU snapshot`
+              }
+              onClick={() => onSelect?.({ kind: 'physical_gpu', gpu })}
             >
               <span>
                 Full GPU memory: {formatBytes(gpu.memory.usedBytes)} /{' '}
                 {formatBytes(gpu.memory.totalBytes)}
               </span>
-              <span className="flex shrink-0 items-center gap-1 font-mono text-[10px] uppercase tracking-[0.1em] text-primary">
-                Details <ChevronRight className="size-3.5" />
-              </span>
+              {onSelect ? (
+                <span className="flex shrink-0 items-center gap-1 font-mono text-[10px] uppercase tracking-[0.1em] text-primary">
+                  Details <ChevronRight className="size-3.5" />
+                </span>
+              ) : null}
             </button>
           )
         ) : (

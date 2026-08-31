@@ -163,5 +163,5 @@ Start the loopback-only fleet dashboard:
 ./bin/miglens-hub --config ./hub.toml serve
 ```
 
-Open `http://127.0.0.1:1398/fleet`. For remote access, leave the listener on
+Open `http://127.0.0.1:1398/platforms`. For remote access, leave the listener on
 loopback and place an authenticated SSH or Tailnet proxy in front of it.

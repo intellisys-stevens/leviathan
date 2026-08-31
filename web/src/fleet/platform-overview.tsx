@@ -9,22 +9,36 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import type { PlatformObservation } from './types';
+import { jetstreamPlatformPath } from './paths';
 
 /* oxlint-disable next/no-html-link-for-pages -- This is a Vite SPA, not Next.js. */
 
 function jetstreamSummary(platform: PlatformObservation | undefined) {
   const instances = platform?.instances ?? [];
+  const running = instances.filter(
+    ({ instance }) => instance.cloudState === 'active',
+  );
+  const monitored = running.filter(
+    ({ agent }) => agent.status === 'available' && agent.snapshot != null,
+  );
+  const currentGPUObservations = monitored.filter(({ agent }) => {
+    const nvml = agent.snapshot?.capabilities.nvml;
+    return nvml?.available === true && nvml.status === 'available';
+  });
+  const knownGPUs = currentGPUObservations.reduce(
+    (total, { agent }) => total + (agent.snapshot?.gpus.length ?? 0),
+    0,
+  );
+  const completeGPUCoverage = currentGPUObservations.length === running.length;
   return {
     total: instances.length,
-    running: instances.filter(
-      ({ instance }) => instance.cloudState === 'active',
-    ).length,
-    agents: instances.filter(({ agent }) => agent.status === 'available')
-      .length,
-    gpus: instances.reduce(
-      (total, { agent }) => total + (agent.snapshot?.gpus.length ?? 0),
-      0,
-    ),
+    running: running.length,
+    agents: monitored.length,
+    gpus: completeGPUCoverage
+      ? knownGPUs
+      : knownGPUs > 0
+        ? `≥${knownGPUs}`
+        : 'Unknown',
   };
 }
 
@@ -58,7 +72,8 @@ export function PlatformOverview({
           Platforms
         </h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Nidhogg and Jetstream remain independent, peer monitoring surfaces.
+          Choose a platform. Both dashboards use the same GPU and People
+          organization.
         </p>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
@@ -77,27 +92,27 @@ export function PlatformOverview({
               </div>
               <CardTitle>Nidhogg</CardTitle>
               <CardDescription>
-                Existing Coder-aware, single-host MIGLens dashboard.
+                Coder-aware GPU, MIG, process, and workspace telemetry.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-3 gap-px overflow-hidden rounded-md border border-border bg-border">
-                <Metric label="Scope" value="Host" />
-                <Metric label="Identity" value="Coder" />
-                <Metric label="Mode" value="Direct" />
+                <Metric label="Platform" value="Host" />
+                <Metric label="People" value="Coder" />
+                <Metric label="Access" value="Direct" />
               </div>
             </CardContent>
             <CardFooter className="justify-between text-xs text-muted-foreground">
-              <span>Open the unchanged local dashboard</span>
+              <span>Open Nidhogg Dashboard</span>
               <ArrowRight className="size-4" aria-hidden="true" />
             </CardFooter>
           </Card>
         </a>
 
         <a
-          href="/fleet/jetstream"
+          href={jetstreamPlatformPath}
           className="rounded-xl outline-none transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label="Open Jetstream fleet dashboard"
+          aria-label="Open Jetstream dashboard"
         >
           <Card className="h-full transition-colors hover:bg-instance-hover">
             <CardHeader>
@@ -121,21 +136,21 @@ export function PlatformOverview({
                 {jetstream?.platform.displayName ?? 'Jetstream'}
               </CardTitle>
               <CardDescription>
-                OpenStack inventory with per-instance MIGLens agent health.
+                OpenStack instances with the same live GPU and People views.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-4 gap-px overflow-hidden rounded-md border border-border bg-border">
                 <Metric label="Instances" value={summary.total} />
                 <Metric label="Running" value={summary.running} />
-                <Metric label="Agents" value={summary.agents} />
-                <Metric label="GPUs" value={summary.gpus} />
+                <Metric label="Monitored" value={summary.agents} />
+                <Metric label="Known GPUs" value={summary.gpus} />
               </div>
             </CardContent>
             <CardFooter className="justify-between text-xs text-muted-foreground">
               <span className="flex items-center gap-1.5">
-                <Activity className="size-3.5" aria-hidden="true" /> Read-only
-                fleet view
+                <Activity className="size-3.5" aria-hidden="true" /> Open
+                Jetstream Dashboard
               </span>
               <ArrowRight className="size-4" aria-hidden="true" />
             </CardFooter>

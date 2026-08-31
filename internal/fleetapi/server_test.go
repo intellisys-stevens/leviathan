@@ -160,7 +160,7 @@ func TestEventsStreamsCurrentFleetState(t *testing.T) {
 	}
 }
 
-func TestStaticServesAssetsAndFleetDeepLinkFallback(t *testing.T) {
+func TestStaticServesAssetsAndPlatformDeepLinkFallback(t *testing.T) {
 	assets := fstest.MapFS{
 		"index.html":    &fstest.MapFile{Data: []byte("<main>fleet app</main>")},
 		"assets/app.js": &fstest.MapFile{Data: []byte("console.log('fleet')")},
@@ -168,11 +168,22 @@ func TestStaticServesAssetsAndFleetDeepLinkFallback(t *testing.T) {
 	server := NewServer(newStubSource(), fs.FS(assets), model.BuildInfo{})
 	root := httptest.NewRecorder()
 	server.ServeHTTP(root, httptest.NewRequest(http.MethodGet, "/", nil))
-	if root.Code != http.StatusTemporaryRedirect || root.Header().Get("Location") != "/fleet" {
+	if root.Code != http.StatusTemporaryRedirect || root.Header().Get("Location") != "/platforms" {
 		t.Fatalf("GET / = status %d location %q", root.Code, root.Header().Get("Location"))
 	}
 
-	for _, path := range []string{"/fleet", "/fleet/jetstream"} {
+	for legacy, destination := range map[string]string{
+		"/fleet":           "/platforms",
+		"/fleet/jetstream": "/platforms/jetstream",
+	} {
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, legacy, nil))
+		if response.Code != http.StatusTemporaryRedirect || response.Header().Get("Location") != destination {
+			t.Fatalf("GET %s = status %d location %q", legacy, response.Code, response.Header().Get("Location"))
+		}
+	}
+
+	for _, path := range []string{"/platforms", "/platforms/jetstream"} {
 		response := httptest.NewRecorder()
 		server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
 		if response.Code != http.StatusOK || response.Body.String() != "<main>fleet app</main>" {

@@ -27,7 +27,7 @@ type SamplingChoicesProps = {
 
 const defaultSamplingIntervals = [500, 1000, 2000];
 
-function GitHubMark() {
+export function GitHubMark() {
   return (
     <svg
       viewBox="0 0 24 24"

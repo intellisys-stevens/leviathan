@@ -4,10 +4,10 @@ import { isFleetPathname } from './fleet/paths';
 
 const FleetApp = lazy(() => import('./fleet/FleetApp'));
 
-export type AppRouteKind = 'host' | 'fleet';
+export type AppRouteKind = 'host' | 'platform';
 
 export function resolveAppRoute(pathname: string): AppRouteKind {
-  return isFleetPathname(pathname) ? 'fleet' : 'host';
+  return isFleetPathname(pathname) ? 'platform' : 'host';
 }
 
 function FleetLoading() {
@@ -15,7 +15,7 @@ function FleetLoading() {
     <main className="mx-auto max-w-[1680px] px-4 py-6 sm:px-6">
       <div
         className="h-20 animate-pulse rounded-md bg-muted"
-        aria-label="Loading fleet dashboard"
+        aria-label="Loading platform dashboard"
       />
     </main>
   );

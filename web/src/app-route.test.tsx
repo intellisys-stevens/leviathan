@@ -8,7 +8,7 @@ vi.mock('./App', () => ({
 
 vi.mock('./fleet/FleetApp', () => ({
   default: ({ pathname }: { pathname: string }) => (
-    <div>fleet-dashboard:{pathname}</div>
+    <div>platform-dashboard:{pathname}</div>
   ),
 }));
 
@@ -16,24 +16,29 @@ describe('application routing', () => {
   it('keeps the existing single-host dashboard as the default route', () => {
     expect(resolveAppRoute('/')).toBe('host');
     expect(resolveAppRoute('/anything-else')).toBe('host');
-    expect(resolveAppRoute('/fleet/jetstream/instance-id')).toBe('host');
-    expect(resolveAppRoute('/fleet/unknown/')).toBe('host');
 
     render(<AppRoute pathname="/" />);
     expect(screen.getByText('single-host-dashboard')).toBeInTheDocument();
   });
 
   it.each([
+    '/platforms',
+    '/platforms/',
+    '/platforms///',
+    '/platforms/jetstream',
+    '/platforms/jetstream/',
+    '/platforms/not-a-route',
     '/fleet',
     '/fleet/',
     '/fleet///',
     '/fleet/jetstream',
     '/fleet/jetstream/',
-  ])('lazy-loads the fleet surface only for %s', async (pathname) => {
-    expect(resolveAppRoute(pathname)).toBe('fleet');
+    '/fleet/unknown/',
+  ])('lazy-loads the platform surface only for %s', async (pathname) => {
+    expect(resolveAppRoute(pathname)).toBe('platform');
     render(<AppRoute pathname={pathname} />);
     expect(
-      await screen.findByText(`fleet-dashboard:${pathname}`),
+      await screen.findByText(`platform-dashboard:${pathname}`),
     ).toBeInTheDocument();
     expect(screen.queryByText('single-host-dashboard')).toBeNull();
   });

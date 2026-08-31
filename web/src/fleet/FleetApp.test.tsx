@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Snapshot as AgentSnapshot } from '../types';
 import FleetApp from './FleetApp';
@@ -14,7 +14,51 @@ const agentSnapshot: AgentSnapshot = {
   sequence: 12,
   sampledAt,
   host: { hostname: 'jetstream-agent', os: 'linux', arch: 'amd64' },
-  gpus: [],
+  gpus: [
+    {
+      uuid: 'GPU-jetstream-fixture',
+      index: 0,
+      name: 'NVIDIA A100-SXM4-40GB',
+      migEnabled: false,
+      maxMigDevices: 7,
+      memory: {
+        totalBytes: 40 * 1024 ** 3,
+        usedBytes: 2 * 1024 ** 3,
+        freeBytes: 38 * 1024 ** 3,
+        source: 'nvml',
+        scope: 'physical_gpu',
+        sampledAt,
+        status: 'available',
+      },
+      metrics: {
+        temperature: {
+          value: 34,
+          unit: 'celsius',
+          source: 'nvml',
+          scope: 'physical_gpu',
+          sampledAt,
+          status: 'available',
+        },
+        power: {
+          value: 45,
+          unit: 'watts',
+          source: 'nvml',
+          scope: 'physical_gpu',
+          sampledAt,
+          status: 'available',
+        },
+        power_limit: {
+          value: 400,
+          unit: 'watts',
+          source: 'nvml',
+          scope: 'physical_gpu',
+          sampledAt,
+          status: 'available',
+        },
+      },
+      gpuInstances: [],
+    },
+  ],
   processes: [
     { pid: 101, user: 'gpu-connected-user', status: 'available' },
     { pid: 102, user: 'gpu-connected-user', status: 'available' },
@@ -118,6 +162,7 @@ const fleetState: FleetSnapshot = {
 
 describe('FleetApp', () => {
   beforeEach(() => {
+    localStorage.clear();
     mockUseFleet.mockReset();
     mockUseFleet.mockReturnValue({
       snapshot: fleetState,
@@ -130,19 +175,141 @@ describe('FleetApp', () => {
     render(<FleetApp pathname="/fleet" />);
 
     expect(
-      screen.getByRole('heading', { name: 'Platform overview' }),
+      screen.getByRole('heading', { name: 'MIGLens Platform' }),
     ).toBeInTheDocument();
+    const nidhoggLink = screen.getByRole('link', {
+      name: 'Open Nidhogg dashboard',
+    });
+    expect(nidhoggLink).toHaveAttribute(
+      'href',
+      'https://nidhogg.example.test/',
+    );
+    expect(within(nidhoggLink).getByText('Access')).toBeVisible();
+    expect(within(nidhoggLink).getByText('Direct')).toBeVisible();
     expect(
-      screen.getByRole('link', { name: 'Open Nidhogg dashboard' }),
-    ).toHaveAttribute('href', 'https://nidhogg.example.test/');
-    expect(
-      screen.getByRole('link', { name: 'Open Jetstream fleet dashboard' }),
-    ).toHaveAttribute('href', '/fleet/jetstream');
+      screen.getByRole('link', { name: 'Open Jetstream dashboard' }),
+    ).toHaveAttribute('href', '/platforms/jetstream');
     expect(screen.queryByRole('table')).toBeNull();
+    expect(document.title).toBe('MIGLens Platform');
+  });
+
+  it('uses the same GPU and People organization as the host dashboard', () => {
+    render(<FleetApp pathname="/platforms/jetstream" />);
+
+    expect(
+      screen.getByRole('heading', { name: 'Jetstream Dashboard' }),
+    ).toBeInTheDocument();
+    expect(document.title).toBe('Jetstream · MIGLens');
+    expect(
+      screen.getByRole('status', {
+        name: 'Platform connection status: Degraded',
+      }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('link', { name: 'Open Nidhogg dashboard' }),
+    ).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'GPUs', pressed: true }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/NVIDIA A100-SXM4-40GB/u)).toBeInTheDocument();
+    expect(screen.getByText(/GPU-connected users:/u)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'People' }));
+    expect(
+      screen.getByRole('button', { name: 'People', pressed: true }),
+    ).toBeInTheDocument();
+    const peopleView = screen.getByTestId('jetstream-people-view');
+    expect(peopleView).toBeInTheDocument();
+    expect(within(peopleView).getByText('owner-a@example.test')).toBeVisible();
+    expect(within(peopleView).getByText('owner-c@example.test')).toBeVisible();
+    expect(within(peopleView).queryByText('owner-b@example.test')).toBeNull();
+    expect(within(peopleView).getByText('gpu-connected-user')).toBeVisible();
+  });
+
+  it('does not turn incomplete process inspection into a false zero-user claim', () => {
+    const incompleteState = structuredClone(fleetState);
+    const observation = incompleteState.platforms[1].instances[0];
+    observation.agent.snapshot!.processes = [];
+    observation.agent.snapshot!.diagnostics = [
+      {
+        code: 'gpu_process_fds',
+        severity: 'warning',
+        component: '/proc',
+        summary: '223 processes could not be checked for GPU device access',
+        status: 'permission_denied',
+      },
+    ];
+    mockUseFleet.mockReturnValue({
+      snapshot: incompleteState,
+      connection: 'live',
+      error: null,
+    });
+
+    render(<FleetApp pathname="/platforms/jetstream" />);
+
+    const gpuRegion = screen.getByRole('region', {
+      name: 'GPU test instance GPU resources',
+    });
+    expect(gpuRegion).toHaveTextContent('Processes unknown');
+    expect(gpuRegion).toHaveTextContent('Unknown · inspection incomplete');
+    expect(gpuRegion).toHaveTextContent(
+      '223 processes could not be checked for GPU device access',
+    );
+    expect(gpuRegion).not.toHaveTextContent('None observed');
+    expect(screen.getByText('Known GPU processes')).toBeVisible();
+    expect(screen.getByText('Unknown', { selector: 'p' })).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'People' }));
+    const peopleView = screen.getByTestId('jetstream-people-view');
+    const owner = within(peopleView).getByRole('region', {
+      name: 'owner-a@example.test',
+    });
+    expect(owner).toHaveTextContent('Unknown · inspection incomplete');
+    expect(owner).not.toHaveTextContent('None observed');
+  });
+
+  it('keeps a stale last-good snapshot visible and labels it as retained', () => {
+    const staleState = structuredClone(fleetState);
+    staleState.platforms[1].instances[0].agent.status = 'stale';
+    mockUseFleet.mockReturnValue({
+      snapshot: staleState,
+      connection: 'live',
+      error: null,
+    });
+
+    render(<FleetApp pathname="/platforms/jetstream" />);
+
+    const gpuRegion = screen.getByRole('region', {
+      name: 'GPU test instance GPU resources',
+    });
+    expect(gpuRegion).toHaveTextContent('NVIDIA A100-SXM4-40GB');
+    expect(gpuRegion).toHaveTextContent('Stale');
+    expect(gpuRegion).toHaveTextContent('2 processes · last known');
+    expect(gpuRegion).toHaveTextContent('gpu-connected-user · last known');
+    expect(gpuRegion).toHaveTextContent('last retained Agent snapshot');
+  });
+
+  it('keeps unknown platform paths inside the platform surface', () => {
+    render(<FleetApp pathname="/platforms/not-a-route" />);
+
+    expect(
+      screen.getByRole('heading', { name: 'Platform page not found' }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('link', { name: 'Return to platform overview' }),
+    ).toHaveAttribute('href', '/platforms');
+    expect(
+      screen.queryByRole('heading', { name: 'Jetstream Dashboard' }),
+    ).toBeNull();
+    expect(document.title).toBe('Platform page not found · MIGLens');
   });
 
   it('separates cloud, agent, telemetry, creator, and GPU-connected-user state', () => {
-    render(<FleetApp pathname="/fleet/jetstream/" />);
+    render(<FleetApp pathname="/platforms/jetstream/" />);
+
+    fireEvent.click(
+      screen.getByText('Full instance inventory', { selector: 'span' }),
+    );
 
     const table = screen.getByRole('table', { name: 'Jetstream instances' });
     for (const heading of [
@@ -186,7 +353,7 @@ describe('FleetApp', () => {
       connection: 'live',
       error: null,
     });
-    render(<FleetApp pathname="/fleet/jetstream" />);
+    render(<FleetApp pathname="/platforms/jetstream" />);
 
     expect(screen.queryByText('SECRET-PASSPHRASE-CANARY')).toBeNull();
     expect(screen.queryByText('SECRET-TOKEN-CANARY')).toBeNull();
