@@ -38,12 +38,30 @@
     "prefer-rest-params": "error",
     "prefer-spread": "error",
     "import/no-anonymous-default-export": "warn",
+    "react/capitalized-calls": "error",
     "react/display-name": "error",
+    "react/error-boundaries": "error",
+    "react/exhaustive-effect-dependencies": "error",
+    "react/globals": "error",
+    "react/hooks": "error",
+    "react/immutability": "error",
+    "react/incompatible-library": "error",
     "react/jsx-no-comment-textnodes": "error",
+    "react/memo-dependencies": "error",
+    "react/no-deriving-state-in-effects": "error",
     "react/no-unescaped-entities": "error",
-    "react/react-compiler": "error",
+    "react/preserve-manual-memoization": "error",
+    "react/purity": "error",
+    "react/refs": "error",
     "react/require-render-return": "error",
+    "react/rule-suppression": "error",
     "react/rules-of-hooks": "error",
+    "react/set-state-in-effect": "error",
+    "react/set-state-in-render": "error",
+    "react/static-components": "error",
+    "react/syntax": "error",
+    "react/use-memo": "error",
+    "react/void-use-memo": "error",
     "typescript/ban-ts-comment": "error",
     "typescript/no-deprecated": "error",
     "typescript/no-empty-object-type": "error",
@@ -52,5 +70,19 @@
     "typescript/no-require-imports": "error",
     "typescript/no-unnecessary-type-constraint": "error",
     "typescript/no-unsafe-function-type": "error"
-  }
+  },
+  "overrides": [
+    {
+      "files": ["src/components/process-table.tsx"],
+      "rules": {
+        "react/incompatible-library": "off"
+      }
+    },
+    {
+      "files": ["src/use-leviathan.ts"],
+      "rules": {
+        "react/exhaustive-effect-dependencies": "off"
+      }
+    }
+  ]
 }
