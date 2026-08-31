@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,8 +18,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/intellisys-stevens/miglens/internal/attribution"
 	"github.com/intellisys-stevens/miglens/internal/model"
 )
+
+var podUIDInCgroup = regexp.MustCompile(`pod([[:xdigit:]]{8}[-_][[:xdigit:]]{4}[-_][[:xdigit:]]{4}[-_][[:xdigit:]]{4}[-_][[:xdigit:]]{12})`)
 
 type Inventory struct {
 	Processes   []model.Process
@@ -31,15 +35,20 @@ type Scanner struct {
 	UVMPath         string
 	SelfPID         uint32
 	ShowCommandLine bool
+	Attribution     bool
 
 	mu        sync.Mutex
 	userNames map[string]string
 }
 
 func NewScanner(showCommandLine bool) *Scanner {
+	return NewScannerWithAttribution(showCommandLine, false)
+}
+
+func NewScannerWithAttribution(showCommandLine, attributionEnabled bool) *Scanner {
 	return &Scanner{
 		Root: "/proc", UVMPath: "/dev/nvidia-uvm", SelfPID: uint32(os.Getpid()),
-		ShowCommandLine: showCommandLine, userNames: make(map[string]string),
+		ShowCommandLine: showCommandLine, Attribution: attributionEnabled, userNames: make(map[string]string),
 	}
 }
 
@@ -116,9 +125,25 @@ func (s *Scanner) Scan() Inventory {
 		if !connected {
 			continue
 		}
+		processRoot := filepath.Join(root, strconv.FormatUint(uint64(pid), 10))
+		identityTicks, identityErr := processStartTicks(processRoot)
 		resolved, vanished := s.resolve(root, pid, boot, bootErr)
 		if vanished {
 			continue
+		}
+		stillConnected, vanished, verifyErr := processHasDevice(root, pid, uvm)
+		if vanished || verifyErr != nil || !stillConnected {
+			continue
+		}
+		identityUnchanged, identityVerified := processIdentityUnchanged(processRoot, identityTicks, identityErr)
+		if !identityUnchanged {
+			// The PID was reused while this record was being resolved.
+			continue
+		}
+		if !identityVerified {
+			// Process telemetry remains useful, but an unverified PID identity
+			// must not be joined to a workload.
+			resolved.ScopeRef = ""
 		}
 		if resolved.Status != model.StatusAvailable {
 			incomplete++
@@ -275,6 +300,11 @@ func (s *Scanner) resolve(root string, pid uint32, boot time.Time, bootErr error
 			fieldErrors = append(fieldErrors, fmt.Errorf("command line: %w", err))
 		}
 	}
+	if s.Attribution {
+		if data, err := os.ReadFile(filepath.Join(base, "cgroup")); err == nil {
+			result.ScopeRef, _ = scopeRefFromCgroup(string(data))
+		}
+	}
 
 	if len(fieldErrors) == 0 {
 		return result, false
@@ -286,6 +316,35 @@ func (s *Scanner) resolve(root string, pid uint32, boot time.Time, bootErr error
 	result.Status = statusFor(joined)
 	result.Message = joined.Error()
 	return result, false
+}
+
+func scopeRefFromCgroup(data string) (string, bool) {
+	resolved := ""
+	for _, line := range strings.Split(data, "\n") {
+		fields := strings.SplitN(line, ":", 3)
+		if len(fields) != 3 {
+			continue
+		}
+		path := fields[2]
+		for _, match := range podUIDInCgroup.FindAllStringSubmatchIndex(path, -1) {
+			if len(match) != 4 || (match[0] > 0 && !cgroupPathBoundary(path[match[0]-1])) || (match[1] < len(path) && !cgroupPathBoundary(path[match[1]])) {
+				continue
+			}
+			scopeRef, ok := attribution.ScopeRefForPodUID(path[match[2]:match[3]])
+			if !ok {
+				continue
+			}
+			if resolved != "" && resolved != scopeRef {
+				return "", false
+			}
+			resolved = scopeRef
+		}
+	}
+	return resolved, resolved != ""
+}
+
+func cgroupPathBoundary(character byte) bool {
+	return character == '/' || character == '_' || character == '.' || character == '-'
 }
 
 func uidFromStatus(data string) string {
@@ -338,25 +397,41 @@ func readBootTime(root string) (time.Time, error) {
 }
 
 func processStartTime(processRoot string, boot time.Time) (time.Time, error) {
-	stat, err := os.ReadFile(filepath.Join(processRoot, "stat"))
-	if err != nil {
-		return time.Time{}, err
-	}
-	closeParen := strings.LastIndexByte(string(stat), ')')
-	if closeParen < 0 {
-		return time.Time{}, errors.New("malformed process stat")
-	}
-	fields := strings.Fields(string(stat)[closeParen+1:])
-	// fields begins at process state (field 3); starttime is field 22.
-	if len(fields) <= 19 {
-		return time.Time{}, errors.New("malformed process stat")
-	}
-	ticks, err := strconv.ParseUint(fields[19], 10, 64)
+	ticks, err := processStartTicks(processRoot)
 	if err != nil {
 		return time.Time{}, err
 	}
 	// Linux exposes USER_HZ as 100 on the supported amd64 and arm64 targets.
 	return boot.Add(time.Duration(ticks) * (time.Second / 100)).UTC(), nil
+}
+
+func processStartTicks(processRoot string) (uint64, error) {
+	stat, err := os.ReadFile(filepath.Join(processRoot, "stat"))
+	if err != nil {
+		return 0, err
+	}
+	closeParen := strings.LastIndexByte(string(stat), ')')
+	if closeParen < 0 {
+		return 0, errors.New("malformed process stat")
+	}
+	fields := strings.Fields(string(stat)[closeParen+1:])
+	// fields begins at process state (field 3); starttime is field 22.
+	if len(fields) <= 19 {
+		return 0, errors.New("malformed process stat")
+	}
+	ticks, err := strconv.ParseUint(fields[19], 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return ticks, nil
+}
+
+func processIdentityUnchanged(processRoot string, before uint64, beforeErr error) (unchanged, verified bool) {
+	after, afterErr := processStartTicks(processRoot)
+	if beforeErr != nil || afterErr != nil {
+		return true, false
+	}
+	return before == after, true
 }
 
 func IdentityKey(process model.Process) string {

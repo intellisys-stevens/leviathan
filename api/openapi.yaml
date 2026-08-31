@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: MIGLens local API
-  version: 0.2.0
+  version: 0.2.1
   description: Single-host NVIDIA GPU and MIG telemetry with a process-local sampling control.
   license:
     name: MIT
@@ -201,6 +201,9 @@ components:
         executable: { type: string, description: Resolved executable path, with comm as a fallback. }
         commandLine: { type: string, description: Present only when explicitly enabled. }
         startTime: { type: string, format: date-time }
+        workloadRef:
+          type: string
+          description: Opaque reference to a workload in this snapshot when optional attribution can resolve the process scope.
         status: { $ref: "#/components/schemas/MetricStatus" }
         message: { type: string }
     WorkloadPlatform:

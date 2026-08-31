@@ -1,5 +1,5 @@
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
-import { AlertTriangle, ChevronDown, Moon, RefreshCw, Sun } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Moon, Sun } from 'lucide-react';
 import { memo, useRef, useState } from 'react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { formatSamplingInterval } from '../chart-window';
@@ -65,14 +65,13 @@ function SamplingChoices({
       <legend className="sr-only">Sampling interval</legend>
       {choices.map((milliseconds) => {
         const selected = current === milliseconds;
-        const applying = pending === milliseconds;
         const isCustom = custom === milliseconds;
         const label = `${isCustom ? 'Custom ' : ''}${formatSamplingInterval(milliseconds)}`;
         return (
           <button
             key={milliseconds}
             type="button"
-            className={`relative whitespace-nowrap rounded px-2 font-mono text-[10px] transition-colors focus-visible:z-20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+            className={`relative whitespace-nowrap rounded px-2 font-mono text-[10px] focus-visible:z-20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
               mobile
                 ? 'h-8 min-w-0 flex-1'
                 : `h-6 flex-none ${isCustom ? '' : 'min-w-10'}`
@@ -90,13 +89,7 @@ function SamplingChoices({
             aria-pressed={selected}
             onClick={() => onSelect(milliseconds)}
           >
-            <span className={applying ? 'opacity-0' : undefined}>{label}</span>
-            {applying ? (
-              <RefreshCw
-                className="absolute left-1/2 top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 animate-spin"
-                aria-hidden="true"
-              />
-            ) : null}
+            {label}
           </button>
         );
       })}

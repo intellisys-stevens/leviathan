@@ -190,6 +190,8 @@ export interface components {
             commandLine?: string;
             /** Format: date-time */
             startTime?: string;
+            /** @description Opaque reference to a workload in this snapshot when optional attribution can resolve the process scope. */
+            workloadRef?: string;
             status: components["schemas"]["MetricStatus"];
             message?: string;
         };

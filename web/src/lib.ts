@@ -11,7 +11,7 @@ export function formatMetric(metric?: Metric): string {
   if (value == null) return '—';
   switch (metric?.unit) {
     case 'percent':
-      return `${value.toFixed(1)}%`;
+      return formatPercent(value);
     case 'celsius':
       return `${Math.round(value)}°C`;
     case 'watts':
@@ -75,7 +75,20 @@ export function formatBytesPerSecond(value: number | null | undefined): string {
 }
 
 export function formatRoundedPercent(value: number): string {
-  return `${Math.round(value)}%`;
+  return formatPercent(value, 0);
+}
+
+export function formatPercent(value: number, fractionDigits = 1): string {
+  if (!Number.isFinite(value)) return '—';
+  const scale = 10 ** fractionDigits;
+  const rounded = Math.round(value * scale) / scale;
+  const canonical = rounded === 0 ? 0 : rounded;
+  return `${canonical.toFixed(fractionDigits)}%`;
+}
+
+export function clampRenderedPercent(value: number): number {
+  if (!Number.isFinite(value)) return value;
+  return Math.min(100, Math.max(0, value));
 }
 
 export function formatBytes(value: number | null | undefined): string {
@@ -108,8 +121,11 @@ export function shortUUID(value: string): string {
   return `${value.slice(0, 12)}…${value.slice(-7)}`;
 }
 
-export function processSearchText(process: Process): string {
-  return [process.pid, process.user, process.executable]
+export function processSearchText(
+  process: Process,
+  workspaceLabel?: string,
+): string {
+  return [process.pid, process.user, process.executable, workspaceLabel]
     .filter(Boolean)
     .join(' ')
     .toLowerCase();

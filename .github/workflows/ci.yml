@@ -77,7 +77,7 @@ jobs:
       - run: go test -race ./...
       - run: go vet ./...
       - name: Build Kubernetes attribution bridge
-        run: make build-bridge VERSION=0.2.0
+        run: make build-bridge VERSION=0.2.1
       - name: Check Go dependency licenses
         run: |
           go run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/miglens --disallowed_types=forbidden,restricted,unknown
@@ -99,7 +99,7 @@ jobs:
           provenance: false
           tags: miglens-kubernetes-bridge:ci
           build-args: |
-            VERSION=0.2.0
+            VERSION=0.2.1
             COMMIT=${{ github.sha }}
             BUILD_DATE=1970-01-01T00:00:00Z
       - name: Verify bridge image runtime metadata
@@ -144,7 +144,7 @@ jobs:
         env:
           ARCHITECTURE: amd64
           OUTPUT_DIRECTORY: ${{ runner.temp }}/miglens-package
-          VERSION: v0.2.0
+          VERSION: v0.2.1
         run: |
           archive=$(scripts/build-release.sh)
           scripts/verify-release-archive.sh "$archive" "$VERSION" "$ARCHITECTURE"

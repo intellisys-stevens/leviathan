@@ -41,8 +41,10 @@ startup CLI, environment, or TOML values return after a restart.
 - A missing value is a nil pointer and serializes as JSON `null`; it is never
   replaced with zero.
 - Every measurement has source, scope, sample time, and status.
-- Stable device UUIDs are public identifiers. Internal `@gN` generations keep
-  history from joining a removed and later recreated GI or CI.
+- Stable device UUIDs remain API identifiers for history and attribution joins,
+  while routine dashboard views use the numeric GPU/GI/CI hierarchy. Internal
+  `@gN` generations keep history from joining a removed and later recreated GI
+  or CI.
 - Provider merge precedence is GPM → DCGM → NVML, but an available lower-level
   value wins over an unavailable higher-level value.
 
@@ -71,10 +73,10 @@ Unavailable or stale attribution never fails a GPU sample or `/healthz`.
 
 The separate Kubernetes bridge watches DRA ResourceClaims in explicitly
 configured namespaces and NVIDIA ResourceSlices. It joins the complete
-`(driver, pool, device)` identity and emits only hashed workload references,
-Coder display names, and physical-GPU or compute-instance UUID assignments.
-GPU processes remain top-level and independent: an assignment is not evidence
-of active execution. See [Kubernetes attribution](kubernetes-attribution.md).
+`(driver, pool, device)` identity and emits only hashed workload and consumer
+scope references, Coder display names, and physical-GPU or compute-instance
+UUID assignments. An assignment is not evidence of active execution. See
+[Kubernetes attribution](kubernetes-attribution.md).
 
 ## GPU processes
 
@@ -92,8 +94,13 @@ retain explicit status and diagnostics. Unreadable FD directories are reported
 in aggregate, while a readable namespace with zero matches is healthy.
 
 The process list is top-level snapshot data. It is neither associated with a
-GPU nor stored in history. MIGLens does not inspect cgroups, container runtimes,
-Kubernetes resources, process environments, or another PID namespace.
+GPU nor stored in history. With attribution configured, MIGLens reads the
+cgroup path of each detected GPU client, recognizes Kubernetes Pod UIDs in
+cgroup v1/v2 systemd or cgroupfs layouts, and joins a one-way hash to the
+bridge's consumer scope. Only the resulting workload reference enters the
+public snapshot. No device ownership is inferred, and MIGLens does not inspect
+container runtimes, process environments, Pod objects, or another PID
+namespace.
 
 ## History and reconfiguration
 
@@ -140,8 +147,8 @@ The React client owns one `EventSource` and keeps the last complete snapshot
 during reconnects. Its GPU perspective organizes host-wide topology and
 telemetry by device. Its People perspective groups scheduler assignments by
 Coder user and workspace without treating reserved or allocated resources as
-evidence of active use. Charts and processes remain host-wide, and process rows
-are not attributed to workspaces.
+evidence of active use. Charts and processes remain host-wide; a process may
+show its joined workspace but never claims a particular GPU, GI, or CI.
 
 The overview loads one aligned history batch per panel and refetches whenever
 the exact panel, topology, or selected range changes in either direction. SSE

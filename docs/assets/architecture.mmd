@@ -14,7 +14,7 @@ flowchart LR
   claims["DRA ResourceClaims (optional)"] --> bridge["Kubernetes attribution bridge"]
   slices["NVIDIA ResourceSlices (optional)"] --> bridge
   bridge --> socket["Root-only Unix socket"]
-  socket --> attribution["Sanitized workspace assignments"]
+  socket --> attribution["Sanitized workspace + scope refs"]
   attribution --> sampler
 
   sampler --> current["Immutable current snapshot"]

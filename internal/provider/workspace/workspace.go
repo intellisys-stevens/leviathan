@@ -70,6 +70,9 @@ func (p *Provider) Sample(ctx context.Context, at time.Time) (model.Snapshot, er
 	snapshot.Processes = inventory.Processes
 	snapshot.Capabilities.Proc = inventory.Capability
 	snapshot.Diagnostics = append(snapshot.Diagnostics, inventory.Diagnostics...)
+	if snapshot.Diagnostics == nil {
+		snapshot.Diagnostics = []model.Diagnostic{}
+	}
 	p.mu.Lock()
 	p.procState = inventory.Capability
 	p.mu.Unlock()

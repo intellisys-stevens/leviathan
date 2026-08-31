@@ -472,6 +472,9 @@ type Process struct {
 	StartTime  *time.Time   `json:"startTime,omitempty"`
 	Status     MetricStatus `json:"status"`
 	User       *string      `json:"user,omitempty"`
+
+	// WorkloadRef Opaque reference to a workload in this snapshot when optional attribution can resolve the process scope.
+	WorkloadRef *string `json:"workloadRef,omitempty"`
 }
 
 // ProviderState defines model for ProviderState.

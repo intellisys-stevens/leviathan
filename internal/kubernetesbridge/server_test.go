@@ -21,7 +21,7 @@ func TestServerPublishesVersionedSanitizedDocument(t *testing.T) {
 	state.Update([]model.WorkloadAttribution{workload}, []model.ResourceAssignment{{
 		WorkloadRef: workload.Ref, EntityType: model.AllocationEntityPhysicalGPU,
 		EntityUUID: "GPU-synthetic-one", State: model.AllocationStateReserved,
-	}}, BuildStats{MatchedAllocations: 1}, at)
+	}}, []attribution.ProcessScope{{ScopeRef: "scope_33333333333333333333333333333333", WorkloadRef: workload.Ref}}, BuildStats{MatchedAllocations: 1, ProcessScopes: 1}, at)
 	server := NewServer(state)
 	server.now = func() time.Time { return at }
 	socket := filepath.Join(t.TempDir(), "bridge.sock")
@@ -45,6 +45,9 @@ func TestServerPublishesVersionedSanitizedDocument(t *testing.T) {
 	}
 	if document.SchemaVersion != attribution.SchemaVersion || document.NodeRef == "synthetic-node" {
 		t.Fatalf("bridge document = %+v", document)
+	}
+	if len(document.ProcessScopes) != 1 || document.ProcessScopes[0].WorkloadRef != workload.Ref {
+		t.Fatalf("bridge process scopes = %+v", document.ProcessScopes)
 	}
 	info, err := os.Stat(socket)
 	if err != nil {

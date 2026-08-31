@@ -111,7 +111,9 @@ describe('StatusHeader sampling controls', () => {
     expect(update).toHaveBeenCalledTimes(1);
     expect(update).toHaveBeenCalledWith(500);
     expect(halfSecond).toHaveAttribute('aria-pressed', 'true');
-    expect(halfSecond.querySelector('.animate-spin')).toBeInTheDocument();
+    expect(halfSecond).toHaveTextContent('0.5s');
+    expect(halfSecond.querySelector('.animate-spin')).toBeNull();
+    expect(halfSecond.querySelector('svg')).toBeNull();
     expect(
       within(desktop).getByRole('group', { name: 'Sampling interval' }),
     ).toHaveAttribute('aria-busy', 'true');

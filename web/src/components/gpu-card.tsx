@@ -13,10 +13,10 @@ import { Progress } from '@/components/ui/progress';
 import {
   formatBytes,
   formatMetric,
+  formatPercent,
   memoryPercent,
   metricValue,
   powerLevel,
-  shortUUID,
   temperatureLevel,
 } from '../lib';
 import { gpuAttributionTargets } from '../attribution';
@@ -134,14 +134,9 @@ function MigBlock({
           <span className="grid size-6 place-items-center rounded bg-primary/10 text-primary">
             <Cpu className="size-3.5" />
           </span>
-          <span>
-            <span className="block font-mono text-xs font-semibold">
-              GI {gi.id}
-              {single ? ` / CI ${gi.computeInstances[0].id}` : ''}
-            </span>
-            <span className="block font-mono text-[9px] text-muted-foreground">
-              {shortUUID(single ? gi.computeInstances[0].uuid : gi.uuid)}
-            </span>
+          <span className="block font-mono text-xs font-semibold">
+            GI {gi.id}
+            {single ? ` / CI ${gi.computeInstances[0].id}` : ''}
           </span>
         </span>
         <Badge
@@ -157,7 +152,7 @@ function MigBlock({
           <div className="mb-1.5 flex justify-between text-[9px] uppercase tracking-[0.11em] text-muted-foreground">
             <span>Memory</span>
             <span className="font-mono text-foreground">
-              {memory == null ? '—' : `${memory.toFixed(1)}%`}
+              {memory == null ? '—' : formatPercent(memory)}
             </span>
           </div>
           <Progress
@@ -174,7 +169,7 @@ function MigBlock({
           <div className="mb-1.5 flex justify-between text-[9px] uppercase tracking-[0.11em] text-muted-foreground">
             <span>SM active</span>
             <span className="font-mono text-foreground">
-              {sm == null ? '—' : `${sm.toFixed(1)}%`}
+              {sm == null ? '—' : formatPercent(sm)}
             </span>
           </div>
           <Progress value={sm ?? 0} aria-label="SM activity" />
@@ -240,9 +235,9 @@ function MigBlock({
     </>
   );
 
-  const className = `min-w-[210px] flex-1 border p-3 text-left transition-[border-color,background-color] duration-150 enabled:focus-visible:outline-none enabled:focus-visible:ring-2 enabled:focus-visible:ring-ring ${status === 'error' ? 'border-destructive/60 bg-destructive/5' : status === 'warning' ? 'border-amber-500/35 bg-amber-500/[0.035]' : `border-border/80 bg-instance ${onSelect ? 'enabled:hover:border-primary/45 enabled:hover:bg-instance-hover' : ''}`}`;
+  const className = `min-w-0 border p-3 text-left transition-[border-color,background-color] duration-150 enabled:focus-visible:outline-none enabled:focus-visible:ring-2 enabled:focus-visible:ring-ring ${status === 'error' ? 'border-destructive/60 bg-destructive/5' : status === 'warning' ? 'border-amber-500/35 bg-amber-500/[0.035]' : `border-border/80 bg-instance ${onSelect ? 'enabled:hover:border-primary/45 enabled:hover:bg-instance-hover' : ''}`}`;
   return (
-    <div className="min-w-[210px] flex-1 basis-0">
+    <div className="min-w-0">
       {single ? (
         <button
           type="button"
@@ -282,7 +277,7 @@ function GPUCardComponent({ gpu, attribution, onSelect }: Props) {
               </Badge>
             </CardTitle>
             <CardDescription className="truncate font-mono text-xs">
-              {gpu.name} · {shortUUID(gpu.uuid)}
+              {gpu.name}
             </CardDescription>
           </div>
         </div>
@@ -341,7 +336,7 @@ function GPUCardComponent({ gpu, attribution, onSelect }: Props) {
             </button>
           )
         ) : (
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {gpu.gpuInstances.map((gi) => (
               <MigBlock
                 key={gi.uuid}

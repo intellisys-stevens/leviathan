@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -17,7 +18,7 @@ func (testProvider) Open(context.Context) error       { return nil }
 func (testProvider) Close() error                     { return nil }
 func (testProvider) Capabilities() model.Capabilities { return model.Capabilities{} }
 func (testProvider) Sample(_ context.Context, at time.Time) (model.Snapshot, error) {
-	return model.Snapshot{SampledAt: at, Processes: []model.Process{}, Diagnostics: []model.Diagnostic{}}, nil
+	return model.Snapshot{SampledAt: at}, nil
 }
 
 type countingScanner struct {
@@ -28,13 +29,7 @@ type countingScanner struct {
 type emptyScanner struct{}
 
 func (emptyScanner) Scan() workspaceprocess.Inventory {
-	return workspaceprocess.Inventory{
-		Processes:   []model.Process{},
-		Diagnostics: []model.Diagnostic{},
-		Capability: model.ProviderState{
-			Name: "test process inventory", Available: true, Status: model.StatusAvailable,
-		},
-	}
+	return workspaceprocess.Inventory{}
 }
 
 func (s *countingScanner) Scan() workspaceprocess.Inventory {
@@ -43,7 +38,7 @@ func (s *countingScanner) Scan() workspaceprocess.Inventory {
 	s.calls++
 	startedAt := time.Date(2026, 8, 30, 11, 0, s.calls, 0, time.UTC)
 	return workspaceprocess.Inventory{
-		Processes: []model.Process{{PID: uint32(1000 + s.calls), StartTime: &startedAt, Status: model.StatusAvailable}},
+		Processes: []model.Process{{PID: uint32(1000 + s.calls), StartTime: &startedAt, ScopeRef: "scope_internal", Status: model.StatusAvailable}},
 		Capability: model.ProviderState{
 			Name: "test process inventory", Available: true, Status: model.StatusAvailable,
 		},
@@ -91,14 +86,26 @@ func TestProcessInventoryIntervalDefaultsToTwoSeconds(t *testing.T) {
 	}
 }
 
-func TestEmptyProcessInventoryRemainsNonNil(t *testing.T) {
+func TestEmptyProcessInventoryRemainsNonNilAndSerializesAsArrays(t *testing.T) {
 	p := New(testProvider{}, emptyScanner{})
 	snapshot, err := p.Sample(context.Background(), time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if snapshot.Processes == nil || snapshot.Diagnostics == nil {
-		t.Fatalf("empty inventory containers became nil: processes=%v diagnostics=%v", snapshot.Processes, snapshot.Diagnostics)
+		t.Fatalf("empty collections must be non-nil: processes=%#v diagnostics=%#v", snapshot.Processes, snapshot.Diagnostics)
+	}
+
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if string(payload["processes"]) != "[]" || string(payload["diagnostics"]) != "[]" {
+		t.Fatalf("empty snapshot collections encoded as %s and %s", payload["processes"], payload["diagnostics"])
 	}
 }
 
@@ -113,6 +120,7 @@ func TestCachedInventoryIsCloned(t *testing.T) {
 		t.Fatal(err)
 	}
 	first.Processes[0].PID = 9999
+	first.Processes[0].ScopeRef = "mutated"
 	*first.Processes[0].StartTime = time.Time{}
 	first.Diagnostics[0].Detail = "mutated"
 
@@ -120,7 +128,7 @@ func TestCachedInventoryIsCloned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.Processes[0].PID == 9999 || second.Processes[0].StartTime.IsZero() || second.Diagnostics[0].Detail == "mutated" {
+	if second.Processes[0].PID == 9999 || second.Processes[0].ScopeRef != "scope_internal" || second.Processes[0].StartTime.IsZero() || second.Diagnostics[0].Detail == "mutated" {
 		t.Fatalf("caller mutation reached cached inventory: %+v", second)
 	}
 }

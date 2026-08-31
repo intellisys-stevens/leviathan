@@ -56,13 +56,17 @@ type Memory struct {
 }
 
 type Process struct {
-	PID         uint32       `json:"pid"`
-	User        string       `json:"user,omitempty"`
-	Executable  string       `json:"executable,omitempty"`
-	CommandLine string       `json:"commandLine,omitempty"`
-	StartTime   *time.Time   `json:"startTime,omitempty"`
-	Status      MetricStatus `json:"status"`
-	Message     string       `json:"message,omitempty"`
+	PID         uint32     `json:"pid"`
+	User        string     `json:"user,omitempty"`
+	Executable  string     `json:"executable,omitempty"`
+	CommandLine string     `json:"commandLine,omitempty"`
+	StartTime   *time.Time `json:"startTime,omitempty"`
+	WorkloadRef string     `json:"workloadRef,omitempty"`
+	// ScopeRef is an internal, opaque join key derived from a Kubernetes Pod
+	// UID. It must never cross the public API boundary.
+	ScopeRef string       `json:"-"`
+	Status   MetricStatus `json:"status"`
+	Message  string       `json:"message,omitempty"`
 }
 
 type WorkloadPlatform string

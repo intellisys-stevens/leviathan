@@ -36,7 +36,7 @@ func Provider(cfg config.Config) (provider.Provider, error) {
 				Interval: profileInterval, StaleAfter: 2*profileInterval + cfg.Interval, RescanInterval: cfg.TopologyInterval,
 			})
 		}
-		source = workspace.New(source, workspaceprocess.NewScanner(cfg.ShowCommandLine), workspace.Options{InventoryInterval: processInterval})
+		source = workspace.New(source, workspaceprocess.NewScannerWithAttribution(cfg.ShowCommandLine, cfg.AttributionSocket != ""), workspace.Options{InventoryInterval: processInterval})
 	}
 	if cfg.AttributionSocket == "" {
 		return source, nil

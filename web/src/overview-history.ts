@@ -458,12 +458,21 @@ export function movingAverageChartRows(
         continue;
       }
       const cutoff = row.time - windowMilliseconds;
+      let evicted = false;
       while (
         window.head < window.samples.length &&
         window.samples[window.head].time <= cutoff
       ) {
-        window.sum -= window.samples[window.head].value;
         window.head += 1;
+        evicted = true;
+      }
+      if (evicted) {
+        // Recompute the active sum after eviction. Repeated subtraction leaves
+        // tiny negative floating-point residue, which can leak into chart
+        // domains and labels as values such as -0 or 89.99999999999996.
+        window.sum = 0;
+        for (let index = window.head; index < window.samples.length; index += 1)
+          window.sum += window.samples[index].value;
       }
       window.samples.push({ time: row.time, value });
       window.sum += value;

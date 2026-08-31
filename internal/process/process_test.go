@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/intellisys-stevens/miglens/internal/attribution"
 	"github.com/intellisys-stevens/miglens/internal/model"
 )
 
@@ -63,6 +64,74 @@ func TestScannerTreatsNoGPUClientsAsHealthy(t *testing.T) {
 	inventory := scanner.Scan()
 	if !inventory.Capability.Available || inventory.Capability.Status != model.StatusAvailable || len(inventory.Processes) != 0 || len(inventory.Diagnostics) != 0 {
 		t.Fatalf("empty GPU inventory = %+v", inventory)
+	}
+}
+
+func TestScannerResolvesCgroupScopeOnlyWhenAttributionIsEnabled(t *testing.T) {
+	root := newProcRoot(t)
+	writeProcess(t, root, 7, "/usr/bin/python3", "python3", "", 100)
+	const podUID = "12345678-1234-4000-8000-123456789abc"
+	cgroup := "0::/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod12345678_1234_4000_8000_123456789abc.slice/cri-containerd-synthetic.scope\n"
+	if err := os.WriteFile(filepath.Join(root, "7", "cgroup"), []byte(cgroup), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	disabled, uvm := newGPUScanner(t, root, false)
+	connectGPU(t, root, 7, uvm)
+	if process := disabled.Scan().Processes[0]; process.ScopeRef != "" {
+		t.Fatalf("disabled attribution resolved scope %q", process.ScopeRef)
+	}
+
+	enabled, _ := newGPUScannerAt(t, root, uvm, false)
+	enabled.Attribution = true
+	process := enabled.Scan().Processes[0]
+	want, _ := attribution.ScopeRefForPodUID(podUID)
+	if process.ScopeRef != want || process.WorkloadRef != "" || process.Status != model.StatusAvailable {
+		t.Fatalf("attributed process = %+v, want scope %q", process, want)
+	}
+}
+
+func TestScopeRefFromCgroupSupportsLinuxLayouts(t *testing.T) {
+	const podUID = "12345678-1234-4000-8000-123456789abc"
+	want, _ := attribution.ScopeRefForPodUID(podUID)
+	tests := []struct {
+		name string
+		data string
+	}{
+		{name: "v2-systemd", data: "0::/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod12345678_1234_4000_8000_123456789abc.slice/cri-containerd-synthetic.scope\n"},
+		{name: "v2-cgroupfs", data: "0::/kubepods/burstable/pod12345678-1234-4000-8000-123456789abc/synthetic-container\n"},
+		{name: "v1-nested", data: "11:memory:/nested/kubepods/besteffort/pod12345678-1234-4000-8000-123456789abc/synthetic\n10:cpu:/nested/kubepods/besteffort/pod12345678-1234-4000-8000-123456789abc/synthetic\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, ok := scopeRefFromCgroup(test.data)
+			if !ok || got != want {
+				t.Fatalf("scopeRefFromCgroup() = %q, %v; want %q", got, ok, want)
+			}
+		})
+	}
+}
+
+func TestScopeRefFromCgroupRejectsMalformedAndAmbiguousPaths(t *testing.T) {
+	for _, data := range []string{
+		"0::/kubepods/pod-not-a-uid/container\n",
+		"not:a:cgroup:record\n",
+		"0::/kubepods/pod12345678-1234-4000-8000-123456789abc/pod87654321-4321-4000-8000-cba987654321\n",
+	} {
+		if got, ok := scopeRefFromCgroup(data); ok || got != "" {
+			t.Fatalf("invalid cgroup %q resolved to %q", data, got)
+		}
+	}
+}
+
+func TestMissingCgroupDoesNotDegradeGPUProcessInventory(t *testing.T) {
+	root := newProcRoot(t)
+	writeProcess(t, root, 7, "/usr/bin/python3", "python3", "", 100)
+	scanner, uvm := newGPUScanner(t, root, false)
+	scanner.Attribution = true
+	connectGPU(t, root, 7, uvm)
+	inventory := scanner.Scan()
+	if len(inventory.Processes) != 1 || inventory.Processes[0].ScopeRef != "" || inventory.Processes[0].Status != model.StatusAvailable || len(inventory.Diagnostics) != 0 {
+		t.Fatalf("missing optional cgroup attribution degraded inventory: %+v", inventory)
 	}
 }
 
@@ -140,6 +209,28 @@ func TestIdentityKeyDetectsPIDReuse(t *testing.T) {
 	b := time.Unix(101, 0)
 	if IdentityKey(model.Process{PID: 42, StartTime: &a}) == IdentityKey(model.Process{PID: 42, StartTime: &b}) {
 		t.Fatal("same PID with a new start time must be a different identity")
+	}
+}
+
+func TestProcessIdentityGuardDetectsPIDReuseAndUnreadableIdentity(t *testing.T) {
+	root := newProcRoot(t)
+	writeProcess(t, root, 42, "/usr/bin/worker", "worker", "", 100)
+	processRoot := filepath.Join(root, "42")
+	before, err := processStartTicks(processRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged, verified := processIdentityUnchanged(processRoot, before, nil); !unchanged || !verified {
+		t.Fatalf("stable PID identity = %v, %v", unchanged, verified)
+	}
+	if err := os.WriteFile(filepath.Join(processRoot, "stat"), []byte(processStat(42, "replacement", 200)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if unchanged, verified := processIdentityUnchanged(processRoot, before, nil); unchanged || !verified {
+		t.Fatalf("reused PID identity = %v, %v", unchanged, verified)
+	}
+	if unchanged, verified := processIdentityUnchanged(processRoot, before, os.ErrPermission); !unchanged || verified {
+		t.Fatalf("unreadable PID identity = %v, %v", unchanged, verified)
 	}
 }
 

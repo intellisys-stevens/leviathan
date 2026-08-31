@@ -235,7 +235,10 @@ export function App() {
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
               Live GPU, MIG, and CUDA process telemetry.
             </p>
-            <AttributionSummary attribution={snapshot.attribution} />
+            <AttributionSummary
+              attribution={snapshot.attribution}
+              snapshot={snapshot}
+            />
           </div>
           <div className="grid grid-cols-2 gap-px border border-border bg-border text-center sm:grid-cols-4">
             {summaryItems.map(({ value, label, icon: Icon }) => (
@@ -288,9 +291,12 @@ export function App() {
           {effectiveDashboardView === 'people' ? (
             <PeopleView snapshot={snapshot} onSelect={openSelection} />
           ) : (
-            <div aria-label="GPU topology" className="space-y-4">
+            <div
+              aria-label="GPU topology"
+              className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2"
+            >
               {snapshot.gpus.length === 0 ? (
-                <div className="border border-dashed border-border bg-card p-10 text-center">
+                <div className="border border-dashed border-border bg-card p-10 text-center xl:col-span-2">
                   <p className="text-sm font-medium">No NVIDIA GPUs detected</p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     Run <span className="font-mono">miglens doctor</span> to
@@ -356,6 +362,7 @@ export function App() {
           <ProcessTable
             processes={snapshot.processes}
             procCapability={snapshot.capabilities.proc}
+            attribution={snapshot.attribution}
           />
           <DiagnosticsPanel diagnostics={snapshot.diagnostics} />
         </div>

@@ -37,19 +37,22 @@ func TestClientFreshStaleAndExpiredInventory(t *testing.T) {
 	if err := client.Poll(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	fresh := client.Current(now)
+	fresh, processScopes := client.CurrentWithProcessScopes(now)
 	if fresh.Provider != model.AttributionProviderKubernetesDRA || fresh.Status != model.AttributionAvailable || fresh.ObservedAt == nil || len(fresh.Assignments) != 1 {
 		t.Fatalf("fresh attribution = %+v", fresh)
 	}
+	if processScopes[document.ProcessScopes[0].ScopeRef] != document.ProcessScopes[0].WorkloadRef {
+		t.Fatalf("fresh process scopes = %+v", processScopes)
+	}
 
 	now = now.Add(16 * time.Second)
-	stale := client.Current(now)
-	if stale.Status != model.AttributionStale || len(stale.Assignments) != 1 {
+	stale, processScopes := client.CurrentWithProcessScopes(now)
+	if stale.Status != model.AttributionStale || len(stale.Assignments) != 1 || len(processScopes) != 1 {
 		t.Fatalf("stale attribution = %+v", stale)
 	}
 	now = now.Add(45 * time.Second)
-	expired := client.Current(now)
-	if expired.Status != model.AttributionUnavailable || expired.ObservedAt != nil || len(expired.Assignments) != 0 || len(expired.Workloads) != 0 {
+	expired, processScopes := client.CurrentWithProcessScopes(now)
+	if expired.Status != model.AttributionUnavailable || expired.ObservedAt != nil || len(expired.Assignments) != 0 || len(expired.Workloads) != 0 || len(processScopes) != 0 {
 		t.Fatalf("expired attribution = %+v", expired)
 	}
 }
@@ -130,6 +133,7 @@ func TestClientDoesNotReplaceValidInventoryWithSynchronizingDocument(t *testing.
 	document.Status = SourceStatus{State: SourceStale, Message: "synchronizing"}
 	document.Workloads = nil
 	document.Assignments = nil
+	document.ProcessScopes = nil
 	if err := client.Poll(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -144,6 +148,7 @@ func TestClientDoesNotReplaceValidInventoryWithSynchronizingDocument(t *testing.
 	document.Status = SourceStatus{State: SourceStale, Message: "synchronizing"}
 	document.Workloads = nil
 	document.Assignments = nil
+	document.ProcessScopes = nil
 	if err := client.Poll(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -216,6 +221,42 @@ func TestProviderDecoratesWithoutChangingBaseCapabilities(t *testing.T) {
 	}
 }
 
+func TestProviderJoinsProcessScopesWithoutExposingJoinKey(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	document := validDocument(now)
+	socket, closeServer := serveDocument(t, func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(writer).Encode(document)
+	})
+	defer closeServer()
+	client, err := NewClient(testOptions(socket, &now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	base := &stubProvider{snapshot: model.Snapshot{Processes: []model.Process{
+		{PID: 41, ScopeRef: document.ProcessScopes[0].ScopeRef, Status: model.StatusAvailable},
+		{PID: 42, ScopeRef: "scope_99999999999999999999999999999999", WorkloadRef: "must-be-cleared", Status: model.StatusAvailable},
+	}}}
+	decorated := NewProvider(base, client)
+	snapshot, err := decorated.Sample(context.Background(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Processes[0].WorkloadRef != document.Workloads[0].Ref || snapshot.Processes[1].WorkloadRef != "" {
+		t.Fatalf("joined processes = %+v", snapshot.Processes)
+	}
+	payload, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(payload), document.ProcessScopes[0].ScopeRef) || strings.Contains(string(payload), "scopeRef") {
+		t.Fatalf("internal process scope leaked: %s", payload)
+	}
+}
+
 func testOptions(socket string, now *time.Time) ClientOptions {
 	options := DefaultClientOptions(socket)
 	options.PollInterval = time.Hour
@@ -246,7 +287,9 @@ func serveDocument(t *testing.T, handler http.HandlerFunc) (string, func()) {
 	}
 }
 
-type stubProvider struct{}
+type stubProvider struct {
+	snapshot model.Snapshot
+}
 
 func (*stubProvider) Name() string               { return "stub" }
 func (*stubProvider) Open(context.Context) error { return nil }
@@ -254,8 +297,10 @@ func (*stubProvider) Close() error               { return nil }
 func (*stubProvider) Capabilities() model.Capabilities {
 	return model.Capabilities{NVML: model.ProviderState{Name: "stub", Available: true, Status: model.StatusAvailable}}
 }
-func (*stubProvider) Sample(_ context.Context, at time.Time) (model.Snapshot, error) {
-	return model.Snapshot{SampledAt: at}, nil
+func (p *stubProvider) Sample(_ context.Context, at time.Time) (model.Snapshot, error) {
+	snapshot := p.snapshot
+	snapshot.SampledAt = at
+	return snapshot, nil
 }
 
 var _ provider.Provider = (*stubProvider)(nil)

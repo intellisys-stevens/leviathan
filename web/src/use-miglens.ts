@@ -18,6 +18,46 @@ export type ConnectionState =
   | 'reconnecting'
   | 'disconnected';
 
+type NullableAttribution = Omit<Attribution, 'workloads' | 'assignments'> & {
+  workloads?: Attribution['workloads'] | null;
+  assignments?: Attribution['assignments'] | null;
+};
+
+export type SnapshotPayload = Omit<
+  Snapshot,
+  'gpus' | 'processes' | 'diagnostics' | 'attribution'
+> & {
+  gpus?: Snapshot['gpus'] | null;
+  processes?: Snapshot['processes'] | null;
+  diagnostics?: Snapshot['diagnostics'] | null;
+  attribution?: NullableAttribution | null;
+};
+
+function arrayOrEmpty<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
+// Treat collection fields from the wire as untrusted even though OpenAPI marks
+// them as required arrays. Older or partially initialized servers may encode an
+// empty Go slice as null; normalizing at the boundary keeps rendering safe.
+export function normalizeSnapshot(payload: SnapshotPayload): Snapshot {
+  const attribution = payload.attribution;
+  return {
+    ...payload,
+    gpus: arrayOrEmpty(payload.gpus),
+    processes: arrayOrEmpty(payload.processes),
+    diagnostics: arrayOrEmpty(payload.diagnostics),
+    attribution:
+      attribution == null
+        ? undefined
+        : {
+            ...attribution,
+            workloads: arrayOrEmpty(attribution.workloads),
+            assignments: arrayOrEmpty(attribution.assignments),
+          },
+  };
+}
+
 function sameArray<T>(
   left: readonly T[],
   right: readonly T[],
@@ -36,6 +76,7 @@ function sameProcess(left: Process, right: Process): boolean {
     left.executable === right.executable &&
     left.commandLine === right.commandLine &&
     left.startTime === right.startTime &&
+    left.workloadRef === right.workloadRef &&
     left.status === right.status &&
     left.message === right.message
   );
@@ -152,11 +193,12 @@ export function useMIGLens() {
       .then(async (response) => {
         if (!response.ok)
           throw new Error(`Snapshot request failed (${response.status})`);
-        return response.json() as Promise<Snapshot>;
+        return response.json() as Promise<SnapshotPayload>;
       })
       .then((data) => {
         if (!active) return;
-        setSnapshot((current) => shareStableSnapshot(current, data));
+        const next = normalizeSnapshot(data);
+        setSnapshot((current) => shareStableSnapshot(current, next));
         setError(null);
       });
     const settingsRequest = fetch('/api/v1/settings', { cache: 'no-store' })
@@ -200,9 +242,10 @@ export function useMIGLens() {
     };
     events.addEventListener('snapshot', (event) => {
       try {
-        const next = JSON.parse(
+        const payload = JSON.parse(
           (event as MessageEvent<string>).data,
-        ) as Snapshot;
+        ) as SnapshotPayload;
+        const next = normalizeSnapshot(payload);
         setSnapshot((current) => shareStableSnapshot(current, next));
         setConnection('live');
         setError(null);

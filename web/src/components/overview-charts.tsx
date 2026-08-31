@@ -10,7 +10,12 @@ import {
 } from 'recharts';
 import { Badge } from '@/components/ui/badge';
 import { formatDuration } from '../chart-window';
-import { formatBytesPerSecond } from '../lib';
+import {
+  clampRenderedPercent,
+  formatBytesPerSecond,
+  formatPercent,
+  formatRoundedPercent,
+} from '../lib';
 import {
   buildOverviewEntities,
   downsampleChartRows,
@@ -34,6 +39,7 @@ const colors = [
   'var(--chart-5)',
   'var(--chart-6)',
 ];
+const percentageTicks = [0, 25, 50, 75, 100];
 export { movingAverageChartRows } from '../overview-history';
 
 type ChartMetric =
@@ -97,7 +103,8 @@ function historyMetrics(
 
 function chartValueLabel(value: number, unit: ChartUnit): string {
   if (unit === 'bytes_per_second') return formatBytesPerSecond(value);
-  return `${value.toFixed(unit === '°C' ? 0 : 1)}${unit}`;
+  if (unit === '%') return formatPercent(value);
+  return `${value.toFixed(0)}${unit}`;
 }
 
 export function SeriesTooltip({
@@ -256,6 +263,17 @@ export function chartRows(
         const tx = row[`${key}_tx`];
         row[key] =
           typeof rx === 'number' && typeof tx === 'number' ? rx + tx : null;
+      }
+    }
+  } else if (
+    metric === 'utilization' ||
+    metric === 'memory_percent' ||
+    metric === 'memory_activity'
+  ) {
+    for (const row of averagedRows) {
+      for (const key of valueKeys) {
+        const value = row[key];
+        if (typeof value === 'number') row[key] = clampRenderedPercent(value);
       }
     }
   }
@@ -533,15 +551,21 @@ function ChartPanel({
                           (maximum: number) => Math.ceil(maximum + 5),
                         ]
                 }
+                allowDataOverflow={percent}
+                ticks={percent ? percentageTicks : undefined}
                 tickFormatter={(value) =>
                   throughput
                     ? formatBytesPerSecond(Number(value))
-                    : `${value}${unit}`
+                    : percent
+                      ? formatRoundedPercent(Number(value))
+                      : `${Math.round(Number(value))}${unit}`
                 }
                 tick={{ fontSize: 9, fill: 'var(--muted-foreground)' }}
                 axisLine={false}
                 tickLine={false}
-                width={throughput ? 72 : 52}
+                tickMargin={4}
+                padding={percent ? { top: 6, bottom: 4 } : undefined}
+                width={throughput ? 72 : percent ? 44 : 52}
               />
               <Tooltip
                 isAnimationActive={false}

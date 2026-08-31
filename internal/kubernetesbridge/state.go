@@ -22,6 +22,7 @@ type State struct {
 	status        attribution.SourceStatus
 	workloads     []model.WorkloadAttribution
 	assignments   []model.ResourceAssignment
+	processScopes []attribution.ProcessScope
 	stats         BuildStats
 }
 
@@ -39,16 +40,20 @@ func newStateWithInstance(bridgeVersion, nodeName, instanceID string, now time.T
 		bridgeVersion: bridgeVersion, instanceID: instanceID, nodeRef: HashRef("node_", nodeName),
 		revision: 1, observedAt: now.UTC(),
 		status:    attribution.SourceStatus{State: attribution.SourceStale, HasValidInventory: false, Message: "Kubernetes attribution cache is synchronizing"},
-		workloads: []model.WorkloadAttribution{}, assignments: []model.ResourceAssignment{},
+		workloads: []model.WorkloadAttribution{}, assignments: []model.ResourceAssignment{}, processScopes: []attribution.ProcessScope{},
 	}
 }
 
-func (s *State) Update(workloads []model.WorkloadAttribution, assignments []model.ResourceAssignment, stats BuildStats, observedAt time.Time) {
+func (s *State) Update(workloads []model.WorkloadAttribution, assignments []model.ResourceAssignment, processScopes []attribution.ProcessScope, stats BuildStats, observedAt time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	changed := !reflect.DeepEqual(s.workloads, workloads) || !reflect.DeepEqual(s.assignments, assignments) || s.status.State != attribution.SourceAvailable
-	s.workloads = append([]model.WorkloadAttribution(nil), workloads...)
-	s.assignments = append([]model.ResourceAssignment(nil), assignments...)
+	nextWorkloads := append([]model.WorkloadAttribution{}, workloads...)
+	nextAssignments := append([]model.ResourceAssignment{}, assignments...)
+	nextProcessScopes := append([]attribution.ProcessScope{}, processScopes...)
+	changed := !reflect.DeepEqual(s.workloads, nextWorkloads) || !reflect.DeepEqual(s.assignments, nextAssignments) || !reflect.DeepEqual(s.processScopes, nextProcessScopes) || s.status.State != attribution.SourceAvailable
+	s.workloads = nextWorkloads
+	s.assignments = nextAssignments
+	s.processScopes = nextProcessScopes
 	s.stats = stats
 	s.observedAt = observedAt.UTC()
 	s.status = attribution.SourceStatus{State: attribution.SourceAvailable, HasValidInventory: true}
@@ -74,7 +79,8 @@ func (s *State) Document(now time.Time) attribution.Document {
 		SchemaVersion: attribution.SchemaVersion, BridgeVersion: s.bridgeVersion,
 		InstanceID: s.instanceID, Revision: s.revision, GeneratedAt: now.UTC(), SourceObservedAt: s.observedAt,
 		NodeRef: s.nodeRef, Status: s.status,
-		Workloads: append([]model.WorkloadAttribution(nil), s.workloads...), Assignments: append([]model.ResourceAssignment(nil), s.assignments...),
+		Workloads: append([]model.WorkloadAttribution{}, s.workloads...), Assignments: append([]model.ResourceAssignment{}, s.assignments...),
+		ProcessScopes: append([]attribution.ProcessScope{}, s.processScopes...),
 	}
 }
 

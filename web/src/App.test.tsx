@@ -655,6 +655,25 @@ describe('MIGLens dashboard states', () => {
     expect(screen.getByLabelText('GPU topology')).toBeInTheDocument();
   });
 
+  it('uses a natural-height two-column GPU grid at the desktop breakpoint', () => {
+    mockUseMIGLens.mockReturnValue(
+      result(snapshot([populatedGPU(0), populatedGPU(1), fullGPU(2)])),
+    );
+    render(<App />);
+
+    const topology = screen.getByLabelText('GPU topology');
+    expect(topology).toHaveClass(
+      'grid',
+      'grid-cols-1',
+      'items-start',
+      'xl:grid-cols-2',
+    );
+    expect(topology.querySelectorAll('.gpu-card')).toHaveLength(3);
+    for (const card of topology.querySelectorAll('.gpu-card')) {
+      expect(card.parentElement).toBe(topology);
+    }
+  });
+
   it('uses semantic temperature and power colors based on physical limits', () => {
     mockUseMIGLens.mockReturnValue(
       result(snapshot([populatedGPU(), fullGPU()])),
@@ -682,6 +701,12 @@ describe('MIGLens dashboard states', () => {
   it('shows workspace attribution without exposing internal join refs', async () => {
     const current = snapshot();
     current.attribution = workspaceAttribution;
+    current.processes = [
+      {
+        ...current.processes[0],
+        workloadRef: 'internal-workload-ref',
+      } as Process,
+    ];
     mockUseMIGLens.mockReturnValue(result(current));
     render(<App />);
 
@@ -692,6 +717,17 @@ describe('MIGLens dashboard states', () => {
       0,
     );
     expect(screen.queryByText('internal-workload-ref')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('columnheader', { name: 'Workspace' }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText('alice / training-lab').length).toBeGreaterThan(
+      1,
+    );
+
+    fireEvent.change(screen.getByLabelText('Filter GPU processes'), {
+      target: { value: 'training-lab' },
+    });
+    await waitFor(() => expect(screen.getByText('4100')).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: /GI 1 \/ CI 0/ }));
     const dialog = await screen.findByRole('dialog');
@@ -704,6 +740,8 @@ describe('MIGLens dashboard states', () => {
     expect(within(dialog).getByText('coder · workspace')).toBeInTheDocument();
     expect(dialog.querySelector('time')).toHaveAttribute('datetime', sampledAt);
     expect(within(dialog).queryByText('internal-workload-ref')).toBeNull();
+    expect(dialog).not.toHaveTextContent('MIG-fixture-0-0');
+    expect(dialog).not.toHaveTextContent('GPU-fixture-0');
   });
 
   it('uses the GPU-connected empty-state wording for a healthy zero count', () => {
@@ -738,6 +776,17 @@ describe('MIGLens dashboard states', () => {
       expect(wrapper?.style.zIndex).toBe('50');
       expect(wrapper?.style.pointerEvents).toBe('none');
     });
+    for (const panelID of [
+      'utilization-chart',
+      'memory-chart',
+      'memory-activity-chart',
+    ]) {
+      const panel = screen.getByTestId(panelID);
+      for (const tick of ['0%', '25%', '50%', '75%', '100%']) {
+        expect(within(panel).getByText(tick)).toBeInTheDocument();
+      }
+      expect(panel).not.toHaveTextContent(/(?:^-0|99964|\.\d{4,}%)/u);
+    }
   });
 
   it('uses concise dashboard copy', async () => {
@@ -756,12 +805,10 @@ describe('MIGLens dashboard states', () => {
       screen.getByText('Live GPU, MIG, and CUDA process telemetry.'),
     ).toBeInTheDocument();
     expect(screen.getByText('1 GI · 1 CI')).toBeInTheDocument();
-    expect(screen.getByTestId('process-count')).toHaveTextContent(
-      '1 CUDA client',
-    );
-    expect(
-      document.getElementById('process-table-description'),
-    ).toHaveTextContent('current PID namespace · not workspace-attributed');
+    expect(screen.queryByText(/CUDA client/)).toBeNull();
+    expect(document.getElementById('process-table-description')).toBeNull();
+    expect(screen.queryByText(/current PID namespace/)).toBeNull();
+    expect(screen.queryByText(/not workspace-attributed/)).toBeNull();
     expect(
       screen.getByText('Unavailable metrics and provider issues.'),
     ).toBeInTheDocument();
@@ -775,6 +822,9 @@ describe('MIGLens dashboard states', () => {
     expect(footer).not.toHaveTextContent('linux/amd64');
     expect(footer).not.toHaveTextContent('localhost only');
     expect(screen.queryByText(/5s smoothing/i)).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('GPU-fixture-0');
+    expect(document.body).not.toHaveTextContent('MIG-fixture-0-0');
+    expect(document.body).not.toHaveTextContent('Generation');
     const windowControl = screen.getByRole('group', {
       name: 'Chart window',
     });
@@ -1084,7 +1134,7 @@ describe('MIGLens dashboard states', () => {
     const instanceButton = screen.getByRole('button', {
       name: /GI 1 \/ CI 0/,
     });
-    expect(instanceButton.parentElement).toHaveClass('flex-1', 'basis-0');
+    expect(instanceButton.parentElement).toHaveClass('min-w-0');
     fireEvent.click(instanceButton);
     await waitFor(() =>
       expect(screen.getByText('Hierarchy')).toBeInTheDocument(),
@@ -1114,6 +1164,7 @@ describe('MIGLens dashboard states', () => {
       within(dialog).getByTestId('detail-history-chart'),
     ).toBeInTheDocument();
     expect(within(dialog).getByText('GPU 2 · Full GPU')).toBeInTheDocument();
+    expect(dialog).not.toHaveTextContent('GPU-fixture-2');
     for (const value of [
       '100.0%',
       '98.4%',
