@@ -87,7 +87,7 @@ func (app *application) inventoryCommand() *cobra.Command {
 func (app *application) serveCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "serve",
-		Short: "Serve the read-only fleet dashboard",
+		Short: "Serve the read-only Yggdrasill dashboard",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			config, err := app.loadConfig()
@@ -141,7 +141,7 @@ func (app *application) serveCommand() *cobra.Command {
 				IdleTimeout:       2 * time.Minute,
 				BaseContext:       func(net.Listener) context.Context { return command.Context() },
 			}
-			fmt.Fprintf(app.stderr, "MIGLens Platform: http://%s/platforms\n", listener.Addr())
+			fmt.Fprintf(app.stderr, "Yggdrasill (MIGLens platform): http://%s/platforms\n", listener.Addr())
 			fmt.Fprintln(app.stderr, "OpenStack inventory is read-only; agent probes require exact UUID, Nova creator ID, and HTTPS binding pins.")
 			done := make(chan error, 1)
 			go func() { done <- server.Serve(listener) }()

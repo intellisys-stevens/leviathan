@@ -15,7 +15,7 @@ change the single-host snapshot contract.
   inventory and wraps approved agents' unchanged `Snapshot v1` documents in a
   separate fleet state.
 
-The hub UI presents Nidhogg and Jetstream as peer platforms. The
+The hub UI, Yggdrasill, presents Nidhogg and Jetstream as peer platforms. The
 `nidhogg_dashboard_url` setting is only a link to the existing Nidhogg entry.
 The hub does not proxy that service, change its routes, or write to its API.
 
@@ -163,5 +163,6 @@ Start the loopback-only fleet dashboard:
 ./bin/miglens-hub --config ./hub.toml serve
 ```
 
-Open `http://127.0.0.1:1398/platforms`. For remote access, leave the listener on
-loopback and place an authenticated SSH or Tailnet proxy in front of it.
+Open Yggdrasill at `http://127.0.0.1:1398/platforms`. For remote access, leave
+the listener on loopback and place an authenticated SSH or Tailnet proxy in
+front of it.

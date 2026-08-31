@@ -14,6 +14,9 @@ import type { FleetConnectionState, PlatformObservation } from './types';
 import { useFleet } from './use-fleet';
 
 const themeKey = 'miglens.theme.v1';
+const platformName = 'Yggdrasill';
+const platformIconPath = '/yggdrasill.png';
+const platformFaviconPath = '/yggdrasill-favicon.png';
 
 function connectionLabel(connection: FleetConnectionState): string {
   return connection.charAt(0).toUpperCase() + connection.slice(1);
@@ -75,22 +78,22 @@ function FleetHeader({
         <a
           href={platformOverviewPath}
           className="flex min-w-0 items-center gap-3 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label="Open MIGLens Platform overview"
+          aria-label={`Open ${platformName} overview`}
         >
           <span
-            className="size-9 shrink-0 bg-foreground"
-            style={{
-              WebkitMask: "url('/miglens-mark.png') center / contain no-repeat",
-              mask: "url('/miglens-mark.png') center / contain no-repeat",
-            }}
+            data-testid="yggdrasill-header-icon"
+            className="size-10 shrink-0 bg-contain bg-center bg-no-repeat"
+            style={{ backgroundImage: `url("${platformIconPath}")` }}
             aria-hidden="true"
           />
           <div className="min-w-0">
-            <p className="text-sm font-semibold tracking-tight">MIGLens</p>
+            <p className="text-sm font-semibold tracking-tight">
+              {platformName}
+            </p>
             <p className="truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
               {scope === 'platform'
-                ? 'platform · read-only'
-                : `${scope} · platform read-only`}
+                ? 'MIGLens · platform read-only'
+                : `${scope} · MIGLens read-only`}
             </p>
           </div>
         </a>
@@ -146,9 +149,9 @@ function FleetLoading() {
 function PlatformNotFound() {
   return (
     <section className="border border-dashed border-border bg-card p-10 text-center">
-      <h1 className="text-base font-semibold">Platform page not found</h1>
+      <h1 className="text-base font-semibold">{platformName} page not found</h1>
       <p className="mt-1 text-xs text-muted-foreground">
-        This path is not part of the MIGLens Platform dashboard.
+        This path is not part of the {platformName} monitoring platform.
       </p>
       <a
         href={platformOverviewPath}
@@ -178,13 +181,22 @@ export default function FleetApp({ pathname }: { pathname: string }) {
 
   useEffect(() => {
     const previousTitle = document.title;
+    const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    const hadFaviconHref = favicon?.hasAttribute('href') ?? false;
+    const previousFavicon = favicon?.getAttribute('href') ?? null;
     document.title = showJetstreamInstances
-      ? 'Jetstream · MIGLens'
+      ? `Jetstream · ${platformName}`
       : showPlatformOverview
-        ? 'MIGLens Platform'
-        : 'Platform page not found · MIGLens';
+        ? `${platformName} · MIGLens`
+        : `${platformName} page not found`;
+    favicon?.setAttribute('href', platformFaviconPath);
     return () => {
       document.title = previousTitle;
+      if (favicon && hadFaviconHref && previousFavicon !== null) {
+        favicon.setAttribute('href', previousFavicon);
+      } else {
+        favicon?.removeAttribute('href');
+      }
     };
   }, [showJetstreamInstances, showPlatformOverview]);
 
@@ -217,20 +229,30 @@ export default function FleetApp({ pathname }: { pathname: string }) {
 
         {showPlatformOverview ? (
           <section className="mb-6" aria-labelledby="platform-heading">
-            <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.15em] text-primary">
-              <Activity className="size-3.5" aria-hidden="true" /> platform /
-              overview
+            <div className="flex items-center gap-4">
+              <span
+                data-testid="yggdrasill-icon"
+                aria-hidden="true"
+                className="size-20 shrink-0 bg-contain bg-center bg-no-repeat sm:size-24"
+                style={{ backgroundImage: `url("${platformIconPath}")` }}
+              />
+              <div>
+                <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.15em] text-primary">
+                  <Activity className="size-3.5" aria-hidden="true" /> platform
+                  / overview
+                </div>
+                <h1
+                  id="platform-heading"
+                  className="mt-2 text-xl font-semibold tracking-[-0.025em] sm:text-2xl"
+                >
+                  {platformName}
+                </h1>
+                <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+                  The MIGLens monitoring platform for Nidhogg and Jetstream,
+                  organized by GPUs and People.
+                </p>
+              </div>
             </div>
-            <h1
-              id="platform-heading"
-              className="mt-2 text-xl font-semibold tracking-[-0.025em] sm:text-2xl"
-            >
-              MIGLens Platform
-            </h1>
-            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              One monitoring surface for Nidhogg and Jetstream, organized by
-              GPUs and People.
-            </p>
           </section>
         ) : null}
 
@@ -253,7 +275,7 @@ export default function FleetApp({ pathname }: { pathname: string }) {
               <PlatformOverview nidhogg={nidhogg} jetstream={jetstream} />
             )}
             <footer className="mt-6 border-t border-border/70 pt-4 text-center font-mono text-[10px] text-muted-foreground">
-              Platform snapshot #{snapshot.sequence} ·{' '}
+              {platformName} snapshot #{snapshot.sequence} ·{' '}
               <time dateTime={snapshot.observedAt}>{snapshot.observedAt}</time>
             </footer>
           </>

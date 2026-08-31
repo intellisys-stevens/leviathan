@@ -175,8 +175,30 @@ describe('FleetApp', () => {
     render(<FleetApp pathname="/fleet" />);
 
     expect(
-      screen.getByRole('heading', { name: 'MIGLens Platform' }),
+      screen.getByRole('heading', { name: 'Yggdrasill' }),
     ).toBeInTheDocument();
+    const overviewIcon = screen.getByTestId('yggdrasill-icon');
+    expect(overviewIcon).toHaveStyle({
+      backgroundImage: 'url("/yggdrasill.png")',
+    });
+    expect(overviewIcon).toHaveClass('bg-contain', 'bg-no-repeat');
+    expect(overviewIcon).not.toHaveClass(
+      'border',
+      'shadow-sm',
+      'rounded-xl',
+      'rounded-full',
+    );
+    const headerIcon = screen.getByTestId('yggdrasill-header-icon');
+    expect(headerIcon).toHaveClass('bg-contain', 'bg-no-repeat');
+    expect(headerIcon).not.toHaveClass(
+      'border',
+      'shadow-sm',
+      'rounded-lg',
+      'rounded-full',
+    );
+    expect(
+      screen.getByRole('link', { name: 'Open Yggdrasill overview' }),
+    ).toHaveAttribute('href', '/platforms');
     const nidhoggLink = screen.getByRole('link', {
       name: 'Open Nidhogg dashboard',
     });
@@ -190,7 +212,22 @@ describe('FleetApp', () => {
       screen.getByRole('link', { name: 'Open Jetstream dashboard' }),
     ).toHaveAttribute('href', '/platforms/jetstream');
     expect(screen.queryByRole('table')).toBeNull();
-    expect(document.title).toBe('MIGLens Platform');
+    expect(document.title).toBe('Yggdrasill · MIGLens');
+  });
+
+  it('uses the Yggdrasill icon only while the platform surface is mounted', () => {
+    const favicon = document.createElement('link');
+    favicon.setAttribute('rel', 'icon');
+    favicon.setAttribute('href', '/miglens-mark.png');
+    document.head.append(favicon);
+
+    const { unmount } = render(<FleetApp pathname="/platforms" />);
+
+    expect(favicon).toHaveAttribute('href', '/yggdrasill-favicon.png');
+    unmount();
+    expect(favicon).toHaveAttribute('href', '/miglens-mark.png');
+
+    favicon.remove();
   });
 
   it('uses the same GPU and People organization as the host dashboard', () => {
@@ -199,7 +236,7 @@ describe('FleetApp', () => {
     expect(
       screen.getByRole('heading', { name: 'Jetstream Dashboard' }),
     ).toBeInTheDocument();
-    expect(document.title).toBe('Jetstream · MIGLens');
+    expect(document.title).toBe('Jetstream · Yggdrasill');
     expect(
       screen.getByRole('status', {
         name: 'Platform connection status: Degraded',
@@ -293,7 +330,7 @@ describe('FleetApp', () => {
     render(<FleetApp pathname="/platforms/not-a-route" />);
 
     expect(
-      screen.getByRole('heading', { name: 'Platform page not found' }),
+      screen.getByRole('heading', { name: 'Yggdrasill page not found' }),
     ).toBeVisible();
     expect(
       screen.getByRole('link', { name: 'Return to platform overview' }),
@@ -301,7 +338,7 @@ describe('FleetApp', () => {
     expect(
       screen.queryByRole('heading', { name: 'Jetstream Dashboard' }),
     ).toBeNull();
-    expect(document.title).toBe('Platform page not found · MIGLens');
+    expect(document.title).toBe('Yggdrasill page not found');
   });
 
   it('separates cloud, agent, telemetry, creator, and GPU-connected-user state', () => {

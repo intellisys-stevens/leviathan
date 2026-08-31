@@ -59,7 +59,7 @@ miglens --fixture blackwell serve
 | `miglens doctor -f text\|json` | Capability and permission report |
 | `miglens version` | Version, commit, and build time |
 | `miglens-hub --config hub.toml inventory` | Sanitized, project-scoped Jetstream inventory |
-| `miglens-hub --config hub.toml serve` | Platform dashboard on `127.0.0.1:1398/platforms` |
+| `miglens-hub --config hub.toml serve` | Yggdrasill platform dashboard on `127.0.0.1:1398/platforms` |
 
 The TUI supports arrows or `j`/`k`, `Tab`, `/`, `Enter`, `p`, `?`, and `q`.
 Use `NO_COLOR=1`, `--no-color`, or `--ascii` for terminal fallbacks.
@@ -147,7 +147,7 @@ agent continues to own one host's NVML/DCGM collection and unchanged
 project-scoped OpenStack inventory and, only for explicitly approved active
 instances, reads an existing agent's snapshot and version over HTTPS.
 
-The fleet dashboard presents Nidhogg and Jetstream as peers. The configured
+The Yggdrasill fleet dashboard presents Nidhogg and Jetstream as peers. The configured
 Nidhogg entry is a credential-free HTTPS link to the existing dashboard; the
 hub does not proxy, replace, or modify the Nidhogg entry or API.
 
