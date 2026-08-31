@@ -1260,9 +1260,16 @@ test('switches workbench views without reloading charts or clearing process filt
       1,
     );
   } else {
-    expect(secondCard!.y).toBeGreaterThanOrEqual(
-      firstCard!.y + firstCard!.height + 15,
-    );
+    await expect
+      .poll(async () => {
+        const [first, second] = await Promise.all([
+          personCards.nth(0).boundingBox(),
+          personCards.nth(1).boundingBox(),
+        ]);
+        if (!first || !second) return 0;
+        return second.y - first.y - first.height;
+      })
+      .toBeGreaterThanOrEqual(15);
   }
 
   await expect(page.getByTestId('process-section')).toHaveCount(0);
