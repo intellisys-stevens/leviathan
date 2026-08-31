@@ -70,7 +70,7 @@ const baseColumns = [
         className={
           context.getValue() === 'available'
             ? 'text-muted-foreground'
-            : 'text-amber-500'
+            : 'text-amber-700 dark:text-amber-300'
         }
       >
         {context.getValue()}
@@ -171,7 +171,7 @@ function ProcessTableComponent({
 
   return (
     <section
-      className="min-w-0 border border-border/75 bg-card/90"
+      className="frost-panel min-w-0 border border-border/75 bg-card/90"
       aria-labelledby="process-heading"
       data-testid="process-section"
     >

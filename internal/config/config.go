@@ -61,14 +61,31 @@ type fileConfig struct {
 	AttributionSocket string       `toml:"attribution_socket"`
 }
 
-// ApplyEnv overlays supported MIGLENS_* environment variables on cfg.
+// RejectLegacyEnv prevents a partial migration from silently starting with
+// ignored MIGLens configuration.
+func RejectLegacyEnv() error {
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		if !strings.HasPrefix(name, "MIGLENS_") {
+			continue
+		}
+		replacement := "LEVIATHAN_" + strings.TrimPrefix(name, "MIGLENS_")
+		return fmt.Errorf("legacy environment variable %s is no longer supported; rename it to %s", name, replacement)
+	}
+	return nil
+}
+
+// ApplyEnv overlays supported LEVIATHAN_* environment variables on cfg.
 func ApplyEnv(cfg *Config) error {
+	if err := RejectLegacyEnv(); err != nil {
+		return err
+	}
 	durations := map[string]*time.Duration{
-		"MIGLENS_INTERVAL":          &cfg.Interval,
-		"MIGLENS_PROFILE_INTERVAL":  &cfg.ProfileInterval,
-		"MIGLENS_PROCESS_INTERVAL":  &cfg.ProcessInterval,
-		"MIGLENS_HISTORY_WINDOW":    &cfg.HistoryWindow,
-		"MIGLENS_TOPOLOGY_INTERVAL": &cfg.TopologyInterval,
+		"LEVIATHAN_INTERVAL":          &cfg.Interval,
+		"LEVIATHAN_PROFILE_INTERVAL":  &cfg.ProfileInterval,
+		"LEVIATHAN_PROCESS_INTERVAL":  &cfg.ProcessInterval,
+		"LEVIATHAN_HISTORY_WINDOW":    &cfg.HistoryWindow,
+		"LEVIATHAN_TOPOLOGY_INTERVAL": &cfg.TopologyInterval,
 	}
 	for name, target := range durations {
 		if raw, ok := os.LookupEnv(name); ok {
@@ -80,11 +97,11 @@ func ApplyEnv(cfg *Config) error {
 		}
 	}
 	stringsMap := map[string]*string{
-		"MIGLENS_PROVIDER":           &cfg.Provider,
-		"MIGLENS_DCGM_ADDRESS":       &cfg.DCGMAddress,
-		"MIGLENS_LISTEN":             &cfg.Listen,
-		"MIGLENS_FIXTURE":            &cfg.Fixture,
-		"MIGLENS_ATTRIBUTION_SOCKET": &cfg.AttributionSocket,
+		"LEVIATHAN_PROVIDER":           &cfg.Provider,
+		"LEVIATHAN_DCGM_ADDRESS":       &cfg.DCGMAddress,
+		"LEVIATHAN_LISTEN":             &cfg.Listen,
+		"LEVIATHAN_FIXTURE":            &cfg.Fixture,
+		"LEVIATHAN_ATTRIBUTION_SOCKET": &cfg.AttributionSocket,
 	}
 	for name, target := range stringsMap {
 		if value, ok := os.LookupEnv(name); ok {
@@ -92,10 +109,10 @@ func ApplyEnv(cfg *Config) error {
 		}
 	}
 	bools := map[string]*bool{
-		"MIGLENS_SHOW_COMMAND_LINE": &cfg.ShowCommandLine,
-		"MIGLENS_NO_PROFILE":        &cfg.NoProfile,
-		"MIGLENS_NO_COLOR":          &cfg.NoColor,
-		"MIGLENS_ASCII":             &cfg.ASCII,
+		"LEVIATHAN_SHOW_COMMAND_LINE": &cfg.ShowCommandLine,
+		"LEVIATHAN_NO_PROFILE":        &cfg.NoProfile,
+		"LEVIATHAN_NO_COLOR":          &cfg.NoColor,
+		"LEVIATHAN_ASCII":             &cfg.ASCII,
 	}
 	for name, target := range bools {
 		if raw, ok := os.LookupEnv(name); ok {
@@ -129,7 +146,7 @@ func DefaultPath() string {
 		}
 		base = filepath.Join(home, ".config")
 	}
-	return filepath.Join(base, "miglens", "config.toml")
+	return filepath.Join(base, "leviathan", "config.toml")
 }
 
 func LoadFile(path string, cfg *Config) error {
@@ -204,7 +221,7 @@ func ValidateLoopback(address string) error {
 	}
 	ip := net.ParseIP(host)
 	if ip == nil || !ip.IsLoopback() {
-		return fmt.Errorf("MIGLens only listens on loopback; got %q", host)
+		return fmt.Errorf("Leviathan only listens on loopback; got %q", host)
 	}
 	return nil
 }

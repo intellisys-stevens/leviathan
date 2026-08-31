@@ -1,13 +1,13 @@
 # Contributing
 
-MIGLens is intentionally narrow and pre-1.0: Linux, NVIDIA, one host,
+Leviathan is intentionally narrow and pre-1.0: Linux, NVIDIA, one host,
 read-only.
 Changes should preserve the MIG hierarchy and metric provenance rather than
 papering over provider differences.
 
 ## Setup
 
-Install Go 1.27+, Node.js 22.13+, a C compiler, and `make`. NVIDIA hardware is
+Install Go 1.27+, Node.js 24+, a C compiler, and `make`. NVIDIA hardware is
 optional because all interfaces can run against fixtures.
 
 ```bash
@@ -57,3 +57,6 @@ arbitrary label/environment field, or turn missing telemetry into zero.
 Call out permission-bound behavior and the hardware/driver path you exercised.
 Do not include real hostnames, GPU UUIDs, pod names, image registries, command
 arguments, socket responses, or other production identifiers in fixtures.
+
+Maintainers should follow the [release procedure](docs/releasing.md); branch
+and pull-request CI performs the same packaging work without publishing.

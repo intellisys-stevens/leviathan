@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 var ErrUnavailable = errors.New("provider unavailable")

@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/attribution"
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/attribution"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 type State struct {

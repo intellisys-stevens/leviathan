@@ -23,6 +23,7 @@ import { PeopleView } from './components/people-view';
 import { ProcessTable } from './components/process-table';
 import { StatusHeader } from './components/status-header';
 import { AttributionSummary } from './components/workspace-attribution';
+import { readBrowserSetting, writeBrowserSetting } from './browser-storage';
 import {
   chartWindowStorageKey,
   defaultHistoryWindowMs,
@@ -32,18 +33,16 @@ import {
   storedDetailChartWindow,
 } from './chart-window';
 import type { BuildInfo, Selection, SelectionKey, Snapshot } from './types';
-import { useMIGLens } from './use-miglens';
+import { useLeviathan } from './use-leviathan';
 
 const DetailSheet = lazy(() => import('./components/detail-sheet'));
 const OverviewCharts = lazy(() => import('./components/overview-charts'));
-const themeKey = 'miglens.theme.v1';
-const dashboardViewKey = 'miglens.dashboardView.v1';
+const themeKey = 'leviathan.theme.v1';
+const dashboardViewKey = 'leviathan.dashboardView.v1';
 type DashboardView = 'gpus' | 'people';
 
 function storedDashboardView(): DashboardView {
-  return localStorage.getItem(dashboardViewKey) === 'people'
-    ? 'people'
-    : 'gpus';
+  return readBrowserSetting(dashboardViewKey) === 'people' ? 'people' : 'gpus';
 }
 
 export function formatBuildVersion(
@@ -83,16 +82,16 @@ function LoadingView({ error }: { error: string | null }) {
   return (
     <main className="mx-auto max-w-[1680px] px-4 py-6 sm:px-6">
       {error ? (
-        <div className="mb-4 flex items-center gap-2 border border-amber-500/30 bg-amber-500/[0.06] p-3 text-sm text-amber-600 dark:text-amber-300">
+        <div className="mb-4 flex items-center gap-2 border border-amber-500/30 bg-amber-500/[0.06] p-3 text-sm text-amber-700 dark:text-amber-300">
           <AlertTriangle className="size-4" /> {error}. Retrying the local SSE
           endpoint…
         </div>
       ) : null}
-      <div className="space-y-4" aria-label="Loading GPU topology">
+      <section className="space-y-4" aria-label="Loading GPU topology">
         <Skeleton className="h-20 w-full" />
         <Skeleton className="h-64 w-full" />
         <Skeleton className="h-64 w-full" />
-      </div>
+      </section>
     </main>
   );
 }
@@ -107,14 +106,14 @@ export function App() {
     settings,
     buildInfo,
     updateSamplingInterval,
-  } = useMIGLens();
+  } = useLeviathan();
   const [selectedKey, setSelectedKey] = useState<SelectionKey | null>(null);
   const [requestedChartWindowMs, setRequestedChartWindowMs] =
     useState(storedChartWindow);
   const [requestedDetailChartWindowMs, setRequestedDetailChartWindowMs] =
     useState(storedDetailChartWindow);
   const [theme, setTheme] = useState<'dark' | 'light'>(() =>
-    localStorage.getItem(themeKey) === 'light' ? 'light' : 'dark',
+    readBrowserSetting(themeKey) === 'light' ? 'light' : 'dark',
   );
   const [dashboardView, setDashboardView] =
     useState<DashboardView>(storedDashboardView);
@@ -131,7 +130,7 @@ export function App() {
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
-    localStorage.setItem(themeKey, theme);
+    writeBrowserSetting(themeKey, theme);
   }, [theme]);
 
   const retentionMs = Math.max(
@@ -149,18 +148,18 @@ export function App() {
 
   function selectChartWindow(milliseconds: number) {
     setRequestedChartWindowMs(milliseconds);
-    localStorage.setItem(chartWindowStorageKey, String(milliseconds));
+    writeBrowserSetting(chartWindowStorageKey, String(milliseconds));
   }
 
   function selectDetailChartWindow(milliseconds: number) {
     setRequestedDetailChartWindowMs(milliseconds);
-    localStorage.setItem(detailChartWindowStorageKey, String(milliseconds));
+    writeBrowserSetting(detailChartWindowStorageKey, String(milliseconds));
   }
 
   function selectDashboardView(view: DashboardView) {
     setDashboardView(view);
     setSelectedKey(null);
-    localStorage.setItem(dashboardViewKey, view);
+    writeBrowserSetting(dashboardViewKey, view);
   }
 
   const summary = useMemo(() => {
@@ -200,7 +199,7 @@ export function App() {
   const effectiveDashboardView = attributionEnabled ? dashboardView : 'gpus';
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="app-shell min-h-screen text-foreground">
       <StatusHeader
         hostname={snapshot.host.hostname}
         connection={connection}
@@ -212,7 +211,7 @@ export function App() {
       />
       <main className="mx-auto max-w-[1680px] px-4 py-6 sm:px-6">
         {connection !== 'live' ? (
-          <div className="mb-4 flex items-center gap-2 border border-amber-500/30 bg-amber-500/[0.06] p-3 text-sm text-amber-600 dark:text-amber-300">
+          <div className="mb-4 flex items-center gap-2 border border-amber-500/30 bg-amber-500/[0.06] p-3 text-sm text-amber-700 dark:text-amber-300">
             <AlertTriangle className="size-4" /> Live stream {connection}. The
             last complete snapshot remains visible.
           </div>
@@ -240,7 +239,7 @@ export function App() {
               snapshot={snapshot}
             />
           </div>
-          <div className="grid grid-cols-2 gap-px border border-border bg-border text-center sm:grid-cols-4">
+          <div className="frost-panel grid grid-cols-2 gap-px overflow-hidden border border-border bg-border text-center sm:grid-cols-4">
             {summaryItems.map(({ value, label, icon: Icon }) => (
               <div key={label} className="min-w-[125px] bg-card px-4 py-2.5">
                 <p className="flex items-center justify-center gap-1.5 font-mono text-base font-semibold text-primary">
@@ -267,12 +266,12 @@ export function App() {
                 <legend className="font-mono text-[8px] uppercase tracking-[0.12em] text-muted-foreground">
                   Organize by
                 </legend>
-                <div className="flex rounded-md border border-border bg-muted/35 p-0.5">
+                <div className="flex rounded-md border border-input bg-popover p-0.5 shadow-sm">
                   {(['gpus', 'people'] as const).map((view) => (
                     <button
                       key={view}
                       type="button"
-                      className={`h-7 rounded px-3 font-mono text-[10px] outline-none transition-colors focus-visible:ring-1 focus-visible:ring-ring ${
+                      className={`h-7 rounded px-3 font-mono text-[10px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring ${
                         effectiveDashboardView === view
                           ? 'bg-background text-foreground shadow-sm'
                           : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
@@ -291,15 +290,15 @@ export function App() {
           {effectiveDashboardView === 'people' ? (
             <PeopleView snapshot={snapshot} onSelect={openSelection} />
           ) : (
-            <div
+            <section
               aria-label="GPU topology"
               className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2"
             >
               {snapshot.gpus.length === 0 ? (
-                <div className="border border-dashed border-border bg-card p-10 text-center xl:col-span-2">
+                <div className="frost-panel border border-dashed border-border bg-card p-10 text-center xl:col-span-2">
                   <p className="text-sm font-medium">No NVIDIA GPUs detected</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Run <span className="font-mono">miglens doctor</span> to
+                    Run <span className="font-mono">leviathan doctor</span> to
                     inspect driver and library visibility.
                   </p>
                 </div>
@@ -313,7 +312,7 @@ export function App() {
                   />
                 ))
               )}
-            </div>
+            </section>
           )}
         </section>
 
@@ -331,7 +330,7 @@ export function App() {
           </div>
           <Suspense
             fallback={
-              <div
+              <section
                 className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2"
                 aria-label="Loading GPU history charts"
               >
@@ -344,7 +343,7 @@ export function App() {
                 ].map((name) => (
                   <Skeleton key={name} className="h-[302px] w-full" />
                 ))}
-              </div>
+              </section>
             }
           >
             <OverviewCharts
@@ -370,7 +369,7 @@ export function App() {
         <footer className="mt-6 border-t border-border/70 pt-4 pb-1 text-center text-[11px] text-muted-foreground">
           <p className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5">
             <span>
-              Built with <span aria-label="crossed swords">⚔️</span> by{' '}
+              Built with <span aria-hidden="true">⚔️</span> by{' '}
               <a
                 href="https://intellisys.haow.us/team/"
                 className="font-semibold text-foreground underline-offset-4 transition-colors hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -380,7 +379,7 @@ export function App() {
               and Codex
             </span>{' '}
             <span className="whitespace-nowrap font-mono text-[10px]">
-              · MIGLens {formatBuildVersion(buildInfo)}
+              · Leviathan {formatBuildVersion(buildInfo)}
             </span>
           </p>
         </footer>

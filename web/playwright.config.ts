@@ -13,12 +13,20 @@ export default defineConfig({
   },
   projects: [
     {
-      name: 'chromium-desktop',
-      use: { viewport: { width: 1280, height: 900 } },
+      name: 'chromium-desktop-dark',
+      use: { colorScheme: 'dark', viewport: { width: 1280, height: 900 } },
     },
     {
-      name: 'chromium-narrow',
-      use: { viewport: { width: 360, height: 800 } },
+      name: 'chromium-desktop-light',
+      use: { colorScheme: 'light', viewport: { width: 1280, height: 900 } },
+    },
+    {
+      name: 'chromium-narrow-dark',
+      use: { colorScheme: 'dark', viewport: { width: 360, height: 800 } },
+    },
+    {
+      name: 'chromium-narrow-light',
+      use: { colorScheme: 'light', viewport: { width: 360, height: 800 } },
     },
   ],
   webServer: {

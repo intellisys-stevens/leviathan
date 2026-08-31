@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/intellisys-stevens/miglens/internal/kubernetesbridge"
+	"github.com/intellisys-stevens/leviathan/internal/kubernetesbridge"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
@@ -31,7 +31,7 @@ func main() {
 	klog.SetOutput(io.Discard)
 	klog.SetLogger(logr.Discard())
 	if err := execute(os.Args[1:]); err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, "miglens-kubernetes-bridge: operation failed")
+		_, _ = fmt.Fprintln(os.Stderr, "leviathan-kubernetes-bridge: operation failed")
 		os.Exit(1)
 	}
 }
@@ -40,9 +40,9 @@ func execute(arguments []string) error {
 	if len(arguments) > 0 && arguments[0] == "probe" {
 		return runProbe(arguments[1:])
 	}
-	flags := flag.NewFlagSet("miglens-kubernetes-bridge", flag.ContinueOnError)
+	flags := flag.NewFlagSet("leviathan-kubernetes-bridge", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	socketPath := flags.String("socket", "/run/miglens/attribution.sock", "Unix socket handoff path")
+	socketPath := flags.String("socket", "/run/leviathan/attribution.sock", "Unix socket handoff path")
 	nodeName := flags.String("node-name", os.Getenv("NODE_NAME"), "Kubernetes node name")
 	namespaceList := flags.String("namespaces", os.Getenv("WATCH_NAMESPACES"), "comma-separated Coder workspace namespaces")
 	driver := flags.String("driver", "gpu.nvidia.com", "DRA driver name")
@@ -58,7 +58,7 @@ func execute(arguments []string) error {
 	if err != nil {
 		return errors.New("Kubernetes in-cluster configuration is unavailable")
 	}
-	config.UserAgent = "miglens-kubernetes-bridge/" + BridgeVersion
+	config.UserAgent = "leviathan-kubernetes-bridge/" + BridgeVersion
 	client, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return errors.New("Kubernetes client initialization failed")
@@ -111,7 +111,7 @@ func splitNamespaces(value string) []string {
 func runProbe(arguments []string) error {
 	flags := flag.NewFlagSet("probe", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	socketPath := flags.String("socket", "/run/miglens/attribution.sock", "Unix socket path")
+	socketPath := flags.String("socket", "/run/leviathan/attribution.sock", "Unix socket path")
 	ready := flags.Bool("ready", false, "require synchronized Kubernetes caches")
 	if err := flags.Parse(arguments); err != nil || flags.NArg() != 0 {
 		return errors.New("invalid probe arguments")

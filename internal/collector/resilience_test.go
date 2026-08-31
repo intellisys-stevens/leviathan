@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/model"
-	"github.com/intellisys-stevens/miglens/internal/provider/fake"
+	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/provider/fake"
 )
 
 type scriptedProvider struct {
@@ -219,8 +219,8 @@ func TestAcceleratedSoakKeepsHistoryBoundedAndShutsDown(t *testing.T) {
 }
 
 func TestOneHourSoak(t *testing.T) {
-	if os.Getenv("MIGLENS_SOAK") != "1" {
-		t.Skip("set MIGLENS_SOAK=1 to run the one-hour wall-clock soak")
+	if os.Getenv("LEVIATHAN_SOAK") != "1" {
+		t.Skip("set LEVIATHAN_SOAK=1 to run the one-hour wall-clock soak")
 	}
 	engine := New(fake.New(), 250*time.Millisecond, 30*time.Minute)
 	if err := engine.Start(context.Background()); err != nil {

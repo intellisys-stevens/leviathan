@@ -16,7 +16,7 @@
     "driver": { "type": "string", "minLength": 1 },
     "socketPath": {
       "type": "string",
-      "pattern": "^/run/miglens/[A-Za-z0-9._-]+\\.sock$"
+      "pattern": "^/run/leviathan/[A-Za-z0-9._-]+\\.sock$"
     }
   },
   "required": ["workspaceNamespaces", "driver", "socketPath"]

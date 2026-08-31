@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/attribution"
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/attribution"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 func TestScannerEnumeratesSortedGPUProcesses(t *testing.T) {
@@ -45,7 +45,7 @@ func TestScannerEnumeratesSortedGPUProcesses(t *testing.T) {
 
 func TestScannerExcludesItself(t *testing.T) {
 	root := newProcRoot(t)
-	writeProcess(t, root, 3, "/usr/bin/miglens", "miglens", "", 100)
+	writeProcess(t, root, 3, "/usr/bin/leviathan", "leviathan", "", 100)
 	writeProcess(t, root, 20, "/usr/bin/python3", "python3", "", 200)
 	scanner, uvm := newGPUScanner(t, root, false)
 	connectGPU(t, root, 3, uvm)

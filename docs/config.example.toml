@@ -1,4 +1,4 @@
-# MIGLens configuration. CLI flags override MIGLENS_* environment
+# Leviathan configuration. CLI flags override LEVIATHAN_* environment
 # variables, which override this file.
 interval = "1s"                 # 250ms through 60s
 profile_interval = "2s"         # expensive per-entity telemetry
@@ -15,7 +15,7 @@ ascii = false
 
 # Optional scheduler attribution from the Kubernetes bridge. Empty disables
 # attribution and makes no Kubernetes or local socket requests.
-# attribution_socket = "/run/miglens/attribution.sock"
+# attribution_socket = "/run/leviathan/attribution.sock"
 
 # Development only. Any non-empty fixture selects the fake provider.
 # fixture = "multi-ci"

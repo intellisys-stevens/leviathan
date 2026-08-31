@@ -13,9 +13,9 @@ import (
 
 	ndcgm "github.com/NVIDIA/go-dcgm/pkg/dcgm"
 	gonvml "github.com/NVIDIA/go-nvml/pkg/nvml"
-	"github.com/intellisys-stevens/miglens/internal/config"
-	"github.com/intellisys-stevens/miglens/internal/model"
-	gpuprocess "github.com/intellisys-stevens/miglens/internal/process"
+	"github.com/intellisys-stevens/leviathan/internal/config"
+	"github.com/intellisys-stevens/leviathan/internal/model"
+	gpuprocess "github.com/intellisys-stevens/leviathan/internal/process"
 )
 
 type Report struct {
@@ -79,7 +79,7 @@ func checkNVML() []model.Diagnostic {
 		result = append(result, model.Diagnostic{
 			Code: "mig_memory", Severity: "warning", Component: "NVML",
 			Summary: fmt.Sprintf("MIG memory is readable on %d of %d active device(s)", readableMIG, migCount),
-			Remedy:  "expose the allocated NVIDIA device nodes read-only to MIGLens", Status: model.StatusPermissionDenied,
+			Remedy:  "expose the allocated NVIDIA device nodes read-only to Leviathan", Status: model.StatusPermissionDenied,
 		})
 	}
 	return result
@@ -112,7 +112,7 @@ func checkProcessVisibility(procRoot, uvmPath string, selfPID uint32) []model.Di
 	if err != nil {
 		return []model.Diagnostic{{
 			Code: "proc", Severity: "warning", Component: procRoot, Summary: "Current PID namespace is unavailable",
-			Detail: err.Error(), Remedy: "make the current process namespace's /proc filesystem readable by MIGLens", Status: pathStatus(err),
+			Detail: err.Error(), Remedy: "make the current process namespace's /proc filesystem readable by Leviathan", Status: pathStatus(err),
 		}}
 	}
 	processCount := 0
@@ -139,12 +139,12 @@ func checkProcessVisibility(procRoot, uvmPath string, selfPID uint32) []model.Di
 	if _, fdErr := os.ReadDir(fdPath); fdErr != nil {
 		result = append(result, model.Diagnostic{
 			Code: "proc_fds", Severity: "warning", Component: fdPath, Summary: "Process file descriptors cannot be inspected",
-			Detail: fdErr.Error(), Remedy: "make /proc/<pid>/fd metadata readable to the workspace user running MIGLens", Status: pathStatus(fdErr),
+			Detail: fdErr.Error(), Remedy: "make /proc/<pid>/fd metadata readable to the workspace user running Leviathan", Status: pathStatus(fdErr),
 		})
 	} else {
 		result = append(result, model.Diagnostic{
 			Code: "proc_fds", Severity: "info", Component: fdPath, Summary: "Process file-descriptor metadata is readable",
-			Detail: "MIGLens inspects device identity only; it does not read process environments or arbitrary file contents.", Status: model.StatusAvailable,
+			Detail: "Leviathan inspects device identity only; it does not read process environments or arbitrary file contents.", Status: model.StatusAvailable,
 		})
 	}
 
@@ -174,7 +174,7 @@ func checkProcessVisibility(procRoot, uvmPath string, selfPID uint32) []model.Di
 	} else {
 		result = append(result, model.Diagnostic{
 			Code: "gpu_processes", Severity: "warning", Component: procRoot, Summary: "GPU-connected process inventory is unavailable",
-			Detail: inventory.Capability.Message, Remedy: "make /proc/<pid>/fd metadata readable to the workspace user running MIGLens", Status: inventory.Capability.Status,
+			Detail: inventory.Capability.Message, Remedy: "make /proc/<pid>/fd metadata readable to the workspace user running Leviathan", Status: inventory.Capability.Status,
 		})
 	}
 	result = append(result, inventory.Diagnostics...)

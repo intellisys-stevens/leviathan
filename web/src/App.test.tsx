@@ -17,9 +17,9 @@ import type {
   Snapshot,
 } from './types';
 
-const mockUseMIGLens = vi.hoisted(() => vi.fn());
+const mockUseLeviathan = vi.hoisted(() => vi.fn());
 
-vi.mock('./use-miglens', () => ({ useMIGLens: mockUseMIGLens }));
+vi.mock('./use-leviathan', () => ({ useLeviathan: mockUseLeviathan }));
 
 const sampledAt = '2026-08-29T12:00:00Z';
 const available = {
@@ -423,9 +423,9 @@ function result(
   };
 }
 
-describe('MIGLens dashboard states', () => {
+describe('Leviathan dashboard states', () => {
   beforeEach(() => {
-    mockUseMIGLens.mockReset();
+    mockUseLeviathan.mockReset();
     localStorage.clear();
   });
 
@@ -444,20 +444,37 @@ describe('MIGLens dashboard states', () => {
   });
 
   it('renders the loading state', () => {
-    mockUseMIGLens.mockReturnValue(result(null, 'connecting'));
+    mockUseLeviathan.mockReturnValue(result(null, 'connecting'));
     render(<App />);
     expect(screen.getByLabelText('Loading GPU topology')).toBeInTheDocument();
   });
 
+  it('uses only Leviathan browser state keys without migrating legacy state', async () => {
+    localStorage.setItem('miglens.theme.v1', 'light');
+    mockUseLeviathan.mockReturnValue(result(snapshot()));
+    render(<App />);
+
+    expect(screen.getByText('Leviathan', { exact: true })).toBeInTheDocument();
+    expect(screen.queryByText('MIGLens', { exact: true })).toBeNull();
+    const themeToggle = screen.getByRole('button', { name: 'Use light theme' });
+    fireEvent.click(themeToggle);
+
+    await waitFor(() =>
+      expect(localStorage.getItem('leviathan.theme.v1')).toBe('light'),
+    );
+    expect(localStorage.getItem('miglens.theme.v1')).toBe('light');
+    expect(document.documentElement).not.toHaveClass('dark');
+  });
+
   it('renders the empty GPU state while retaining GPU processes', () => {
-    mockUseMIGLens.mockReturnValue(result(snapshot([])));
+    mockUseLeviathan.mockReturnValue(result(snapshot([])));
     render(<App />);
     expect(screen.getByText('No NVIDIA GPUs detected')).toBeInTheDocument();
     expect(screen.getByText('4100')).toBeInTheDocument();
   });
 
   it('keeps the last snapshot visible while disconnected', () => {
-    mockUseMIGLens.mockReturnValue(
+    mockUseLeviathan.mockReturnValue(
       result(snapshot(), 'reconnecting', 'stream closed'),
     );
     render(<App />);
@@ -468,7 +485,7 @@ describe('MIGLens dashboard states', () => {
   });
 
   it('renders concise live status beside one neutral cadence control', () => {
-    mockUseMIGLens.mockReturnValue(result(snapshot()));
+    mockUseLeviathan.mockReturnValue(result(snapshot()));
     render(<App />);
 
     const capsule = screen.getByTestId('desktop-live-sampling');
@@ -498,7 +515,9 @@ describe('MIGLens dashboard states', () => {
       historyWindowMs: 60 * 60 * 1000,
       allowedSamplingIntervalsMs: [500, 1000, 2000],
     };
-    mockUseMIGLens.mockReturnValue(result(snapshot(), 'live', null, settings));
+    mockUseLeviathan.mockReturnValue(
+      result(snapshot(), 'live', null, settings),
+    );
     render(<App />);
 
     expect(screen.queryByTestId('sampling-update-status')).toBeNull();
@@ -510,7 +529,7 @@ describe('MIGLens dashboard states', () => {
 
   it('opens and dismisses the accessible mobile sampling popover', async () => {
     const dashboard = result(snapshot());
-    mockUseMIGLens.mockReturnValue(dashboard);
+    mockUseLeviathan.mockReturnValue(dashboard);
     render(<App />);
 
     const trigger = screen.getByRole('button', {
@@ -537,10 +556,10 @@ describe('MIGLens dashboard states', () => {
       component,
       summary: 'GPU process records are incomplete',
       detail: 'Permission denied',
-      remedy: 'Run MIGLens as the workspace user.',
+      remedy: 'Run Leviathan as the workspace user.',
       status: 'permission_denied',
     });
-    mockUseMIGLens.mockReturnValue(
+    mockUseLeviathan.mockReturnValue(
       result(
         snapshot(
           [populatedGPU()],
@@ -557,7 +576,7 @@ describe('MIGLens dashboard states', () => {
   });
 
   it('renders and filters current-namespace GPU processes', async () => {
-    mockUseMIGLens.mockReturnValue(result(snapshot()));
+    mockUseLeviathan.mockReturnValue(result(snapshot()));
     render(<App />);
     expect(
       screen.getByRole('heading', { name: 'Host-wide GPU processes' }),
@@ -583,7 +602,7 @@ describe('MIGLens dashboard states', () => {
     const current = snapshot();
     current.attribution = workspaceAttribution;
     const dashboard = result(current);
-    mockUseMIGLens.mockReturnValue(dashboard);
+    mockUseLeviathan.mockReturnValue(dashboard);
     render(<App />);
 
     await screen.findByRole('heading', { name: 'Temperature' });
@@ -619,7 +638,7 @@ describe('MIGLens dashboard states', () => {
     ).toBeInTheDocument();
     expect(filter).toHaveValue('research');
     expect(dashboard.alignedHistory).toHaveBeenCalledTimes(5);
-    expect(localStorage.getItem('miglens.dashboardView.v1')).toBe('people');
+    expect(localStorage.getItem('leviathan.dashboardView.v1')).toBe('people');
 
     fireEvent.click(
       screen.getByRole('button', {
@@ -630,10 +649,10 @@ describe('MIGLens dashboard states', () => {
   });
 
   it('restores the persisted People perspective when attribution is configured', () => {
-    localStorage.setItem('miglens.dashboardView.v1', 'people');
+    localStorage.setItem('leviathan.dashboardView.v1', 'people');
     const current = snapshot();
     current.attribution = workspaceAttribution;
-    mockUseMIGLens.mockReturnValue(result(current));
+    mockUseLeviathan.mockReturnValue(result(current));
 
     render(<App />);
 
@@ -647,7 +666,7 @@ describe('MIGLens dashboard states', () => {
   });
 
   it('keeps bare-metal dashboards GPU-only', () => {
-    mockUseMIGLens.mockReturnValue(result(snapshot()));
+    mockUseLeviathan.mockReturnValue(result(snapshot()));
     render(<App />);
     expect(
       screen.queryByRole('group', { name: 'Organize resources by' }),
@@ -656,7 +675,7 @@ describe('MIGLens dashboard states', () => {
   });
 
   it('uses a natural-height two-column GPU grid at the desktop breakpoint', () => {
-    mockUseMIGLens.mockReturnValue(
+    mockUseLeviathan.mockReturnValue(
       result(snapshot([populatedGPU(0), populatedGPU(1), fullGPU(2)])),
     );
     render(<App />);
@@ -674,28 +693,41 @@ describe('MIGLens dashboard states', () => {
     }
   });
 
-  it('uses semantic temperature and power colors based on physical limits', () => {
-    mockUseMIGLens.mockReturnValue(
-      result(snapshot([populatedGPU(), fullGPU()])),
+  it('uses AA-safe semantic temperature and power colors based on physical limits', () => {
+    const warning = populatedGPU(1);
+    warning.metrics.temperature = {
+      ...warning.metrics.temperature,
+      value: 75,
+    };
+    warning.metrics.power = {
+      ...warning.metrics.power,
+      value: 175,
+    };
+    mockUseLeviathan.mockReturnValue(
+      result(snapshot([populatedGPU(), warning, fullGPU()])),
     );
     render(<App />);
 
+    expect(screen.getByTitle('Physical GPU temperature · cool')).toHaveClass(
+      'text-sky-700',
+      'dark:text-sky-300',
+    );
     expect(
-      screen.getByLabelText('Physical GPU temperature 48°C, cool'),
-    ).toHaveClass('text-sky-600');
-    expect(
-      screen.getByLabelText(
-        'Physical GPU power 142 W, 57% of power limit, normal',
-      ),
+      screen.getByTitle('Physical GPU power · 57% of power limit, normal'),
     ).toHaveClass('text-primary');
+    expect(screen.getByTitle('Physical GPU temperature · hot')).toHaveClass(
+      'text-destructive',
+    );
+    expect(screen.getByTitle('Physical GPU temperature · warm')).toHaveClass(
+      'text-amber-700',
+      'dark:text-amber-300',
+    );
     expect(
-      screen.getByLabelText('Physical GPU temperature 82°C, hot'),
-    ).toHaveClass('text-destructive');
+      screen.getByTitle('Physical GPU power · 70% of power limit, high'),
+    ).toHaveClass('text-amber-700', 'dark:text-amber-300');
     expect(
-      screen.getByLabelText(
-        'Physical GPU power 300 W, 100% of power limit, near limit',
-      ),
-    ).toHaveClass('text-orange-700');
+      screen.getByTitle('Physical GPU power · 100% of power limit, near limit'),
+    ).toHaveClass('text-orange-700', 'dark:text-orange-200');
   });
 
   it('shows workspace attribution without exposing internal join refs', async () => {
@@ -707,7 +739,7 @@ describe('MIGLens dashboard states', () => {
         workloadRef: 'internal-workload-ref',
       } as Process,
     ];
-    mockUseMIGLens.mockReturnValue(result(current));
+    mockUseLeviathan.mockReturnValue(result(current));
     render(<App />);
 
     expect(
@@ -745,13 +777,15 @@ describe('MIGLens dashboard states', () => {
   });
 
   it('uses the GPU-connected empty-state wording for a healthy zero count', () => {
-    mockUseMIGLens.mockReturnValue(result(snapshot([populatedGPU()], [], [])));
+    mockUseLeviathan.mockReturnValue(
+      result(snapshot([populatedGPU()], [], [])),
+    );
     render(<App />);
     expect(screen.getByText('No GPU-connected processes.')).toBeInTheDocument();
   });
 
   it('renders all five overview chart panels with scoped series labels', async () => {
-    mockUseMIGLens.mockReturnValue(result(snapshot()));
+    mockUseLeviathan.mockReturnValue(result(snapshot()));
     render(<App />);
     for (const name of [
       'Temperature',
@@ -790,7 +824,7 @@ describe('MIGLens dashboard states', () => {
   });
 
   it('uses concise dashboard copy', async () => {
-    mockUseMIGLens.mockReturnValue(result(snapshot()));
+    mockUseLeviathan.mockReturnValue(result(snapshot()));
     render(<App />);
 
     expect(
@@ -814,7 +848,7 @@ describe('MIGLens dashboard states', () => {
     ).toBeInTheDocument();
     const footer = screen.getByRole('contentinfo');
     expect(footer).toHaveTextContent(
-      'Built with ⚔️ by Intellisys Dragoons and Codex · MIGLens v0.1.0',
+      'Built with ⚔️ by Intellisys Dragoons and Codex · Leviathan v0.1.0',
     );
     expect(
       screen.getByRole('link', { name: 'Intellisys Dragoons' }),
@@ -849,12 +883,12 @@ describe('MIGLens dashboard states', () => {
 
   it('persists independent overview and detail chart ranges', async () => {
     const dashboard = result(snapshot());
-    mockUseMIGLens.mockReturnValue(dashboard);
+    mockUseLeviathan.mockReturnValue(dashboard);
     render(<App />);
 
     const fifteenMinutes = await screen.findByRole('button', { name: '15m' });
     fireEvent.click(fifteenMinutes);
-    expect(localStorage.getItem('miglens.chartWindow.v1')).toBe(
+    expect(localStorage.getItem('leviathan.chartWindow.v1')).toBe(
       String(15 * 60 * 1000),
     );
     expect(await screen.findByText('15m · Physical GPUs')).toBeInTheDocument();
@@ -865,7 +899,7 @@ describe('MIGLens dashboard states', () => {
       name: 'Detail chart window',
     });
     fireEvent.click(within(detailWindow).getByRole('button', { name: '5m' }));
-    expect(localStorage.getItem('miglens.detailChartWindow.v1')).toBe(
+    expect(localStorage.getItem('leviathan.detailChartWindow.v1')).toBe(
       String(5 * 60 * 1000),
     );
     expect(await screen.findByText('5m activity')).toBeInTheDocument();
@@ -881,7 +915,7 @@ describe('MIGLens dashboard states', () => {
 
   it('refetches aligned history whenever the selected range changes', async () => {
     const dashboard = result(snapshot());
-    mockUseMIGLens.mockReturnValue(dashboard);
+    mockUseLeviathan.mockReturnValue(dashboard);
     render(<App />);
     await screen.findByRole('heading', { name: 'Temperature' });
     await waitFor(() =>
@@ -914,14 +948,18 @@ describe('MIGLens dashboard states', () => {
       historyWindowMs: 4 * 60 * 1000,
       allowedSamplingIntervalsMs: [500, 1000, 2000],
     };
-    mockUseMIGLens.mockReturnValue(result(snapshot(), 'live', null, settings));
+    mockUseLeviathan.mockReturnValue(
+      result(snapshot(), 'live', null, settings),
+    );
     render(<App />);
 
     for (const label of ['5m', '15m', '30m', '1h']) {
       expect(await screen.findByRole('button', { name: label })).toBeDisabled();
     }
     expect(await screen.findByText('4m · Physical GPUs')).toBeInTheDocument();
-    expect(screen.getByRole('contentinfo')).toHaveTextContent('MIGLens v0.1.0');
+    expect(screen.getByRole('contentinfo')).toHaveTextContent(
+      'Leviathan v0.1.0',
+    );
     fireEvent.click(screen.getByRole('button', { name: /GI 1 \/ CI 0/ }));
     expect(await screen.findByText('4m activity')).toBeInTheDocument();
     const detailWindow = screen.getByRole('group', {
@@ -950,7 +988,7 @@ describe('MIGLens dashboard states', () => {
           rejectUpdate = reject;
         }),
     );
-    mockUseMIGLens.mockReturnValue(dashboard);
+    mockUseLeviathan.mockReturnValue(dashboard);
     render(<App />);
 
     expect(await screen.findByText('Custom 0.25s')).toBeInTheDocument();
@@ -983,7 +1021,7 @@ describe('MIGLens dashboard states', () => {
   });
 
   it('focuses and pins solid chart series from the legend', async () => {
-    mockUseMIGLens.mockReturnValue(
+    mockUseLeviathan.mockReturnValue(
       result(snapshot([populatedGPU(0), populatedGPU(1)])),
     );
     render(<App />);
@@ -1053,7 +1091,7 @@ describe('MIGLens dashboard states', () => {
 
   it('uses concise chart state messages', async () => {
     const unresolved = new Promise<never>(() => undefined);
-    mockUseMIGLens.mockReturnValue({
+    mockUseLeviathan.mockReturnValue({
       ...result(snapshot([GPUWithoutMetrics()])),
       alignedHistory: vi.fn(() => unresolved),
     });
@@ -1061,7 +1099,7 @@ describe('MIGLens dashboard states', () => {
     expect((await screen.findAllByText('Loading history…')).length).toBe(5);
     loadingView.unmount();
 
-    mockUseMIGLens.mockReturnValue({
+    mockUseLeviathan.mockReturnValue({
       ...result(snapshot([GPUWithoutMetrics()]), 'reconnecting'),
       alignedHistory: vi.fn(() => unresolved),
     });
@@ -1071,7 +1109,7 @@ describe('MIGLens dashboard states', () => {
     );
     disconnectedView.unmount();
 
-    mockUseMIGLens.mockReturnValue({
+    mockUseLeviathan.mockReturnValue({
       ...result(snapshot([GPUWithoutMetrics()])),
       alignedHistory: vi.fn(async (request) => ({
         window: request.window,
@@ -1083,7 +1121,7 @@ describe('MIGLens dashboard states', () => {
     expect((await screen.findAllByText('Metric unavailable.')).length).toBe(5);
     unavailableView.unmount();
 
-    mockUseMIGLens.mockReturnValue({
+    mockUseLeviathan.mockReturnValue({
       ...result(snapshot()),
       alignedHistory: vi.fn(async (request) => ({
         window: request.window,
@@ -1105,7 +1143,7 @@ describe('MIGLens dashboard states', () => {
     }));
     let current = snapshot();
     const dashboardState = result(current);
-    mockUseMIGLens.mockImplementation(() => ({
+    mockUseLeviathan.mockImplementation(() => ({
       ...dashboardState,
       snapshot: current,
       alignedHistory,
@@ -1129,7 +1167,7 @@ describe('MIGLens dashboard states', () => {
   });
 
   it('shows hierarchy details without placement or ownership', async () => {
-    mockUseMIGLens.mockReturnValue(result(snapshot()));
+    mockUseLeviathan.mockReturnValue(result(snapshot()));
     render(<App />);
     const instanceButton = screen.getByRole('button', {
       name: /GI 1 \/ CI 0/,
@@ -1147,7 +1185,7 @@ describe('MIGLens dashboard states', () => {
   it('opens a live full-GPU detail view with physical telemetry and history', async () => {
     let current = snapshot([fullGPU()]);
     const dashboard = result(current);
-    mockUseMIGLens.mockImplementation(() => ({
+    mockUseLeviathan.mockImplementation(() => ({
       ...dashboard,
       snapshot: current,
     }));
@@ -1218,7 +1256,7 @@ describe('MIGLens dashboard states', () => {
       id: 1,
       generation: 'MIG-fixture-0-1@g1',
     });
-    mockUseMIGLens.mockReturnValue(result(snapshot([gpu])));
+    mockUseLeviathan.mockReturnValue(result(snapshot([gpu])));
     render(<App />);
 
     fireEvent.click(screen.getByRole('button', { name: /CI 0/ }));

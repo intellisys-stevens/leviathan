@@ -5,8 +5,8 @@ import {
   normalizeSnapshot,
   shareStableSnapshot,
   type SnapshotPayload,
-  useMIGLens,
-} from './use-miglens';
+  useLeviathan,
+} from './use-leviathan';
 
 const snapshot: Snapshot = {
   schemaVersion: 'v1',
@@ -80,7 +80,7 @@ function requestURL(input: string | URL | Request): string {
   return input.url;
 }
 
-describe('useMIGLens runtime settings', () => {
+describe('useLeviathan runtime settings', () => {
   beforeEach(() => {
     FakeEventSource.instances = [];
     vi.stubGlobal('EventSource', FakeEventSource);
@@ -133,8 +133,8 @@ describe('useMIGLens runtime settings', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const first = renderHook(() => useMIGLens());
-    const second = renderHook(() => useMIGLens());
+    const first = renderHook(() => useLeviathan());
+    const second = renderHook(() => useLeviathan());
     await waitFor(() => {
       expect(first.result.current.settings?.samplingIntervalMs).toBe(1000);
       expect(second.result.current.settings?.samplingIntervalMs).toBe(1000);
@@ -183,7 +183,7 @@ describe('useMIGLens runtime settings', () => {
     );
     const historyURL = new URL(
       requestURL(historyCall?.[0] as string),
-      'http://miglens.local',
+      'http://leviathan.local',
     );
     expect(historyURL.searchParams.get('entity')).toBe('GPU/a');
     expect(historyURL.searchParams.get('metrics')).toBe('temperature,power');
@@ -325,7 +325,7 @@ describe('useMIGLens runtime settings', () => {
       }),
     );
 
-    const hook = renderHook(() => useMIGLens());
+    const hook = renderHook(() => useLeviathan());
     await waitFor(() => {
       expect(hook.result.current.snapshot?.processes).toEqual([]);
       expect(hook.result.current.snapshot?.diagnostics).toEqual([]);

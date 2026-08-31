@@ -2,18 +2,18 @@
 
 ## Supported versions
 
-MIGLens is pre-1.0. Security fixes are applied to the latest release line.
+Leviathan is pre-1.0. Security fixes are applied to the latest release line.
 
 ## Reporting a vulnerability
 
 Please use GitHub's private security advisory flow for the repository rather
 than a public issue. Include the affected version, impact, reproduction, and
-the PID namespace in which MIGLens was running. Do not attach production
+the PID namespace in which Leviathan was running. Do not attach production
 process or GPU identifiers.
 
 ## Trust boundary
 
-MIGLens is a local observability process with the same read visibility as its
+Leviathan is a local observability process with the same read visibility as its
 Unix user. It intentionally:
 
 - refuses non-loopback dashboard addresses;
@@ -24,18 +24,20 @@ Unix user. It intentionally:
 - hides full command arguments unless explicitly enabled;
 - lists only GPU-connected processes with an open UVM device handle in its
   current PID namespace;
-- does not inspect cgroups or container runtimes;
+- reads cgroup paths only for those detected clients, and only when the
+  optional attribution socket is configured;
+- does not inspect container runtimes or query Pod objects;
 - does not request or elevate its own privileges.
 
-`/proc` and NVIDIA device visibility are sensitive privileges. Keep MIGLens in
+`/proc` and NVIDIA device visibility are sensitive privileges. Keep Leviathan in
 the intended PID namespace and expose only the GPU or MIG device allocation the
-workspace should monitor. MIGLens does not require the NVIDIA aggregate MIG
+workspace should monitor. Leviathan does not require the NVIDIA aggregate MIG
 monitor or MIG configuration capabilities.
 
 Running with `hostPID: true`, directly on a host, or through the packaged root
 systemd instance intentionally expands the candidate process inventory. See
 `docs/permissions.md` for that boundary. An SSH or Tailnet proxy does not make
-it safe to bind MIGLens publicly; every release still refuses non-loopback
+it safe to bind Leviathan publicly; every release still refuses non-loopback
 dashboard addresses.
 
 The optional Kubernetes bridge is a separate trust boundary. It receives a

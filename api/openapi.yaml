@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
-  title: MIGLens local API
-  version: 0.2.1
+  title: Leviathan local API
+  version: 0.3.0
   description: Single-host NVIDIA GPU and MIG telemetry with a process-local sampling control.
   license:
     name: MIT
@@ -124,7 +124,7 @@ paths:
   /api/v1/version:
     get:
       operationId: getBuildInfo
-      summary: Return build metadata for the running MIGLens binary.
+      summary: Return build metadata for the running Leviathan binary.
       responses:
         "200":
           description: Immutable build metadata.
@@ -193,7 +193,7 @@ components:
         message: { type: string }
     Process:
       type: object
-      description: A GPU-connected process visible in MIGLens' current PID namespace. An open NVIDIA UVM handle includes idle CUDA contexts and does not imply active kernels, GPU memory use, or GI/CI ownership.
+      description: A GPU-connected process visible in Leviathan's current PID namespace. An open NVIDIA UVM handle includes idle CUDA contexts and does not imply active kernels, GPU memory use, or GI/CI ownership.
       required: [pid, status]
       properties:
         pid: { type: integer, format: uint32, minimum: 0 }
@@ -383,7 +383,7 @@ components:
         gpus: { type: array, items: { $ref: "#/components/schemas/GPU" } }
         processes:
           type: array
-          description: GPU-connected processes detected through open NVIDIA UVM device handles in the current PID namespace. MIGLens itself is excluded.
+          description: GPU-connected processes detected through open NVIDIA UVM device handles in the current PID namespace. Leviathan itself is excluded.
           items: { $ref: "#/components/schemas/Process" }
         attribution:
           $ref: "#/components/schemas/Attribution"

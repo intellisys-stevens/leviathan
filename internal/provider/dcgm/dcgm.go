@@ -14,8 +14,8 @@ import (
 	"time"
 
 	ndcgm "github.com/NVIDIA/go-dcgm/pkg/dcgm"
-	"github.com/intellisys-stevens/miglens/internal/model"
-	"github.com/intellisys-stevens/miglens/internal/provider"
+	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/provider"
 )
 
 type Options struct {
@@ -230,7 +230,7 @@ func (p *Provider) Sample(ctx context.Context, at time.Time) (model.Snapshot, er
 	if queryCount > 0 && blankCount >= queryCount*len(profileFields) {
 		snapshot.Diagnostics = append(snapshot.Diagnostics, model.Diagnostic{
 			Code: "dcgm_profile_paused", Severity: "warning", Component: "DCGM", Summary: "DCGM profiling counters are blank or paused",
-			Detail: "A concurrent Nsight or profiling session may own the hardware counters.", Remedy: "stop the conflicting profiler, or run MIGLens with --provider nvml or --no-profile", Status: model.StatusStale,
+			Detail: "A concurrent Nsight or profiling session may own the hardware counters.", Remedy: "stop the conflicting profiler, or run Leviathan with --provider nvml or --no-profile", Status: model.StatusStale,
 		})
 	}
 	snapshot.Capabilities = p.Capabilities()
@@ -405,7 +405,7 @@ func (p *Provider) refreshWatch() error {
 	if len(entries) == 0 {
 		return errors.New("DCGM returned no GPU-instance entities")
 	}
-	group, err := ndcgm.CreateGroup(fmt.Sprintf("miglens-%d", os.Getpid()))
+	group, err := ndcgm.CreateGroup(fmt.Sprintf("leviathan-%d", os.Getpid()))
 	if err != nil {
 		return err
 	}
@@ -415,7 +415,7 @@ func (p *Provider) refreshWatch() error {
 			return err
 		}
 	}
-	fieldGroup, err := ndcgm.FieldGroupCreate(fmt.Sprintf("miglens-profile-%d", os.Getpid()), profileFields)
+	fieldGroup, err := ndcgm.FieldGroupCreate(fmt.Sprintf("leviathan-profile-%d", os.Getpid()), profileFields)
 	if err != nil {
 		_ = ndcgm.DestroyGroup(group)
 		return err

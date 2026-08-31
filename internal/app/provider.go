@@ -3,14 +3,14 @@ package app
 import (
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/attribution"
-	"github.com/intellisys-stevens/miglens/internal/config"
-	workspaceprocess "github.com/intellisys-stevens/miglens/internal/process"
-	"github.com/intellisys-stevens/miglens/internal/provider"
-	"github.com/intellisys-stevens/miglens/internal/provider/dcgm"
-	"github.com/intellisys-stevens/miglens/internal/provider/fake"
-	"github.com/intellisys-stevens/miglens/internal/provider/nvml"
-	"github.com/intellisys-stevens/miglens/internal/provider/workspace"
+	"github.com/intellisys-stevens/leviathan/internal/attribution"
+	"github.com/intellisys-stevens/leviathan/internal/config"
+	workspaceprocess "github.com/intellisys-stevens/leviathan/internal/process"
+	"github.com/intellisys-stevens/leviathan/internal/provider"
+	"github.com/intellisys-stevens/leviathan/internal/provider/dcgm"
+	"github.com/intellisys-stevens/leviathan/internal/provider/fake"
+	"github.com/intellisys-stevens/leviathan/internal/provider/nvml"
+	"github.com/intellisys-stevens/leviathan/internal/provider/workspace"
 )
 
 func Provider(cfg config.Config) (provider.Provider, error) {
