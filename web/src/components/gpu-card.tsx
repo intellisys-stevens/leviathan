@@ -1,9 +1,10 @@
-import { memo } from 'react';
+import { memo, type ReactNode } from 'react';
 import {
   Activity,
   ArrowLeftRight,
   Box,
   ChevronRight,
+  Clock,
   Cpu,
   Gauge,
   HardDrive,
@@ -173,6 +174,47 @@ function pcieThroughput(gpu: GPU): {
   };
 }
 
+function PercentMetricTile({
+  accessibleLabel,
+  icon,
+  label,
+  metric,
+  value,
+}: {
+  accessibleLabel: string;
+  icon: ReactNode;
+  label: string;
+  metric: string;
+  value: number | null;
+}) {
+  return (
+    <div
+      className="full-gpu-metric-tile flex min-w-0 flex-col border border-border/70 bg-card/45 p-3"
+      data-metric={metric}
+    >
+      <div className="full-gpu-metric-heading flex flex-col items-start gap-1 text-[13px] uppercase tracking-[0.11em] text-muted-foreground md:flex-row md:items-center md:justify-between md:gap-2">
+        <span className="full-gpu-metric-label inline-flex min-w-0 items-start gap-1.5 leading-tight md:items-center">
+          {icon}
+          <span>{label}</span>
+        </span>
+        <span className="full-gpu-metric-value shrink-0 whitespace-nowrap font-mono text-foreground">
+          {value == null ? '—' : formatPercent(value)}
+        </span>
+      </div>
+      <Progress
+        value={value}
+        aria-label={accessibleLabel}
+        className="mt-auto pt-3"
+      />
+      {value == null ? (
+        <p className="mt-1.5 font-mono text-[13px] text-muted-foreground">
+          Unavailable
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function FullGPUResource({
   gpu,
   onSelect,
@@ -181,8 +223,12 @@ function FullGPUResource({
   onSelect: Props['onSelect'];
 }) {
   const memory = memoryPercent(gpu.memory);
+  const gpuActivity = metricValue(gpu.metrics.gpu_activity);
   const sm = metricValue(gpu.metrics.sm_activity);
+  const memoryActivity = metricValue(gpu.metrics.memory_activity);
   const pcie = pcieThroughput(gpu);
+  const smClock = formatMetric(gpu.metrics.sm_clock);
+  const memoryClock = formatMetric(gpu.metrics.memory_clock);
   const memoryDetail =
     memory == null
       ? 'Unavailable'
@@ -212,61 +258,101 @@ function FullGPUResource({
         </span>
       </div>
 
-      <div className="mobile-resource-metrics pointer-events-none relative z-0 mt-4 grid flex-1 grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="min-w-0">
-          <div className="mb-1.5 flex items-center justify-between gap-2 text-[13px] uppercase tracking-[0.11em] text-muted-foreground">
-            <span className="inline-flex items-center gap-1.5">
-              <HardDrive className="size-3" aria-hidden="true" />
-              <span className="mobile-only-label">Mem</span>
-              <span className="desktop-only-label">Memory</span>
+      <div className="full-gpu-metrics mobile-resource-metrics pointer-events-none relative z-0 mt-3 grid flex-1 auto-rows-fr grid-cols-2 gap-2 md:grid-cols-3">
+        <PercentMetricTile
+          metric="gpu-activity"
+          label="GPU active"
+          icon={<Gauge className="size-3.5" aria-hidden="true" />}
+          value={gpuActivity}
+          accessibleLabel={`GPU ${gpu.index} GPU activity`}
+        />
+        <PercentMetricTile
+          metric="sm-activity"
+          label="SM active"
+          icon={<Cpu className="size-3.5" aria-hidden="true" />}
+          value={sm}
+          accessibleLabel={`GPU ${gpu.index} SM activity`}
+        />
+        <PercentMetricTile
+          metric="memory-activity"
+          label="Memory active"
+          icon={<Activity className="size-3.5" aria-hidden="true" />}
+          value={memoryActivity}
+          accessibleLabel={`GPU ${gpu.index} memory activity`}
+        />
+
+        <div
+          className="full-gpu-metric-tile flex min-w-0 flex-col border border-border/70 bg-card/45 p-3"
+          data-metric="memory"
+        >
+          <div className="full-gpu-metric-heading flex flex-col items-start gap-1 text-[13px] uppercase tracking-[0.11em] text-muted-foreground md:flex-row md:items-center md:justify-between md:gap-2">
+            <span className="full-gpu-metric-label inline-flex items-start gap-1.5 leading-tight md:items-center">
+              <HardDrive className="size-3.5" aria-hidden="true" /> Memory
             </span>
-            <span className="font-mono text-foreground">
+            <span className="full-gpu-metric-value whitespace-nowrap font-mono text-foreground">
               {memory == null ? '—' : formatPercent(memory)}
             </span>
           </div>
           <Progress
             value={memory}
             aria-label={`GPU ${gpu.index} memory used`}
-            className={
+            className={`mt-auto pt-3 ${
               memory != null && memory >= 85
                 ? '[&_[data-slot=progress-indicator]]:bg-amber-400'
                 : '[&_[data-slot=progress-indicator]]:bg-primary'
-            }
+            }`}
           />
-          <p className="mt-1.5 truncate font-mono text-[13px] text-muted-foreground">
+          <p
+            className="full-gpu-memory-detail mt-1.5 whitespace-normal break-words font-mono text-[13px] leading-snug text-muted-foreground md:truncate md:whitespace-nowrap"
+            title={memoryDetail}
+          >
             {memoryDetail}
           </p>
         </div>
 
-        <div className="min-w-0">
-          <div className="mb-1.5 flex items-center justify-between gap-2 text-[13px] uppercase tracking-[0.11em] text-muted-foreground">
-            <span className="mobile-only-label">SM</span>
-            <span className="desktop-only-label">SM active</span>
-            <span className="font-mono text-foreground">
-              {sm == null ? '—' : formatPercent(sm)}
-            </span>
+        <div
+          className="full-gpu-metric-tile flex min-w-0 flex-col border border-border/70 bg-card/45 p-3"
+          data-metric="pcie"
+        >
+          <div className="flex items-center gap-1.5 text-[13px] uppercase tracking-[0.11em] text-muted-foreground">
+            <ArrowLeftRight className="size-3.5" aria-hidden="true" /> PCIe
           </div>
-          <Progress value={sm} aria-label={`GPU ${gpu.index} SM activity`} />
-          {sm == null ? (
-            <p className="mt-1.5 font-mono text-[13px] text-muted-foreground">
-              Unavailable
-            </p>
-          ) : null}
-        </div>
-
-        <div className="min-w-0">
-          <div className="mb-1.5 flex items-center gap-1.5 text-[13px] uppercase tracking-[0.11em] text-muted-foreground">
-            <ArrowLeftRight className="size-3" aria-hidden="true" /> PCIe
-          </div>
-          <p className="font-mono text-[15px] font-semibold tabular-nums text-foreground">
+          <p className="full-gpu-pcie-value mt-auto pt-2 font-mono text-[15px] font-semibold tabular-nums text-foreground">
             {pcie.value}
           </p>
           <p
-            className="mt-1.5 truncate font-mono text-[13px] text-muted-foreground"
+            className="full-gpu-pcie-detail mt-1.5 whitespace-normal break-words font-mono text-[13px] leading-snug text-muted-foreground md:truncate md:whitespace-nowrap"
             aria-label={pcie.accessibleDetail}
             title={pcie.accessibleDetail}
           >
             {pcie.detail}
+          </p>
+        </div>
+
+        <div
+          className="full-gpu-metric-tile flex min-w-0 flex-col border border-border/70 bg-card/45 p-3"
+          data-metric="clocks"
+        >
+          <div className="mb-1.5 flex items-center gap-1.5 text-[13px] uppercase tracking-[0.11em] text-muted-foreground">
+            <Clock className="size-3.5" aria-hidden="true" /> Clocks
+          </div>
+          <p
+            className="full-gpu-clock-row mt-auto flex flex-col items-start gap-0.5 font-mono text-[13px] text-muted-foreground md:flex-row md:items-center md:justify-between md:gap-2"
+            aria-label={`GPU ${gpu.index} SM clock ${smClock === '—' ? 'unavailable' : smClock}`}
+          >
+            <span>SM</span>
+            <span className="full-gpu-clock-value whitespace-nowrap text-foreground">
+              {smClock}
+            </span>
+          </p>
+          <p
+            className="full-gpu-clock-row mt-1.5 flex flex-col items-start gap-0.5 font-mono text-[13px] text-muted-foreground md:flex-row md:items-center md:justify-between md:gap-2"
+            aria-label={`GPU ${gpu.index} memory clock ${memoryClock === '—' ? 'unavailable' : memoryClock}`}
+          >
+            <span>Memory</span>
+            <span className="full-gpu-clock-value whitespace-nowrap text-foreground">
+              {memoryClock}
+            </span>
           </p>
         </div>
       </div>

@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import {
+  type RefObject,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { Activity, Database, Gauge, Layers3 } from 'lucide-react';
 import {
   CartesianGrid,
@@ -45,6 +52,10 @@ import type {
   Selection,
 } from '../types';
 import { ChartWindowControl } from './chart-window-control';
+import {
+  ChartTooltipPortal,
+  chartTooltipPortalWrapperStyle,
+} from './chart-tooltip-portal';
 import { AttributionDetails } from './workspace-attribution';
 
 type MetricDescriptor = {
@@ -56,6 +67,13 @@ type ChartDescriptor = MetricDescriptor & {
   key: string;
   color: string;
   strokeWidth: number;
+};
+
+type DetailTooltipDatum = {
+  color?: string;
+  dataKey?: string | number | ((object: unknown) => unknown);
+  name?: string | number;
+  value?: number | string | readonly (number | string)[];
 };
 
 const instanceLiveMetrics: readonly MetricDescriptor[] = [
@@ -347,6 +365,65 @@ function hasChartValues(
   );
 }
 
+function DetailSeriesTooltip({
+  active,
+  anchorRef,
+  coordinate,
+  label,
+  payload,
+  testId,
+  valueFormatter,
+}: {
+  active?: boolean;
+  anchorRef: RefObject<HTMLElement | null>;
+  coordinate?: { x: number; y: number };
+  label?: string | number;
+  payload?: readonly DetailTooltipDatum[];
+  testId: string;
+  valueFormatter: (value: number) => string;
+}) {
+  const visible = payload?.filter(
+    (item) => typeof item.value === 'number' && Number.isFinite(item.value),
+  );
+
+  return (
+    <ChartTooltipPortal
+      active={active && Boolean(visible?.length)}
+      anchorRef={anchorRef}
+      coordinate={coordinate}
+    >
+      <div
+        className="rounded-lg border border-border bg-popover px-3 py-2 text-[13px] shadow-xl"
+        data-testid={testId}
+      >
+        <p className="mb-1 font-mono text-muted-foreground">
+          {new Date(Number(label)).toLocaleTimeString()}
+        </p>
+        <div className="space-y-1">
+          {visible?.map((item) => (
+            <div
+              key={String(item.dataKey)}
+              className="flex min-w-40 items-center justify-between gap-4"
+            >
+              <span className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground">
+                <span
+                  aria-hidden="true"
+                  className="h-0.5 w-3 shrink-0 rounded-full"
+                  style={{ backgroundColor: item.color }}
+                />
+                <span className="truncate">{item.name}</span>
+              </span>
+              <span className="whitespace-nowrap text-right font-mono font-medium text-foreground">
+                {valueFormatter(Number(item.value))}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </ChartTooltipPortal>
+  );
+}
+
 function ActivityHistoryPlot({
   data,
   metrics,
@@ -356,79 +433,86 @@ function ActivityHistoryPlot({
   metrics: readonly ChartDescriptor[];
   interactive?: boolean;
 }) {
+  const tooltipAnchorRef = useRef<HTMLDivElement>(null);
   return (
-    <ResponsiveContainer
-      width="100%"
-      height="100%"
-      minWidth={0}
-      initialDimension={{ width: 590, height: 176 }}
-    >
-      <LineChart data={data} margin={{ top: 14, right: 8, left: 0, bottom: 2 }}>
-        <CartesianGrid stroke="var(--border)" vertical={false} />
-        <XAxis
-          dataKey="time"
-          type="number"
-          domain={['dataMin', 'dataMax']}
-          tickFormatter={(value) =>
-            new Date(value).toLocaleTimeString([], {
-              hour: '2-digit',
-              minute: '2-digit',
-            })
-          }
-          tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
-          axisLine={false}
-          tickLine={false}
-        />
-        <YAxis
-          domain={[0, 100]}
-          allowDataOverflow
-          interval={0}
-          tickFormatter={(value: number) => formatRoundedPercent(value)}
-          tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
-          axisLine={false}
-          tickLine={false}
-          ticks={[0, 25, 50, 75, 100]}
-          tickMargin={4}
-          padding={{ top: 6, bottom: 4 }}
-          width={44}
-        />
-        {interactive ? (
-          <Tooltip
-            isAnimationActive={false}
-            wrapperStyle={{ zIndex: 50, pointerEvents: 'none' }}
-            contentStyle={{
-              background: 'var(--popover)',
-              border: '1px solid var(--border)',
-              borderRadius: 8,
-              fontSize: 13,
-            }}
-            labelFormatter={(value) =>
-              new Date(Number(value)).toLocaleTimeString()
+    <div ref={tooltipAnchorRef} className="h-full w-full">
+      <ResponsiveContainer
+        width="100%"
+        height="100%"
+        minWidth={0}
+        initialDimension={{ width: 590, height: 216 }}
+      >
+        <LineChart
+          data={data}
+          margin={{ top: 14, right: 8, left: 0, bottom: 2 }}
+        >
+          <CartesianGrid stroke="var(--border)" vertical={false} />
+          <XAxis
+            dataKey="time"
+            type="number"
+            domain={['dataMin', 'dataMax']}
+            tickFormatter={(value) =>
+              new Date(value).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })
             }
-            formatter={(value, name) => [
-              formatRoundedPercent(Number(value)),
-              String(name),
-            ]}
+            tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
+            axisLine={false}
+            tickLine={false}
           />
-        ) : null}
-        {metrics.map((descriptor, index) => (
-          <Line
-            key={descriptor.key}
-            type="monotoneX"
-            dataKey={descriptor.key}
-            name={descriptor.label}
-            stroke={descriptor.color}
-            strokeWidth={descriptor.strokeWidth}
-            strokeDasharray={detailDashPatterns[index]}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            dot={false}
-            connectNulls={false}
-            isAnimationActive={false}
+          <YAxis
+            domain={[0, 100]}
+            allowDataOverflow
+            interval={0}
+            tickFormatter={(value: number) => formatRoundedPercent(value)}
+            tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
+            axisLine={false}
+            tickLine={false}
+            ticks={[0, 25, 50, 75, 100]}
+            tickMargin={4}
+            padding={{ top: 6, bottom: 4 }}
+            width={44}
           />
-        ))}
-      </LineChart>
-    </ResponsiveContainer>
+          {interactive ? (
+            <Tooltip
+              isAnimationActive={false}
+              portal={
+                typeof document === 'undefined' ? undefined : document.body
+              }
+              wrapperStyle={chartTooltipPortalWrapperStyle}
+              content={(tooltip) => (
+                <DetailSeriesTooltip
+                  active={tooltip.active}
+                  anchorRef={tooltipAnchorRef}
+                  coordinate={tooltip.coordinate}
+                  label={tooltip.label}
+                  payload={tooltip.payload}
+                  testId="detail-activity-tooltip"
+                  valueFormatter={formatRoundedPercent}
+                />
+              )}
+            />
+          ) : null}
+          {metrics.map((descriptor, index) => (
+            <Line
+              key={descriptor.key}
+              type="monotoneX"
+              dataKey={descriptor.key}
+              name={descriptor.label}
+              stroke={descriptor.color}
+              strokeWidth={descriptor.strokeWidth}
+              strokeDasharray={detailDashPatterns[index]}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              dot={false}
+              connectNulls={false}
+              isAnimationActive={false}
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   );
 }
 
@@ -439,78 +523,86 @@ function PCIeHistoryPlot({
   data: ChartRow[];
   interactive?: boolean;
 }) {
+  const tooltipAnchorRef = useRef<HTMLDivElement>(null);
   return (
-    <ResponsiveContainer
-      width="100%"
-      height="100%"
-      minWidth={0}
-      initialDimension={{ width: 590, height: 176 }}
-    >
-      <LineChart data={data} margin={{ top: 14, right: 8, left: 0, bottom: 2 }}>
-        <CartesianGrid stroke="var(--border)" vertical={false} />
-        <XAxis
-          dataKey="time"
-          type="number"
-          domain={['dataMin', 'dataMax']}
-          tickFormatter={(value) =>
-            new Date(value).toLocaleTimeString([], {
-              hour: '2-digit',
-              minute: '2-digit',
-            })
-          }
-          tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
-          axisLine={false}
-          tickLine={false}
-        />
-        <YAxis
-          domain={[
-            0,
-            (maximum: number) => (maximum > 0 ? Math.ceil(maximum * 1.08) : 1),
-          ]}
-          tickFormatter={(value: number) => formatBytesPerSecond(value)}
-          tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
-          axisLine={false}
-          tickLine={false}
-          tickMargin={4}
-          width={72}
-        />
-        {interactive ? (
-          <Tooltip
-            isAnimationActive={false}
-            wrapperStyle={{ zIndex: 50, pointerEvents: 'none' }}
-            contentStyle={{
-              background: 'var(--popover)',
-              border: '1px solid var(--border)',
-              borderRadius: 8,
-              fontSize: 13,
-            }}
-            labelFormatter={(value) =>
-              new Date(Number(value)).toLocaleTimeString()
+    <div ref={tooltipAnchorRef} className="h-full w-full">
+      <ResponsiveContainer
+        width="100%"
+        height="100%"
+        minWidth={0}
+        initialDimension={{ width: 590, height: 216 }}
+      >
+        <LineChart
+          data={data}
+          margin={{ top: 14, right: 8, left: 0, bottom: 2 }}
+        >
+          <CartesianGrid stroke="var(--border)" vertical={false} />
+          <XAxis
+            dataKey="time"
+            type="number"
+            domain={['dataMin', 'dataMax']}
+            tickFormatter={(value) =>
+              new Date(value).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })
             }
-            formatter={(value, name) => [
-              formatBytesPerSecond(Number(value)),
-              String(name),
+            tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <YAxis
+            domain={[
+              0,
+              (maximum: number) =>
+                maximum > 0 ? Math.ceil(maximum * 1.08) : 1,
             ]}
+            tickFormatter={(value: number) => formatBytesPerSecond(value)}
+            tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
+            axisLine={false}
+            tickLine={false}
+            tickMargin={4}
+            width={72}
           />
-        ) : null}
-        {pcieChartMetrics.map((descriptor, index) => (
-          <Line
-            key={descriptor.key}
-            type="monotoneX"
-            dataKey={descriptor.key}
-            name={descriptor.label}
-            stroke={descriptor.color}
-            strokeWidth={descriptor.strokeWidth}
-            strokeDasharray={detailDashPatterns[index]}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            dot={false}
-            connectNulls={false}
-            isAnimationActive={false}
-          />
-        ))}
-      </LineChart>
-    </ResponsiveContainer>
+          {interactive ? (
+            <Tooltip
+              isAnimationActive={false}
+              portal={
+                typeof document === 'undefined' ? undefined : document.body
+              }
+              wrapperStyle={chartTooltipPortalWrapperStyle}
+              content={(tooltip) => (
+                <DetailSeriesTooltip
+                  active={tooltip.active}
+                  anchorRef={tooltipAnchorRef}
+                  coordinate={tooltip.coordinate}
+                  label={tooltip.label}
+                  payload={tooltip.payload}
+                  testId="detail-pcie-tooltip"
+                  valueFormatter={formatBytesPerSecond}
+                />
+              )}
+            />
+          ) : null}
+          {pcieChartMetrics.map((descriptor, index) => (
+            <Line
+              key={descriptor.key}
+              type="monotoneX"
+              dataKey={descriptor.key}
+              name={descriptor.label}
+              stroke={descriptor.color}
+              strokeWidth={descriptor.strokeWidth}
+              strokeDasharray={detailDashPatterns[index]}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              dot={false}
+              connectNulls={false}
+              isAnimationActive={false}
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   );
 }
 
@@ -754,7 +846,7 @@ export default function DetailSheet({
       onOpenChangeComplete={onOpenChangeComplete}
     >
       <SheetContent
-        className="mobile-detail-sheet frost-sheet w-full max-w-none overflow-y-auto border-input bg-popover md:max-w-[640px]"
+        className="detail-sheet-surface mobile-detail-sheet frost-sheet w-full max-w-none overflow-y-auto border-input bg-popover"
         data-testid="detail-sheet"
       >
         <SheetHeader className="mobile-detail-sheet-header border-b border-border px-5 py-5 pr-14">
@@ -842,7 +934,10 @@ export default function DetailSheet({
             >
               <Activity className="size-3.5" /> Live metrics
             </h3>
-            <div className="grid grid-cols-2 gap-px border border-border bg-border sm:grid-cols-4">
+            <div
+              className={`detail-live-metrics grid grid-cols-2 gap-px border border-border bg-border sm:grid-cols-4 ${physical ? 'detail-live-metrics-physical lg:grid-cols-5' : 'detail-live-metrics-instance'}`}
+              data-testid="detail-live-metrics"
+            >
               {liveMetrics.map(({ name, label }) => {
                 const metric = liveMetric(source, name);
                 return (
@@ -885,7 +980,7 @@ export default function DetailSheet({
               metrics={chartMetrics}
             />
             <div
-              className="chart-plot-frame h-44 p-2"
+              className="detail-chart-frame chart-plot-frame h-[216px] p-2 md:h-56"
               data-testid="detail-history-chart"
               aria-busy={historyState.loading}
             >
@@ -966,7 +1061,7 @@ export default function DetailSheet({
               metrics={pcieChartMetrics}
             />
             <div
-              className="chart-plot-frame h-44 p-2"
+              className="detail-chart-frame chart-plot-frame h-[216px] p-2 md:h-56"
               data-testid="detail-pcie-chart"
               aria-busy={historyState.loading}
             >

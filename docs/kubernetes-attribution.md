@@ -36,7 +36,7 @@ the namespaces that contain Coder workspace claims:
 ```bash
 helm upgrade --install leviathan-attribution \
   oci://ghcr.io/intellisys-stevens/charts/leviathan-attribution \
-  --version 0.3.0 \
+  --version 0.3.1 \
   --namespace leviathan-system \
   --create-namespace \
   --set-json 'workspaceNamespaces=["coder-workspaces"]'

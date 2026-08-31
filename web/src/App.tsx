@@ -388,7 +388,7 @@ export function DetailSheetFallback({
       onOpenChangeComplete={onOpenChangeComplete}
     >
       <SheetContent
-        className="mobile-detail-sheet frost-sheet w-full max-w-none overflow-y-auto border-input bg-popover p-6 md:max-w-[640px]"
+        className="detail-sheet-surface mobile-detail-sheet frost-sheet w-full max-w-none overflow-y-auto border-input bg-popover p-6"
         data-testid="detail-sheet-fallback"
       >
         <SheetHeader className="mobile-detail-sheet-header p-0 pr-10 text-left">
@@ -908,8 +908,8 @@ export function App() {
           </div>
         )}
 
-        <footer className="mt-8 border-t border-border/70 pb-1 pt-4 text-center text-[13px] text-muted-foreground">
-          <p className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5">
+        <footer className="app-footer mt-8 border-t border-border/70 pb-1 pt-4 text-center text-[13px] text-muted-foreground">
+          <p className="desktop-footer-copy flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5">
             <span>
               Built with <span aria-hidden="true">⚔️</span> by{' '}
               <a
@@ -922,6 +922,21 @@ export function App() {
             </span>{' '}
             <span className="whitespace-nowrap font-mono text-[13px]">
               · Leviathan {formatBuildVersion(buildInfo)}
+            </span>
+          </p>
+          <p className="mobile-footer-copy">
+            <span>
+              <span aria-hidden="true">⚔️</span>{' '}
+              <a
+                href="https://intellisys.haow.us/team/"
+                className="font-semibold text-foreground underline-offset-4 transition-colors hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                Intellisys Dragoons
+              </a>{' '}
+              <span aria-hidden="true">×</span> Codex{' '}
+            </span>
+            <span className="font-mono text-[13px]">
+              Leviathan {formatBuildVersion(buildInfo)}
             </span>
           </p>
         </footer>

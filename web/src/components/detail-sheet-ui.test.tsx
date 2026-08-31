@@ -204,11 +204,12 @@ describe('detail sheet presentation', () => {
       name: 'GPU 0 · GI 3 · CI 0',
     });
     expect(dialog).toHaveClass(
+      'detail-sheet-surface',
       'mobile-detail-sheet',
       'w-full',
       'max-w-none',
-      'md:max-w-[640px]',
     );
+    expect(dialog).not.toHaveClass('md:max-w-[640px]');
     const header = dialog.querySelector('[data-slot="sheet-header"]');
     expect(header).not.toBeNull();
     expect(header).toHaveClass('mobile-detail-sheet-header');
@@ -222,6 +223,16 @@ describe('detail sheet presentation', () => {
     expect(
       within(dialog).getByRole('button', { name: 'Close' }),
     ).toBeInTheDocument();
+
+    const liveMetrics = within(dialog).getByTestId('detail-live-metrics');
+    expect(liveMetrics).toHaveClass(
+      'detail-live-metrics',
+      'detail-live-metrics-instance',
+      'grid-cols-2',
+      'sm:grid-cols-4',
+    );
+    expect(liveMetrics).not.toHaveClass('lg:grid-cols-5');
+    expect(liveMetrics.children).toHaveLength(7);
   });
 
   it('omits metric provenance footers and the PCIe explanatory sentence', async () => {
@@ -240,6 +251,22 @@ describe('detail sheet presentation', () => {
 
     const dialog = await screen.findByRole('dialog');
     await waitFor(() => expect(loadHistory).toHaveBeenCalledOnce());
+
+    const liveMetrics = within(dialog).getByTestId('detail-live-metrics');
+    expect(liveMetrics).toHaveClass(
+      'detail-live-metrics',
+      'detail-live-metrics-physical',
+      'grid-cols-2',
+      'sm:grid-cols-4',
+      'lg:grid-cols-5',
+    );
+    expect(liveMetrics.children).toHaveLength(10);
+    for (const chart of [
+      within(dialog).getByTestId('detail-history-chart'),
+      within(dialog).getByTestId('detail-pcie-chart'),
+    ]) {
+      expect(chart).toHaveClass('detail-chart-frame', 'h-[216px]', 'md:h-56');
+    }
 
     expect(
       within(dialog).queryByText(

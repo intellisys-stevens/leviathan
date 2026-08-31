@@ -8,7 +8,7 @@ fi
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
-version=${1:-0.3.0}
+version=${1:-0.3.1}
 version=${version#v}
 
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {

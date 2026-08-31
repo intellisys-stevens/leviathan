@@ -314,7 +314,7 @@ async function installSyntheticBackend(
     }
     if (url.pathname === '/api/v1/version') {
       await route.fulfill({
-        json: { version: '0.3.0', commit: 'synthetic', buildDate: sampledAt },
+        json: { version: '0.3.1', commit: 'synthetic', buildDate: sampledAt },
       });
       return;
     }
@@ -900,6 +900,74 @@ test('renders healthy aligned history as one continuous path per series', async 
   }
 });
 
+test('keeps chart hover tooltips above plot clipping and inside the viewport', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'chromium-desktop-dark',
+    'One desktop project verifies viewport-level tooltip geometry.',
+  );
+  await expect.poll(() => alignedRequestCount(page)).toBe(5);
+
+  const assertFloatingTooltip = async (
+    frame: Locator,
+    tooltipTestId: string,
+  ) => {
+    const chart = frame.locator('.recharts-wrapper').first();
+    await expect(chart).toBeVisible();
+    const chartBox = await chart.boundingBox();
+    expect(chartBox).not.toBeNull();
+    await page.mouse.move(
+      chartBox!.x + chartBox!.width - 24,
+      chartBox!.y + chartBox!.height / 2,
+    );
+
+    const tooltip = page.getByTestId(tooltipTestId);
+    await expect(tooltip).toBeVisible();
+    const geometry = await tooltip.evaluate((element) => {
+      const portal = element.closest<HTMLElement>('.chart-tooltip-portal')!;
+      const bounds = portal.getBoundingClientRect();
+      return {
+        left: bounds.left,
+        top: bounds.top,
+        right: bounds.right,
+        bottom: bounds.bottom,
+        position: getComputedStyle(portal).position,
+        pointerEvents: getComputedStyle(portal).pointerEvents,
+        zIndex: Number(getComputedStyle(portal).zIndex),
+        attachedToBody: document.body.contains(portal),
+        insideChartFrame: Boolean(portal.closest('.chart-plot-frame')),
+        documentWidth: document.documentElement.scrollWidth,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      };
+    });
+    expect(geometry.left).toBeGreaterThanOrEqual(8);
+    expect(geometry.top).toBeGreaterThanOrEqual(8);
+    expect(geometry.right).toBeLessThanOrEqual(geometry.viewportWidth - 8);
+    expect(geometry.bottom).toBeLessThanOrEqual(geometry.viewportHeight - 8);
+    expect(geometry.position).toBe('fixed');
+    expect(geometry.pointerEvents).toBe('none');
+    expect(geometry.zIndex).toBeGreaterThanOrEqual(80);
+    expect(geometry.attachedToBody).toBe(true);
+    expect(geometry.insideChartFrame).toBe(false);
+    expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewportWidth);
+  };
+
+  await assertFloatingTooltip(
+    page.getByTestId('memory-chart').locator('.chart-plot-frame'),
+    'memory-chart-tooltip',
+  );
+
+  await page.getByRole('link', { name: 'Resources' }).click();
+  await page
+    .getByRole('button', { name: 'Open GPU 0 full GPU details' })
+    .click();
+  const detailChart = page.getByTestId('detail-history-chart');
+  await detailChart.scrollIntoViewIfNeeded();
+  await assertFloatingTooltip(detailChart, 'detail-activity-tooltip');
+});
+
 test('renders an explicit missing sample as separated path segments', async ({
   page,
 }) => {
@@ -924,6 +992,23 @@ test('lays out GPU cards responsively without rendering opaque identifiers', asy
   const topology = page.getByRole('region', { name: 'GPU topology' });
   const cards = topology.locator('.gpu-card');
   await expect(cards).toHaveCount(2);
+  const fullMetrics = page.getByRole('region', {
+    name: 'GPU 0 live telemetry',
+  });
+  const metricTiles = fullMetrics.locator('.full-gpu-metric-tile');
+  await expect(metricTiles).toHaveCount(6);
+  const metricLayout = await fullMetrics
+    .locator('.full-gpu-metrics')
+    .evaluate((element) => ({
+      columns: getComputedStyle(element).gridTemplateColumns.split(' ').length,
+      rows: new Set(
+        [...element.children].map(
+          (child) => Math.round(child.getBoundingClientRect().top * 10) / 10,
+        ),
+      ).size,
+    }));
+  expect(metricLayout.columns).toBe(page.viewportSize()!.width >= 768 ? 3 : 2);
+  expect(metricLayout.rows).toBe(page.viewportSize()!.width >= 768 ? 2 : 3);
   const [first, second] = await Promise.all([
     cards.nth(0).boundingBox(),
     cards.nth(1).boundingBox(),
@@ -1245,6 +1330,23 @@ test('switches workbench views without reloading charts or clearing process filt
     ),
   ).toHaveCount(0);
 
+  const peopleView = page.getByTestId('people-view');
+  await expect(peopleView).not.toContainText('Parent GI metrics');
+  await expect(peopleView).not.toContainText('Physical GPU metrics');
+  await expect(peopleView.getByText(/^(?:allocated|reserved)$/iu)).toHaveCount(
+    0,
+  );
+  await expect(
+    peopleView.getByRole('progressbar', {
+      name: 'GPU 1 GI 0 parent GI memory used, shared by 1 CI',
+    }),
+  ).toBeVisible();
+  await expect(
+    peopleView.getByRole('progressbar', {
+      name: 'GPU 1 GI 0 parent GI SM activity, shared by 1 CI',
+    }),
+  ).toBeVisible();
+
   const personCards = page.getByTestId('person-card');
   await expect(personCards).toHaveCount(2);
   const [firstCard, secondCard] = await Promise.all([
@@ -1253,7 +1355,7 @@ test('switches workbench views without reloading charts or clearing process filt
   ]);
   expect(firstCard).not.toBeNull();
   expect(secondCard).not.toBeNull();
-  if (page.viewportSize()!.width >= 1280) {
+  if (page.viewportSize()!.width >= 1400) {
     expect(Math.abs(firstCard!.y - secondCard!.y)).toBeLessThanOrEqual(1);
     expect(secondCard!.x).toBeGreaterThan(firstCard!.x + firstCard!.width);
     expect(Math.abs(firstCard!.width - secondCard!.width)).toBeLessThanOrEqual(
@@ -1333,22 +1435,43 @@ test('keeps every detail percentage tick visible', async ({ page }) => {
     .getByTestId('detail-sheet')
     .evaluate((element) => {
       const bounds = element.getBoundingClientRect();
+      const metrics = element.querySelector<HTMLElement>(
+        '[data-testid="detail-live-metrics"]',
+      )!;
+      const chart = element.querySelector<HTMLElement>(
+        '[data-testid="detail-history-chart"]',
+      )!;
       return {
         position: getComputedStyle(element).position,
         top: bounds.top,
         right: bounds.right,
+        width: bounds.width,
         height: bounds.height,
+        metricColumns:
+          getComputedStyle(metrics).gridTemplateColumns.split(' ').length,
+        chartHeight: chart.getBoundingClientRect().height,
       };
     });
+  const viewport = page.viewportSize()!;
   expect(sheetGeometry.position).toBe('fixed');
   expect(sheetGeometry.top).toBeLessThanOrEqual(1);
-  expect(sheetGeometry.right).toBeGreaterThanOrEqual(
-    page.viewportSize()!.width - 20,
-  );
-  expect(sheetGeometry.right).toBeLessThanOrEqual(page.viewportSize()!.width);
-  expect(sheetGeometry.height).toBeGreaterThanOrEqual(
-    page.viewportSize()!.height - 1,
-  );
+  expect(sheetGeometry.right).toBeGreaterThanOrEqual(viewport.width - 20);
+  expect(sheetGeometry.right).toBeLessThanOrEqual(viewport.width);
+  expect(sheetGeometry.height).toBeGreaterThanOrEqual(viewport.height - 1);
+  if (viewport.width < 768) {
+    expect(sheetGeometry.width).toBeCloseTo(viewport.width, 0);
+    expect(sheetGeometry.metricColumns).toBe(2);
+    expect(sheetGeometry.chartHeight).toBeCloseTo(216, 0);
+  } else {
+    const expectedWidth = Math.min(
+      Math.max(640, viewport.width * 0.68),
+      880,
+      viewport.width - 32,
+    );
+    expect(sheetGeometry.width).toBeCloseTo(expectedWidth, 0);
+    expect(sheetGeometry.metricColumns).toBe(5);
+    expect(sheetGeometry.chartHeight).toBeCloseTo(224, 0);
+  }
   await expect(chart.locator('.recharts-wrapper')).toBeVisible();
   const labels = chart.locator('svg text');
   for (const label of ['0%', '25%', '50%', '75%', '100%']) {
@@ -1726,14 +1849,31 @@ test('has no serious or critical authored accessibility violations', async ({
   await page.emulateMedia({ reducedMotion: 'reduce' });
   for (const view of ['Overview', 'Resources', 'Workloads', 'Operations']) {
     await page.getByRole('link', { name: view }).click();
-    const results = await new AxeBuilder({ page }).analyze();
-    const blocking = results.violations.filter(
+    let results = await new AxeBuilder({ page }).analyze();
+    let blocking = results.violations.filter(
       ({ impact }) => impact === 'serious' || impact === 'critical',
     );
     expect(
       blocking,
       `${view}: ${blocking.map(({ id }) => id).join(', ')}`,
     ).toEqual([]);
+
+    if (view === 'Resources') {
+      await page
+        .getByRole('button', { name: 'Open GPU 0 full GPU details' })
+        .click();
+      await expect(page.getByTestId('detail-sheet')).toBeVisible();
+      results = await new AxeBuilder({ page }).analyze();
+      blocking = results.violations.filter(
+        ({ impact }) => impact === 'serious' || impact === 'critical',
+      );
+      expect(
+        blocking,
+        `Resource detail: ${blocking.map(({ id }) => id).join(', ')}`,
+      ).toEqual([]);
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('detail-sheet')).toBeHidden();
+    }
   }
 });
 
@@ -1948,6 +2088,92 @@ test('covers required responsive widths with a concise header', async ({
       await expect(page.getByTestId('process-scroll-viewport')).toBeVisible();
       await expect(page.getByTestId('process-card')).toHaveCount(0);
     }
+
+    await page.getByRole('link', { name: 'Resources' }).click();
+    const fullMetrics = page.locator('.full-gpu-metrics');
+    await expect(fullMetrics.locator('.full-gpu-metric-tile')).toHaveCount(6);
+    const resourceColumns = await fullMetrics.evaluate(
+      (element) =>
+        getComputedStyle(element).gridTemplateColumns.split(' ').length,
+    );
+    expect(resourceColumns).toBe(width < 768 ? 2 : 3);
+
+    await page
+      .getByRole('button', { name: 'Open GPU 0 full GPU details' })
+      .click();
+    const detail = page.getByTestId('detail-sheet');
+    await expect(detail).toBeVisible();
+    const detailGeometry = await detail.evaluate((element) => ({
+      width: element.getBoundingClientRect().width,
+      columns: getComputedStyle(
+        element.querySelector<HTMLElement>(
+          '[data-testid="detail-live-metrics"]',
+        )!,
+      ).gridTemplateColumns.split(' ').length,
+      chartHeight: element
+        .querySelector<HTMLElement>('[data-testid="detail-history-chart"]')!
+        .getBoundingClientRect().height,
+    }));
+    if (width < 768) {
+      expect(detailGeometry.width).toBeCloseTo(width, 0);
+      expect(detailGeometry.columns).toBe(2);
+      expect(detailGeometry.chartHeight).toBeCloseTo(216, 0);
+    } else {
+      expect(detailGeometry.width).toBeCloseTo(
+        Math.min(Math.max(640, width * 0.68), 880, width - 32),
+        0,
+      );
+      expect(detailGeometry.columns).toBe(width >= 1024 ? 5 : 4);
+      expect(detailGeometry.chartHeight).toBeCloseTo(224, 0);
+    }
+    await page.keyboard.press('Escape');
+    await expect(detail).toBeHidden();
+
+    await page.getByRole('link', { name: 'Workloads' }).click();
+    const workloads = page.getByTestId('people-view');
+    await expect(workloads).not.toContainText('Parent GI metrics');
+    await expect(workloads).not.toContainText('Physical GPU metrics');
+    await expect(workloads.getByText(/^(?:allocated|reserved)$/iu)).toHaveCount(
+      0,
+    );
+    const workloadColumns = await workloads
+      .locator('.mobile-workload-metrics')
+      .first()
+      .evaluate(
+        (element) =>
+          getComputedStyle(element).gridTemplateColumns.split(' ').length,
+      );
+    expect(workloadColumns).toBe(2);
+
+    const footer = page.locator('footer.app-footer');
+    const mobileFooter = footer.locator('.mobile-footer-copy');
+    const desktopFooter = footer.locator('.desktop-footer-copy');
+    if (width < 768) {
+      await expect(mobileFooter).toBeVisible();
+      await expect(desktopFooter).toBeHidden();
+      await expect(mobileFooter).toContainText(
+        '⚔️ Intellisys Dragoons × Codex',
+      );
+      await expect(mobileFooter).toContainText('Leviathan v0.3.1');
+      await page.evaluate(() =>
+        window.scrollTo({ top: document.documentElement.scrollHeight }),
+      );
+      const [footerBox, navigationBox] = await Promise.all([
+        footer.boundingBox(),
+        mobileNavigation.boundingBox(),
+      ]);
+      expect(footerBox).not.toBeNull();
+      expect(navigationBox).not.toBeNull();
+      expect(
+        navigationBox!.y - (footerBox!.y + footerBox!.height),
+      ).toBeGreaterThanOrEqual(16);
+    } else {
+      await expect(desktopFooter).toBeVisible();
+      await expect(mobileFooter).toBeHidden();
+      await expect(desktopFooter).toContainText(
+        'Built with ⚔️ by Intellisys Dragoons and Codex · Leviathan v0.3.1',
+      );
+    }
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth - window.innerWidth,
@@ -2127,38 +2353,83 @@ test('matches targeted workbench and frost-dragon visual baselines', async ({
   await page.evaluate(() => document.fonts.ready);
   await expect(page.getByTestId('pcie-throughput-chart')).toBeVisible();
   const project = testInfo.project.name;
-
-  if (project === 'chromium-desktop-dark') {
-    await expect(page).toHaveScreenshot('overview-dark.png', {
+  const capturePage = (name: string) =>
+    expect(page).toHaveScreenshot(name, {
       animations: 'disabled',
       fullPage: true,
       maxDiffPixelRatio: 0.002,
     });
+  const captureViewport = (name: string) =>
+    expect(page).toHaveScreenshot(name, {
+      animations: 'disabled',
+      fullPage: false,
+    });
+  const openFullGPUDetail = async () => {
+    await page
+      .getByRole('button', { name: 'Open GPU 0 · Full GPU details' })
+      .click();
+    const detail = page.getByTestId('detail-sheet');
+    await expect(detail).toBeVisible();
+    await expect
+      .poll(() => detail.evaluate((element) => element.scrollTop))
+      .toBe(0);
+  };
+  const closeDetail = async () => {
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('detail-sheet')).toBeHidden();
+  };
+
+  if (project === 'chromium-desktop-dark') {
+    await capturePage('overview-dark.png');
+    const tooltipChart = page
+      .getByTestId('memory-chart')
+      .locator('.recharts-wrapper')
+      .first();
+    const tooltipChartBox = await tooltipChart.boundingBox();
+    expect(tooltipChartBox).not.toBeNull();
+    await page.mouse.move(
+      tooltipChartBox!.x + tooltipChartBox!.width - 24,
+      tooltipChartBox!.y + tooltipChartBox!.height / 2,
+    );
+    await expect(page.getByTestId('memory-chart-tooltip')).toBeVisible();
+    await captureViewport('chart-tooltip-dark.png');
+    await page.mouse.move(0, 0);
     await page.getByRole('link', { name: 'Resources' }).click();
     await page
       .getByRole('button', { name: 'Open GPU 0 full GPU details' })
       .locator('xpath=..')
       .hover();
-    await expect(page).toHaveScreenshot('resources-desktop.png', {
-      animations: 'disabled',
-      fullPage: true,
-      maxDiffPixelRatio: 0.002,
-    });
+    await capturePage('resources-desktop.png');
+    await page.getByRole('link', { name: 'Workloads' }).click();
+    await capturePage('workloads-desktop-dark.png');
+    await openFullGPUDetail();
+    await captureViewport('detail-desktop-dark.png');
+    await closeDetail();
   }
   if (project === 'chromium-desktop-light') {
-    await expect(page).toHaveScreenshot('overview-frost-light.png', {
-      animations: 'disabled',
-      fullPage: true,
-      maxDiffPixelRatio: 0.002,
-    });
+    await capturePage('overview-frost-light.png');
+    await page.getByRole('link', { name: 'Workloads' }).click();
+    await capturePage('workloads-desktop-light.png');
+    await openFullGPUDetail();
+    await captureViewport('detail-desktop-light.png');
+    await closeDetail();
+  }
+  if (
+    project === 'chromium-narrow-dark' ||
+    project === 'chromium-narrow-light'
+  ) {
+    const theme = project.endsWith('light') ? 'light' : 'dark';
+    await page.getByRole('link', { name: 'Resources' }).click();
+    await captureViewport(`resources-narrow-${theme}.png`);
+    await page.getByRole('link', { name: 'Workloads' }).click();
+    await captureViewport(`workloads-mobile-${theme}.png`);
+    await openFullGPUDetail();
+    await captureViewport(`detail-mobile-${theme}.png`);
+    await closeDetail();
   }
   if (project === 'chromium-narrow-dark') {
     await page.getByRole('link', { name: 'Operations' }).click();
-    await expect(page).toHaveScreenshot('operations-narrow.png', {
-      animations: 'disabled',
-      fullPage: true,
-      maxDiffPixelRatio: 0.002,
-    });
+    await capturePage('operations-narrow.png');
   }
   if (project.endsWith('desktop-dark') || project.endsWith('desktop-light')) {
     await expect(page.getByTestId('leviathan-header-mark')).toHaveScreenshot(
