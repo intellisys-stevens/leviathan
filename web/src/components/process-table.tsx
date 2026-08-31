@@ -1,5 +1,5 @@
-import { memo, useDeferredValue, useMemo, useRef, useState } from 'react';
-import { Search } from 'lucide-react';
+import { memo, useDeferredValue, useMemo, useRef } from 'react';
+import { ChevronDown, Search } from 'lucide-react';
 import {
   createColumnHelper,
   flexRender,
@@ -15,9 +15,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
 import { processSearchText } from '../lib';
 import { workloadLabel } from '../attribution';
 import type { Attribution, Process, Snapshot } from '../types';
+import { useMediaQuery } from '../use-media-query';
+
+const desktopProcessQuery = '(min-width: 768px)';
 
 const column = createColumnHelper<Process>();
 const baseColumns = [
@@ -36,7 +40,7 @@ const baseColumns = [
     header: 'Executable',
     cell: (context) => (
       <span
-        className="block max-w-[330px] truncate font-mono text-[11px]"
+        className="block max-w-[330px] truncate font-mono text-[13px]"
         title={context.getValue()}
       >
         {context.getValue()}
@@ -52,17 +56,7 @@ const baseColumns = [
       </span>
     ),
   }),
-  column.accessor(
-    (process) =>
-      process.startTime
-        ? new Date(process.startTime).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-          })
-        : '—',
-    { id: 'started', header: 'Started' },
-  ),
+  column.accessor(formatProcessStart, { id: 'started', header: 'Started' }),
   column.accessor('status', {
     header: 'Status',
     cell: (context) => (
@@ -78,6 +72,34 @@ const baseColumns = [
     ),
   }),
 ];
+
+type Props = {
+  processes: Snapshot['processes'];
+  procCapability: Snapshot['capabilities']['proc'];
+  attribution?: Attribution;
+  query: string;
+  onQueryChange: (query: string) => void;
+};
+
+function formatProcessStart(process: Process): string {
+  return process.startTime
+    ? new Date(process.startTime).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      })
+    : '—';
+}
+
+function processCountLabel(count: number): string {
+  return `${count} ${count === 1 ? 'process' : 'processes'}`;
+}
+
+function statusClassName(status: Process['status']): string {
+  return status === 'available'
+    ? 'text-muted-foreground'
+    : 'text-amber-700 dark:text-amber-300';
+}
 
 function processWorkloadRef(process: Process): string | undefined {
   return process.workloadRef;
@@ -99,18 +121,129 @@ function processWorkspaceLabel(
   return workload ? workloadLabel(workload) : undefined;
 }
 
+function ProcessCards({
+  rows,
+  attributionConfigured,
+  workloadsByRef,
+}: {
+  rows: Process[];
+  attributionConfigured: boolean;
+  workloadsByRef: Map<string, Attribution['workloads'][number]>;
+}) {
+  return (
+    <section
+      id="process-results"
+      aria-label="Host-wide GPU process cards"
+      className="max-w-full overflow-x-hidden"
+      data-testid="process-card-viewport"
+    >
+      <ul className="grid min-w-0 divide-y divide-border/70">
+        {rows.map((process) => {
+          const workspace = processWorkspaceLabel(process, workloadsByRef);
+          return (
+            <li
+              key={`${process.pid}:${process.startTime || ''}`}
+              className="min-w-0 p-3"
+              data-testid="process-card"
+            >
+              <article className="min-w-0 overflow-hidden rounded-lg border border-border/75 bg-background/45">
+                <div className="flex min-w-0 items-start justify-between gap-3 p-3">
+                  <div className="min-w-0">
+                    <p className="font-mono text-sm font-semibold text-primary">
+                      PID {process.pid}
+                    </p>
+                    <p className="mt-0.5 truncate text-[13px] text-foreground">
+                      {process.user || '—'}
+                    </p>
+                  </div>
+                  <span
+                    className={`shrink-0 font-mono text-[13px] uppercase tracking-[0.08em] ${statusClassName(process.status)}`}
+                    title={process.message}
+                  >
+                    {process.status}
+                  </span>
+                </div>
+
+                <dl className="grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 border-t border-border/70 px-3 py-2.5 text-[13px]">
+                  {attributionConfigured ? (
+                    <div className="min-w-0">
+                      <dt className="font-mono text-[13px] uppercase tracking-[0.08em] text-muted-foreground">
+                        Workspace
+                      </dt>
+                      <dd className="mt-0.5 truncate" title={workspace}>
+                        {workspace || '—'}
+                      </dd>
+                    </div>
+                  ) : null}
+                  <div className="min-w-0">
+                    <dt className="font-mono text-[13px] uppercase tracking-[0.08em] text-muted-foreground">
+                      Started
+                    </dt>
+                    <dd className="mt-0.5 font-mono text-[13px]">
+                      {formatProcessStart(process)}
+                    </dd>
+                  </div>
+                </dl>
+
+                <details className="group border-t border-border/70">
+                  <summary
+                    className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-[13px] font-medium outline-none hover:bg-accent/45 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden"
+                    aria-label={`Show executable and command for PID ${process.pid}`}
+                  >
+                    Executable and command
+                    <ChevronDown
+                      className="motion-chevron size-3.5 shrink-0 text-muted-foreground group-open:rotate-180"
+                      aria-hidden="true"
+                    />
+                  </summary>
+                  <dl className="grid min-w-0 gap-3 border-t border-border/70 bg-muted/20 px-3 py-3 text-[13px]">
+                    <div className="min-w-0">
+                      <dt className="font-mono text-[13px] uppercase tracking-[0.08em] text-muted-foreground">
+                        Executable
+                      </dt>
+                      <dd className="mt-1 min-w-0 break-all font-mono text-[13px]">
+                        {process.executable || '—'}
+                      </dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="font-mono text-[13px] uppercase tracking-[0.08em] text-muted-foreground">
+                        Command
+                      </dt>
+                      <dd className="mt-1 min-w-0 break-all text-[13px]">
+                        {process.commandLine || '—'}
+                      </dd>
+                    </div>
+                    {process.message ? (
+                      <div className="min-w-0">
+                        <dt className="font-mono text-[13px] uppercase tracking-[0.08em] text-muted-foreground">
+                          Status detail
+                        </dt>
+                        <dd className="mt-1 min-w-0 break-words text-[13px]">
+                          {process.message}
+                        </dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                </details>
+              </article>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 function ProcessTableComponent({
   processes,
   procCapability,
   attribution,
-}: {
-  processes: Snapshot['processes'];
-  procCapability: Snapshot['capabilities']['proc'];
-  attribution?: Attribution;
-}) {
-  const [query, setQuery] = useState('');
-  const scrollViewportRef = useRef<HTMLDivElement>(null);
+  query,
+  onQueryChange,
+}: Props) {
+  const desktopScrollViewportRef = useRef<HTMLDivElement>(null);
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
+  const desktop = useMediaQuery(desktopProcessQuery, true);
   const attributionConfigured = attribution != null;
   const workloadsByRef = useMemo(
     () =>
@@ -168,6 +301,15 @@ function ProcessTableComponent({
     getCoreRowModel: getCoreRowModel(),
     getRowId: (process) => `${process.pid}:${process.startTime || ''}`,
   });
+  const resultLabel = deferredQuery
+    ? `${rows.length} of ${processCountLabel(processes.length)}`
+    : processCountLabel(rows.length);
+
+  function changeQuery(nextQuery: string) {
+    onQueryChange(nextQuery);
+    if (desktopScrollViewportRef.current)
+      desktopScrollViewportRef.current.scrollTop = 0;
+  }
 
   return (
     <section
@@ -175,36 +317,50 @@ function ProcessTableComponent({
       aria-labelledby="process-heading"
       data-testid="process-section"
     >
-      <div className="flex flex-col gap-3 border-b border-border/70 p-4 sm:flex-row sm:items-center sm:justify-between">
-        <h2 id="process-heading" className="text-sm font-semibold">
-          Host-wide GPU processes
-        </h2>
-        <label
-          htmlFor="process-filter"
-          className="relative block w-full sm:w-[390px]"
+      <div className="flex flex-col gap-3 border-b border-border/70 p-4 sm:flex-row sm:items-end sm:justify-between">
+        <h2
+          id="process-heading"
+          tabIndex={-1}
+          className="scroll-mt-36 text-xl font-semibold tracking-[-0.018em] outline-none"
         >
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            id="process-filter"
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              if (scrollViewportRef.current) {
-                scrollViewportRef.current.scrollTop = 0;
-              }
-            }}
-            className="pl-8 font-mono text-xs"
-            placeholder={
-              attributionConfigured
-                ? 'PID, user, executable, workspace'
-                : 'PID, user, executable'
-            }
-            aria-label="Filter GPU processes"
-          />
-        </label>
+          Processes
+        </h2>
+        <div className="w-full sm:w-[390px]">
+          <div className="mb-1.5 flex min-h-6 items-center justify-between gap-3">
+            <output
+              className="font-mono text-[13px] text-muted-foreground"
+              aria-live="polite"
+            >
+              {resultLabel}
+            </output>
+            {query.length > 0 ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                onClick={() => changeQuery('')}
+                aria-label="Clear process filter"
+              >
+                Clear
+              </Button>
+            ) : null}
+          </div>
+          <label htmlFor="process-filter" className="relative block w-full">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="process-filter"
+              value={query}
+              onChange={(event) => changeQuery(event.target.value)}
+              className="pl-8 font-mono text-sm"
+              placeholder="Filter processes"
+              aria-label="Filter GPU processes"
+              aria-controls="process-results"
+            />
+          </label>
+        </div>
       </div>
       {rows.length === 0 ? (
-        <div className="p-6 text-sm text-muted-foreground">
+        <div id="process-results" className="p-6 text-sm text-muted-foreground">
           {deferredQuery
             ? 'No GPU processes match this filter.'
             : procCapability.available
@@ -212,15 +368,16 @@ function ProcessTableComponent({
               : procCapability.message ||
                 'GPU-connected process detection is unavailable.'}
         </div>
-      ) : (
+      ) : desktop ? (
         <Table
           className={attributionConfigured ? 'min-w-[68rem]' : 'min-w-[58rem]'}
           containerClassName="max-h-[22rem] overflow-auto [scrollbar-gutter:stable] md:max-h-[24rem]"
           containerProps={{
-            ref: scrollViewportRef,
+            id: 'process-results',
+            ref: desktopScrollViewportRef,
             role: 'region',
             tabIndex: 0,
-            'aria-label': 'Host-wide GPU processes table',
+            'aria-label': 'GPU processes table',
             'data-testid': 'process-scroll-viewport',
           }}
         >
@@ -230,7 +387,7 @@ function ProcessTableComponent({
                 {group.headers.map((header) => (
                   <TableHead
                     key={header.id}
-                    className="sticky top-0 z-10 border-b border-border bg-card text-[10px] uppercase tracking-[0.11em] text-muted-foreground"
+                    className="sticky top-0 z-10 border-b border-border bg-card text-[13px] uppercase tracking-[0.08em] text-muted-foreground"
                   >
                     {flexRender(
                       header.column.columnDef.header,
@@ -245,7 +402,7 @@ function ProcessTableComponent({
             {table.getRowModel().rows.map((row) => (
               <TableRow key={row.id}>
                 {row.getVisibleCells().map((cell) => (
-                  <TableCell key={cell.id} className="text-xs">
+                  <TableCell key={cell.id} className="text-sm">
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </TableCell>
                 ))}
@@ -253,6 +410,12 @@ function ProcessTableComponent({
             ))}
           </TableBody>
         </Table>
+      ) : (
+        <ProcessCards
+          rows={rows}
+          attributionConfigured={attributionConfigured}
+          workloadsByRef={workloadsByRef}
+        />
       )}
     </section>
   );

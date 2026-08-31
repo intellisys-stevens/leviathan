@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1><img src="web/public/leviathan-mark.svg" alt="Leviathan world-serpent mark" width="48" height="48" valign="middle"> Leviathan</h1>
+<h1><img src="web/public/leviathan-mark.svg" alt="Leviathan frost-dragon mark" width="48" height="48" valign="middle"> Leviathan</h1>
 
 **MIG-first NVIDIA GPU monitoring for the terminal and browser.**
 
@@ -23,8 +23,9 @@ view without changing or replacing any existing single-host deployment.
 
 - MIG-aware topology, profiles, memory, activity, and parent-GPU telemetry.
 - NVML GPM with optional DCGM fallback, including exact PCIe transfer rates.
-- GPU and People perspectives, with optional Coder workspace attribution through
-  Kubernetes DRA.
+- Four-view browser workbench for Overview, Resources, Workloads, and Operations,
+  with a mobile-native layout and accessible dark/light themes.
+- Optional Coder workspace attribution through Kubernetes DRA.
 - Explicit unavailable, stale, permission-denied, and error states—never fake zeros.
 - GPU-connected processes visible in the current PID namespace, with optional
   Coder workspace labels and no container-runtime socket.
@@ -65,80 +66,29 @@ leviathan --fixture blackwell serve
 The TUI supports arrows or `j`/`k`, `Tab`, `/`, `Enter`, `p`, `?`, and `q`.
 Use `NO_COLOR=1`, `--no-color`, or `--ascii` for terminal fallbacks.
 
-For remote access, keep Leviathan on loopback and use SSH tunnelling:
+## 🛠️ Deployment
 
-```bash
-ssh -N -L 1397:127.0.0.1:1397 gpu-host.example
-```
+Leviathan deliberately binds to loopback. For SSH and Tailscale access,
+user-scoped systemd installation, hardened host-wide process discovery, and
+post-install verification, see the [deployment guide](docs/deployment.md).
 
-Tailscale users can publish the same loopback service privately on the
-tailnet's standard HTTPS port:
-
-```bash
-sudo tailscale serve --yes --bg --https=443 http://127.0.0.1:1397
-```
-
-### systemd
-
-Release archives include a service template. Install it with the binary, then
-start an instance named for the GPU workload user:
-
-```bash
-sudo install -m 0755 leviathan /usr/local/bin/leviathan
-sudo install -m 0644 leviathan@.service /etc/systemd/system/leviathan@.service
-sudo install -D -m 0644 leviathan.env.example /etc/leviathan/leviathan.env
-sudo systemctl daemon-reload
-sudo systemctl enable --now "leviathan@${USER}.service"
-```
-
-This limits process discovery to workloads that user can inspect.
-
-For host-wide process discovery, install the packaged hardened root drop-in and
-switch instances:
-
-```bash
-sudo install -D -m 0644 \
-  leviathan@root.service.d/10-hardening.conf \
-  /etc/systemd/system/leviathan@root.service.d/10-hardening.conf
-sudo systemctl daemon-reload
-sudo systemctl disable --now "leviathan@${USER}.service"
-sudo systemctl enable --now leviathan@root.service
-```
-
-Root mode makes cross-user process metadata visible to every dashboard viewer;
-command lines stay hidden unless explicitly enabled. See
-[permissions](docs/permissions.md#hardened-host-wide-root-mode) for details.
-
-## Optional Coder attribution
+## 🧩 Optional Coder attribution
 
 Leviathan can display which Coder user/workspace has been assigned each full GPU
-or MIG compute instance. A least-privilege bridge reads Kubernetes DRA claims
-and publishes sanitized assignments over a root-only Unix socket; it does not
-use a Coder token or container-runtime socket and does not inspect host
-processes.
+or MIG compute instance. The optional bridge publishes sanitized Kubernetes DRA
+assignments without using a Coder token or container-runtime socket. An
+assignment describes scheduler intent; it does not prove active GPU use.
 
-The GPU perspective organizes host-wide topology and telemetry by device. The
-People perspective groups scheduler assignments by Coder user and workspace.
-Leviathan can label a detected GPU client with its workspace by joining the
-process cgroup to sanitized claim metadata; this identifies workspace
-membership, not active GPU use or a particular GPU, GI, or CI.
+See [Kubernetes and Coder attribution](docs/kubernetes-attribution.md) for setup,
+prerequisites, RBAC, privacy, limits, and rollback.
 
-Install the versioned Helm chart published with the release:
+## 🔐 Security and privacy
 
-```bash
-helm upgrade --install leviathan-attribution \
-  oci://ghcr.io/intellisys-stevens/charts/leviathan-attribution \
-  --version 0.3.0 \
-  --namespace leviathan-system \
-  --create-namespace \
-  --set-json 'workspaceNamespaces=["coder-workspaces"]'
-```
-
-Then set
-`LEVIATHAN_ATTRIBUTION_SOCKET=/run/leviathan/attribution.sock` in the systemd
-environment file. See [Kubernetes attribution](docs/kubernetes-attribution.md)
-for Kubernetes 1.34 and NVIDIA DRA prerequisites, RBAC, privacy, and failure
-behavior.
+Leviathan is read-only, exposes no GPU mutation endpoint, refuses non-loopback
+dashboard addresses, and keeps telemetry in memory. Command arguments are hidden
+unless explicitly enabled. Review the [security and privacy model](docs/security-and-privacy.md),
+[process permissions](docs/permissions.md), and [security policy](SECURITY.md)
+before enabling host-wide or Kubernetes-integrated operation.
 
 ## Optional Jetstream fleet controller
 
@@ -204,7 +154,7 @@ the API for stable history and attribution joins.
 The dashboard refuses non-loopback addresses. Metrics remain in memory and are
 discarded on restart.
 
-## Configuration
+## ⚙️ Configuration
 
 Precedence is CLI flag → `LEVIATHAN_*` environment variable → XDG TOML file →
 default. See [the example configuration](docs/config.example.toml) or run
@@ -213,20 +163,22 @@ default. See [the example configuration](docs/config.example.toml) or run
 Provider modes are `auto`, `nvml`, `dcgm`, and `fake`. Use `--no-profile` when a
 profiler such as Nsight owns the profiling hardware.
 
-## Documentation
+## 📚 Documentation
 
 | Topic | Reference |
 | --- | --- |
+| Deployment and remote access | [docs/deployment.md](docs/deployment.md) |
 | Architecture and metric semantics | [docs/architecture.md](docs/architecture.md) |
 | Container and process visibility | [docs/permissions.md](docs/permissions.md) |
 | Optional Kubernetes/Coder attribution | [docs/kubernetes-attribution.md](docs/kubernetes-attribution.md) |
 | Optional Jetstream fleet controller | [docs/jetstream-fleet.md](docs/jetstream-fleet.md) |
+| Security and privacy model | [docs/security-and-privacy.md](docs/security-and-privacy.md) |
 | Upgrade from v0.2.1 | [docs/migration-v0.3.md](docs/migration-v0.3.md) |
 | OpenAPI 3.1 contract | [api/openapi.yaml](api/openapi.yaml) |
 | Development workflow | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Security boundary | [SECURITY.md](SECURITY.md) |
 
-## Development
+## 🧑‍💻 Development
 
 ```bash
 git clone https://github.com/intellisys-stevens/leviathan.git
@@ -243,7 +195,7 @@ Release archives include Linux `amd64` and `arm64` `leviathan` and
 hardened root drop-in, checksums, SPDX SBOMs, provenance attestations, and
 dependency notices.
 
-## License
+## 📄 License
 
 Leviathan is released under the [MIT License](LICENSE). Embedded fonts,
 shadcn-derived components, and other dependencies retain their original

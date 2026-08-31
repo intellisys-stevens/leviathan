@@ -3,7 +3,6 @@ import {
   Activity,
   AlertTriangle,
   Boxes,
-  ChevronRight,
   Database,
   Gauge,
   Server,
@@ -352,33 +351,14 @@ function JetstreamGPUView({
               </div>
             ) : (
               observation.agent.snapshot!.gpus.map((gpu) => (
-                <div key={gpu.uuid} className="space-y-2">
-                  {gpu.migEnabled ? (
-                    <div className="flex justify-end">
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1.5 border border-primary/25 bg-primary/[0.06] px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.08em] text-primary transition-colors hover:border-primary/45 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        aria-label={`Open GPU ${gpu.index} physical GPU details`}
-                        onClick={() =>
-                          onSelect(observation.instance.uuid, {
-                            kind: 'physical_gpu',
-                            gpu,
-                          })
-                        }
-                      >
-                        Physical GPU details
-                        <ChevronRight className="size-3.5" aria-hidden="true" />
-                      </button>
-                    </div>
-                  ) : null}
-                  <GPUCard
-                    gpu={gpu}
-                    attribution={observation.agent.snapshot!.attribution}
-                    onSelect={(selection) =>
-                      onSelect(observation.instance.uuid, selection)
-                    }
-                  />
-                </div>
+                <GPUCard
+                  key={gpu.uuid}
+                  gpu={gpu}
+                  attribution={observation.agent.snapshot!.attribution}
+                  onSelect={(selection) =>
+                    onSelect(observation.instance.uuid, selection)
+                  }
+                />
               ))
             )}
           </section>

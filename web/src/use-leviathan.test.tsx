@@ -80,6 +80,14 @@ function requestURL(input: string | URL | Request): string {
   return input.url;
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 describe('useLeviathan runtime settings', () => {
   beforeEach(() => {
     FakeEventSource.instances = [];
@@ -221,6 +229,71 @@ describe('useLeviathan runtime settings', () => {
         { key: 'gpu:fixture', entity: 'GPU/fixture', metrics: ['temperature'] },
       ],
     });
+  });
+
+  it('keeps newer streamed state when bootstrap requests finish late', async () => {
+    const snapshotRequest = deferred<Response>();
+    const settingsRequest = deferred<Response>();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: string | URL | Request) => {
+        const url = requestURL(input);
+        if (url === '/api/v1/snapshot') return snapshotRequest.promise;
+        if (url === '/api/v1/settings') return settingsRequest.promise;
+        if (url === '/api/v1/version')
+          return Promise.resolve(jsonResponse(buildInfo));
+        throw new Error(`unexpected request: ${url}`);
+      }),
+    );
+
+    const hook = renderHook(() => useLeviathan());
+    await waitFor(() => expect(FakeEventSource.instances).toHaveLength(1));
+    act(() => {
+      FakeEventSource.instances[0].emit('snapshot', {
+        ...snapshot,
+        sequence: 2,
+        sampledAt: '2026-08-29T12:00:01Z',
+      });
+      FakeEventSource.instances[0].emit('settings', {
+        ...initialSettings,
+        samplingIntervalMs: 500,
+      });
+    });
+    expect(hook.result.current.snapshot?.sequence).toBe(2);
+    expect(hook.result.current.settings?.samplingIntervalMs).toBe(500);
+
+    act(() => {
+      snapshotRequest.resolve(jsonResponse(snapshot));
+      settingsRequest.resolve(jsonResponse(initialSettings));
+    });
+    await waitFor(() =>
+      expect(hook.result.current.buildInfo).toEqual(buildInfo),
+    );
+    expect(hook.result.current.snapshot?.sequence).toBe(2);
+    expect(hook.result.current.settings?.samplingIntervalMs).toBe(500);
+  });
+
+  it('clears the interruption error as soon as the event stream reconnects', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        const url = requestURL(input);
+        if (url === '/api/v1/snapshot') return jsonResponse(snapshot);
+        if (url === '/api/v1/settings') return jsonResponse(initialSettings);
+        if (url === '/api/v1/version') return jsonResponse(buildInfo);
+        throw new Error(`unexpected request: ${url}`);
+      }),
+    );
+
+    const hook = renderHook(() => useLeviathan());
+    await waitFor(() => expect(hook.result.current.snapshot).toEqual(snapshot));
+    act(() => FakeEventSource.instances[0].onerror?.());
+    expect(hook.result.current.connection).toBe('reconnecting');
+    expect(hook.result.current.streamError).toMatch(/interrupted/);
+
+    act(() => FakeEventSource.instances[0].onopen?.());
+    expect(hook.result.current.connection).toBe('live');
+    expect(hook.result.current.streamError).toBeNull();
   });
 
   it('reuses unchanged slow-moving slices across telemetry snapshots', () => {

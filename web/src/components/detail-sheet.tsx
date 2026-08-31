@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { Activity, Cpu, Database, Gauge, Layers3 } from 'lucide-react';
+import { Activity, Database, Gauge, Layers3 } from 'lucide-react';
 import {
   CartesianGrid,
   Line,
@@ -10,6 +10,7 @@ import {
   YAxis,
 } from 'recharts';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import {
   Sheet,
@@ -144,6 +145,7 @@ const pcieChartMetrics: readonly ChartDescriptor[] = [
     strokeWidth: 2,
   },
 ];
+const detailDashPatterns = ['', '7 3', '2 3'];
 
 const instanceHistoryMetrics = [
   ...instanceChartMetrics,
@@ -154,11 +156,102 @@ const physicalHistoryMetrics = [
   ...pcieChartMetrics,
 ] as const;
 
+function MetricLegend({
+  label,
+  metrics,
+}: {
+  label: string;
+  metrics: readonly ChartDescriptor[];
+}) {
+  return (
+    <ul className="mb-2 flex flex-wrap gap-x-3 gap-y-1" aria-label={label}>
+      {metrics.map((metric, index) => (
+        <li
+          key={metric.key}
+          className="inline-flex items-center gap-1.5 font-mono text-[13px] text-muted-foreground"
+        >
+          <svg aria-hidden="true" width="18" height="5" viewBox="0 0 18 5">
+            <line
+              x1="0"
+              y1="2.5"
+              x2="18"
+              y2="2.5"
+              stroke={metric.color}
+              strokeWidth="2"
+              strokeDasharray={detailDashPatterns[index]}
+              strokeLinecap="round"
+            />
+          </svg>
+          {metric.label}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function MetricDataSummary({
+  title,
+  rows,
+  metrics,
+  format,
+}: {
+  title: string;
+  rows: ChartRow[];
+  metrics: readonly ChartDescriptor[];
+  format: (value: number) => string;
+}) {
+  return (
+    <details className="mt-2 border border-border/70 bg-card/55 px-3 py-2">
+      <summary className="cursor-pointer font-mono text-[13px] text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        Current / minimum / maximum data
+      </summary>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full min-w-[25rem] text-left font-mono text-[13px]">
+          <caption className="sr-only">{title} data summary</caption>
+          <thead className="uppercase tracking-[0.06em] text-muted-foreground">
+            <tr>
+              <th className="py-1 pr-3 font-medium">Metric</th>
+              <th className="px-3 py-1 font-medium">Current</th>
+              <th className="px-3 py-1 font-medium">Minimum</th>
+              <th className="pl-3 py-1 font-medium">Maximum</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/60">
+            {metrics.map((metric) => {
+              const values = rows.flatMap((row) => {
+                const value = row[metric.key];
+                return typeof value === 'number' && Number.isFinite(value)
+                  ? [value]
+                  : [];
+              });
+              const printable = (value: number | undefined) =>
+                value == null ? 'Unavailable' : format(value);
+              return (
+                <tr key={metric.key}>
+                  <th className="py-1.5 pr-3 font-medium">{metric.label}</th>
+                  <td className="px-3 py-1.5">{printable(values.at(-1))}</td>
+                  <td className="px-3 py-1.5">
+                    {printable(values.length ? Math.min(...values) : undefined)}
+                  </td>
+                  <td className="pl-3 py-1.5">
+                    {printable(values.length ? Math.max(...values) : undefined)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  );
+}
+
 type DetailSheetBaseProps = {
   selection: Selection;
   attribution?: Attribution;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onOpenChangeComplete?: (open: boolean) => void;
 };
 
 type DetailSheetHistoryProps = {
@@ -269,6 +362,173 @@ function hasChartValues(
   );
 }
 
+function ActivityHistoryPlot({
+  data,
+  metrics,
+  interactive = true,
+}: {
+  data: ChartRow[];
+  metrics: readonly ChartDescriptor[];
+  interactive?: boolean;
+}) {
+  return (
+    <ResponsiveContainer
+      width="100%"
+      height="100%"
+      minWidth={0}
+      initialDimension={{ width: 590, height: 176 }}
+    >
+      <LineChart data={data} margin={{ top: 14, right: 8, left: 0, bottom: 2 }}>
+        <CartesianGrid stroke="var(--border)" vertical={false} />
+        <XAxis
+          dataKey="time"
+          type="number"
+          domain={['dataMin', 'dataMax']}
+          tickFormatter={(value) =>
+            new Date(value).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            })
+          }
+          tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
+          axisLine={false}
+          tickLine={false}
+        />
+        <YAxis
+          domain={[0, 100]}
+          allowDataOverflow
+          interval={0}
+          tickFormatter={(value: number) => formatRoundedPercent(value)}
+          tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
+          axisLine={false}
+          tickLine={false}
+          ticks={[0, 25, 50, 75, 100]}
+          tickMargin={4}
+          padding={{ top: 6, bottom: 4 }}
+          width={44}
+        />
+        {interactive ? (
+          <Tooltip
+            isAnimationActive={false}
+            wrapperStyle={{ zIndex: 50, pointerEvents: 'none' }}
+            contentStyle={{
+              background: 'var(--popover)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              fontSize: 13,
+            }}
+            labelFormatter={(value) =>
+              new Date(Number(value)).toLocaleTimeString()
+            }
+            formatter={(value, name) => [
+              formatRoundedPercent(Number(value)),
+              String(name),
+            ]}
+          />
+        ) : null}
+        {metrics.map((descriptor, index) => (
+          <Line
+            key={descriptor.key}
+            type="monotoneX"
+            dataKey={descriptor.key}
+            name={descriptor.label}
+            stroke={descriptor.color}
+            strokeWidth={descriptor.strokeWidth}
+            strokeDasharray={detailDashPatterns[index]}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            dot={false}
+            connectNulls={false}
+            isAnimationActive={false}
+          />
+        ))}
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+function PCIeHistoryPlot({
+  data,
+  interactive = true,
+}: {
+  data: ChartRow[];
+  interactive?: boolean;
+}) {
+  return (
+    <ResponsiveContainer
+      width="100%"
+      height="100%"
+      minWidth={0}
+      initialDimension={{ width: 590, height: 176 }}
+    >
+      <LineChart data={data} margin={{ top: 14, right: 8, left: 0, bottom: 2 }}>
+        <CartesianGrid stroke="var(--border)" vertical={false} />
+        <XAxis
+          dataKey="time"
+          type="number"
+          domain={['dataMin', 'dataMax']}
+          tickFormatter={(value) =>
+            new Date(value).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            })
+          }
+          tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
+          axisLine={false}
+          tickLine={false}
+        />
+        <YAxis
+          domain={[
+            0,
+            (maximum: number) => (maximum > 0 ? Math.ceil(maximum * 1.08) : 1),
+          ]}
+          tickFormatter={(value: number) => formatBytesPerSecond(value)}
+          tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
+          axisLine={false}
+          tickLine={false}
+          tickMargin={4}
+          width={72}
+        />
+        {interactive ? (
+          <Tooltip
+            isAnimationActive={false}
+            wrapperStyle={{ zIndex: 50, pointerEvents: 'none' }}
+            contentStyle={{
+              background: 'var(--popover)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              fontSize: 13,
+            }}
+            labelFormatter={(value) =>
+              new Date(Number(value)).toLocaleTimeString()
+            }
+            formatter={(value, name) => [
+              formatBytesPerSecond(Number(value)),
+              String(name),
+            ]}
+          />
+        ) : null}
+        {pcieChartMetrics.map((descriptor, index) => (
+          <Line
+            key={descriptor.key}
+            type="monotoneX"
+            dataKey={descriptor.key}
+            name={descriptor.label}
+            stroke={descriptor.color}
+            strokeWidth={descriptor.strokeWidth}
+            strokeDasharray={detailDashPatterns[index]}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            dot={false}
+            connectNulls={false}
+            isAnimationActive={false}
+          />
+        ))}
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
 export function appendHistoryPoint(
   series: HistorySeries,
   point: ReturnType<typeof currentHistoryPoint>,
@@ -287,19 +547,30 @@ export function appendHistoryPoint(
 
 type DetailHistoryState = {
   key: string;
+  entity: string;
+  loadedKey: string;
+  loadedWindowMilliseconds: number | null;
   series: HistorySeries | null;
+  outgoingSeries: HistorySeries | null;
   error: string | null;
+  loading: boolean;
 };
 
 class DetailHistoryStore {
   private state: DetailHistoryState = {
     key: '',
+    entity: '',
+    loadedKey: '',
+    loadedWindowMilliseconds: null,
     series: null,
+    outgoingSeries: null,
     error: null,
+    loading: false,
   };
   private listeners = new Set<() => void>();
   private latestKey = '';
   private latestPoint: ReturnType<typeof currentHistoryPoint> | null = null;
+  private transitionTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly getSnapshot = () => this.state;
 
@@ -308,11 +579,21 @@ class DetailHistoryStore {
     return () => this.listeners.delete(listener);
   };
 
-  begin(key: string) {
+  begin(key: string, entity: string) {
     this.latestKey = key;
     this.latestPoint = null;
-    if (this.state.key !== key || this.state.error)
-      this.publish({ key, series: null, error: null });
+    if (this.state.key !== key || this.state.error) {
+      this.clearTransition();
+      this.publish({
+        ...this.state,
+        key,
+        entity,
+        series: this.state.entity === entity ? this.state.series : null,
+        outgoingSeries: null,
+        error: null,
+        loading: true,
+      });
+    }
   }
 
   mergeLivePoint(
@@ -322,7 +603,8 @@ class DetailHistoryStore {
   ) {
     if (this.latestKey !== key) return;
     this.latestPoint = point;
-    if (this.state.key !== key || !this.state.series) return;
+    if (this.state.key !== key || !this.state.series || this.state.loading)
+      return;
     this.publish({
       ...this.state,
       series: appendHistoryPoint(this.state.series, point, windowMilliseconds),
@@ -331,28 +613,53 @@ class DetailHistoryStore {
 
   resolve(key: string, series: HistorySeries, windowMilliseconds: number) {
     if (this.latestKey !== key) return;
+    const outgoingSeries =
+      this.state.loadedWindowMilliseconds != null &&
+      this.state.loadedWindowMilliseconds !== windowMilliseconds &&
+      this.state.series
+        ? this.state.series
+        : null;
     this.publish({
       key,
+      entity: this.state.entity,
+      loadedKey: key,
+      loadedWindowMilliseconds: windowMilliseconds,
       series: this.latestPoint
         ? appendHistoryPoint(series, this.latestPoint, windowMilliseconds)
         : series,
+      outgoingSeries,
       error: null,
+      loading: false,
     });
+    if (outgoingSeries) {
+      this.transitionTimer = setTimeout(() => {
+        this.transitionTimer = null;
+        if (this.state.outgoingSeries !== outgoingSeries) return;
+        this.publish({ ...this.state, outgoingSeries: null });
+      }, 140);
+    }
   }
 
   reject(key: string, error: string) {
     if (this.latestKey !== key) return;
-    this.publish({ key, series: null, error });
+    this.publish({ ...this.state, key, error, loading: false });
   }
 
   private publish(next: DetailHistoryState) {
     this.state = next;
     for (const listener of this.listeners) listener();
   }
+
+  private clearTransition() {
+    if (this.transitionTimer == null) return;
+    clearTimeout(this.transitionTimer);
+    this.transitionTimer = null;
+  }
 }
 
 export default function DetailSheet(props: Props) {
-  const { selection, attribution, open, onOpenChange } = props;
+  const { selection, attribution, open, onOpenChange, onOpenChangeComplete } =
+    props;
   const liveOnly = props.historyMode === 'live-only';
   const historyProps = liveOnly ? null : props;
   const loadHistory = historyProps?.loadHistory ?? null;
@@ -361,6 +668,7 @@ export default function DetailSheet(props: Props) {
   const onChartWindowChange =
     historyProps?.onChartWindowChange ?? (() => undefined);
   const [historyStore] = useState(() => new DetailHistoryStore());
+  const [historyRetry, setHistoryRetry] = useState(0);
   const physical = selection.kind === 'physical_gpu';
   const gpu = selection.gpu;
   const physicalLabel = gpu.migEnabled ? 'Physical GPU' : 'Full GPU';
@@ -371,7 +679,7 @@ export default function DetailSheet(props: Props) {
   const historyMetrics = physical
     ? physicalHistoryMetrics
     : instanceHistoryMetrics;
-  const historyKey = `${historyEntity}:${chartWindowMs}`;
+  const historyKey = `${historyEntity}:${chartWindowMs}:${historyRetry}`;
   const currentPoint = useMemo(
     () => currentHistoryPoint(source, historyMetrics),
     [historyMetrics, source],
@@ -393,7 +701,7 @@ export default function DetailSheet(props: Props) {
   useEffect(() => {
     if (!loadHistory) return;
     let active = true;
-    historyStore.begin(historyKey);
+    historyStore.begin(historyKey, historyEntity);
     loadHistory(
       historyEntity,
       historyMetrics.map(({ name }) => name),
@@ -426,9 +734,10 @@ export default function DetailSheet(props: Props) {
     historyStore.mergeLivePoint(historyKey, currentPoint, chartWindowMs);
   }, [chartWindowMs, currentPoint, historyKey, historyStore, liveOnly]);
 
-  const retainedSeries =
-    historyState.key === historyKey ? historyState.series : null;
-  const series = retainedSeries;
+  const series =
+    historyState.entity === historyEntity ? historyState.series : null;
+  const outgoingSeries =
+    historyState.entity === historyEntity ? historyState.outgoingSeries : null;
   const historyError =
     historyState.key === historyKey ? historyState.error : null;
   const chartData = useMemo(() => {
@@ -438,61 +747,106 @@ export default function DetailSheet(props: Props) {
     () => chartRowsForMetrics(series, pcieChartMetrics),
     [series],
   );
+  const outgoingChartData = useMemo(
+    () =>
+      outgoingSeries
+        ? chartRowsForMetrics(outgoingSeries, chartMetrics, true)
+        : null,
+    [chartMetrics, outgoingSeries],
+  );
+  const outgoingPCIeChartData = useMemo(
+    () =>
+      outgoingSeries
+        ? chartRowsForMetrics(outgoingSeries, pcieChartMetrics)
+        : null,
+    [outgoingSeries],
+  );
   const pcieAvailable = hasChartValues(pcieChartData, pcieChartMetrics);
   const memory = memoryPercent(source.memory);
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet
+      open={open}
+      onOpenChange={onOpenChange}
+      onOpenChangeComplete={onOpenChangeComplete}
+    >
       <SheetContent
-        className="frost-sheet w-full overflow-y-auto border-input bg-popover"
-        style={{ width: 'min(640px, 100vw)', maxWidth: '640px' }}
+        className="mobile-detail-sheet frost-sheet w-full max-w-none overflow-y-auto border-input bg-popover md:max-w-[640px]"
         data-testid="detail-sheet"
       >
-        <SheetHeader className="border-b border-border px-5 py-5">
-          {selection.kind === 'physical_gpu' ? (
-            <>
-              <div className="mb-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.13em] text-primary">
-                <Gauge className="size-3.5" /> GPU {gpu.index} · {physicalLabel}
-              </div>
-              <SheetTitle className="flex items-center gap-2 text-lg">
-                <Gauge className="size-4 text-primary" /> {gpu.name}
-                <Badge
-                  variant="outline"
-                  className="rounded font-mono text-[10px]"
-                >
-                  {physicalLabel}
-                </Badge>
+        <SheetHeader className="mobile-detail-sheet-header border-b border-border px-5 py-5 pr-14">
+          <div className="flex min-w-0 items-start gap-3">
+            <span
+              className="grid size-9 shrink-0 place-items-center rounded-lg border border-primary/15 bg-primary/10 text-primary"
+              aria-hidden="true"
+            >
+              {physical ? (
+                <Gauge className="size-4.5" />
+              ) : (
+                <Layers3 className="size-4.5" />
+              )}
+            </span>
+            <div className="min-w-0 flex-1">
+              <SheetTitle
+                className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xl font-semibold tracking-[-0.025em]"
+                aria-label={
+                  physical ? `GPU ${gpu.index} · ${physicalLabel}` : undefined
+                }
+              >
+                <span>
+                  {physical
+                    ? `GPU ${gpu.index}`
+                    : `GPU ${gpu.index} · GI ${selection.gi.id} · CI ${selection.ci.id}`}
+                </span>
+                {physical ? (
+                  <Badge
+                    variant="outline"
+                    className="rounded font-mono text-[13px] tracking-normal"
+                  >
+                    {physicalLabel}
+                  </Badge>
+                ) : null}
               </SheetTitle>
-              <SheetDescription className="font-mono text-[10px]">
-                GPU {gpu.index} · {gpu.pciBusId || 'PCI bus unavailable'}
-              </SheetDescription>
-            </>
-          ) : (
-            <>
-              <div className="mb-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.13em] text-primary">
-                <Layers3 className="size-3.5" /> GPU {gpu.index} · GI{' '}
-                {selection.gi.id} · CI {selection.ci.id}
-              </div>
-              <SheetTitle className="flex items-center gap-2 text-lg">
-                <Cpu className="size-4 text-primary" /> {selection.gi.profile}
-                <Badge
-                  variant="outline"
-                  className="rounded font-mono text-[10px]"
-                >
-                  {selection.ci.profile}
-                </Badge>
-              </SheetTitle>
-              <SheetDescription className="font-mono text-[10px]">
-                GPU {gpu.index} · GI {selection.gi.id} · CI {selection.ci.id}
-              </SheetDescription>
-            </>
-          )}
+              {selection.kind === 'physical_gpu' ? (
+                <SheetDescription className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
+                  <span className="font-medium text-foreground/80">
+                    {gpu.name}
+                  </span>
+                  <span aria-hidden="true" className="text-border">
+                    ·
+                  </span>
+                  <span className="font-mono">
+                    {gpu.pciBusId || 'PCI bus unavailable'}
+                  </span>
+                </SheetDescription>
+              ) : (
+                <SheetDescription className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px]">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                      GI
+                    </span>
+                    <span className="font-mono text-foreground/80">
+                      {selection.gi.profile}
+                    </span>
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                      CI
+                    </span>
+                    <span className="font-mono text-foreground/80">
+                      {selection.ci.profile}
+                    </span>
+                  </span>
+                </SheetDescription>
+              )}
+            </div>
+          </div>
         </SheetHeader>
 
         <div className="space-y-5 px-5 pb-8">
           {selection.kind === 'compute_instance' &&
           selection.gi.computeInstances.length > 1 ? (
-            <div className="border border-amber-500/30 bg-amber-500/[0.06] p-3 text-xs text-amber-700 dark:text-amber-300">
+            <div className="border border-amber-500/30 bg-amber-500/[0.06] p-3 text-[13px] text-amber-700 dark:text-amber-300">
               GI metrics are shared by {selection.gi.computeInstances.length}{' '}
               CIs.
             </div>
@@ -501,7 +855,7 @@ export default function DetailSheet(props: Props) {
           <section aria-labelledby="metrics-title">
             <h3
               id="metrics-title"
-              className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+              className="mb-2 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
             >
               <Activity className="size-3.5" /> Live metrics
             </h3>
@@ -510,7 +864,7 @@ export default function DetailSheet(props: Props) {
                 const metric = liveMetric(source, name);
                 return (
                   <div key={name} className="bg-card p-3">
-                    <p className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+                    <p className="text-[13px] uppercase tracking-[0.08em] text-muted-foreground">
                       {label}
                     </p>
                     <p className="mt-1 font-mono text-lg font-semibold text-primary">
@@ -535,11 +889,11 @@ export default function DetailSheet(props: Props) {
             >
               <h3
                 id="live-snapshot-title"
-                className="text-xs font-semibold uppercase tracking-[0.12em] text-primary"
+                className="text-[13px] font-semibold uppercase tracking-[0.1em] text-primary"
               >
                 Live snapshot only
               </h3>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="mt-1 text-[13px] text-muted-foreground">
                 This view shows the latest telemetry snapshot. Historical
                 activity and PCIe series are not retained for this source.
               </p>
@@ -550,7 +904,7 @@ export default function DetailSheet(props: Props) {
                 <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <h3
                     id="history-title"
-                    className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+                    className="text-[13px] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
                   >
                     {formatDuration(chartWindowMs)} activity
                   </h3>
@@ -562,227 +916,140 @@ export default function DetailSheet(props: Props) {
                     className="shrink-0"
                   />
                 </div>
+                <MetricLegend
+                  label="Activity chart series"
+                  metrics={chartMetrics}
+                />
                 <div
-                  className="h-44 border border-border bg-card p-2"
+                  className="chart-plot-frame h-44 p-2"
                   data-testid="detail-history-chart"
+                  aria-busy={historyState.loading}
                 >
-                  {historyError ? (
-                    <div className="grid h-full place-items-center text-xs text-amber-700 dark:text-amber-300">
-                      {historyError}
-                    </div>
-                  ) : chartData.length < 2 ? (
-                    <div className="grid h-full place-items-center text-xs text-muted-foreground">
-                      Collecting history…
+                  {chartData.length < 2 ? (
+                    <div className="grid h-full place-items-center text-center text-[13px] text-amber-700 dark:text-amber-300">
+                      <span>
+                        {historyError ?? 'Collecting history…'}
+                        {historyError ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="mx-auto mt-3 flex"
+                            onClick={() =>
+                              setHistoryRetry((value) => value + 1)
+                            }
+                          >
+                            Retry history
+                          </Button>
+                        ) : null}
+                      </span>
                     </div>
                   ) : (
-                    <ResponsiveContainer
-                      width="100%"
-                      height="100%"
-                      minWidth={0}
-                      initialDimension={{ width: 590, height: 176 }}
-                    >
-                      <LineChart
-                        data={chartData}
-                        margin={{ top: 14, right: 8, left: 0, bottom: 2 }}
+                    <div className="relative h-full">
+                      <div
+                        className={`chart-plot-layer ${outgoingChartData ? 'chart-plot-incoming' : ''}`}
                       >
-                        <CartesianGrid
-                          stroke="var(--border)"
-                          vertical={false}
+                        <ActivityHistoryPlot
+                          data={chartData}
+                          metrics={chartMetrics}
                         />
-                        <XAxis
-                          dataKey="time"
-                          type="number"
-                          domain={['dataMin', 'dataMax']}
-                          tickFormatter={(value) =>
-                            new Date(value).toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })
-                          }
-                          tick={{
-                            fontSize: 9,
-                            fill: 'var(--muted-foreground)',
-                          }}
-                          axisLine={false}
-                          tickLine={false}
-                        />
-                        <YAxis
-                          domain={[0, 100]}
-                          allowDataOverflow
-                          interval={0}
-                          tickFormatter={(value: number) =>
-                            formatRoundedPercent(value)
-                          }
-                          tick={{
-                            fontSize: 9,
-                            fill: 'var(--muted-foreground)',
-                          }}
-                          axisLine={false}
-                          tickLine={false}
-                          ticks={[0, 25, 50, 75, 100]}
-                          tickMargin={4}
-                          padding={{ top: 6, bottom: 4 }}
-                          width={44}
-                        />
-                        <Tooltip
-                          isAnimationActive={false}
-                          wrapperStyle={{ zIndex: 50, pointerEvents: 'none' }}
-                          contentStyle={{
-                            background: 'var(--popover)',
-                            border: '1px solid var(--border)',
-                            borderRadius: 4,
-                            fontSize: 11,
-                          }}
-                          labelFormatter={(value) =>
-                            new Date(Number(value)).toLocaleTimeString()
-                          }
-                          formatter={(value, name) => [
-                            formatRoundedPercent(Number(value)),
-                            String(name),
-                          ]}
-                        />
-                        {chartMetrics.map((descriptor) => (
-                          <Line
-                            key={descriptor.key}
-                            type="monotoneX"
-                            dataKey={descriptor.key}
-                            name={descriptor.label}
-                            stroke={descriptor.color}
-                            strokeWidth={descriptor.strokeWidth}
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            dot={false}
-                            connectNulls={false}
-                            isAnimationActive={false}
+                      </div>
+                      {outgoingChartData ? (
+                        <div
+                          className="chart-plot-layer chart-plot-outgoing"
+                          aria-hidden="true"
+                        >
+                          <ActivityHistoryPlot
+                            data={outgoingChartData}
+                            metrics={chartMetrics}
+                            interactive={false}
                           />
-                        ))}
-                      </LineChart>
-                    </ResponsiveContainer>
+                        </div>
+                      ) : null}
+                    </div>
                   )}
                 </div>
+                {historyError && chartData.length >= 2 ? (
+                  <output className="mt-2 flex items-center justify-between gap-3 border border-amber-500/25 bg-amber-500/[0.05] px-3 py-2 text-[13px] text-amber-700 dark:text-amber-300">
+                    <span>{historyError}. Last complete history retained.</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setHistoryRetry((value) => value + 1)}
+                    >
+                      Retry
+                    </Button>
+                  </output>
+                ) : null}
+                <MetricDataSummary
+                  title="Activity history"
+                  rows={chartData}
+                  metrics={chartMetrics}
+                  format={formatRoundedPercent}
+                />
               </section>
 
               <section aria-labelledby="pcie-history-title">
                 <div className="mb-2">
                   <h3
                     id="pcie-history-title"
-                    className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+                    className="text-[13px] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
                   >
                     {formatDuration(chartWindowMs)} PCIe transfer
                   </h3>
                 </div>
+                <MetricLegend
+                  label="PCIe transfer chart series"
+                  metrics={pcieChartMetrics}
+                />
                 <div
-                  className="h-44 border border-border bg-card p-2"
+                  className="chart-plot-frame h-44 p-2"
                   data-testid="detail-pcie-chart"
+                  aria-busy={historyState.loading}
                 >
-                  {historyError ? (
-                    <div className="grid h-full place-items-center text-xs text-amber-700 dark:text-amber-300">
-                      {historyError}
-                    </div>
-                  ) : pcieChartData.length < 2 ? (
-                    <div className="grid h-full place-items-center text-xs text-muted-foreground">
-                      Collecting history…
+                  {pcieChartData.length < 2 ? (
+                    <div className="grid h-full place-items-center text-sm text-muted-foreground">
+                      {historyError ?? 'Collecting history…'}
                     </div>
                   ) : !pcieAvailable ? (
-                    <div className="grid h-full place-items-center text-xs text-muted-foreground">
+                    <div className="grid h-full place-items-center text-[13px] text-muted-foreground">
                       PCIe transfer metrics unavailable.
                     </div>
                   ) : (
-                    <ResponsiveContainer
-                      width="100%"
-                      height="100%"
-                      minWidth={0}
-                      initialDimension={{ width: 590, height: 176 }}
-                    >
-                      <LineChart
-                        data={pcieChartData}
-                        margin={{ top: 14, right: 8, left: 0, bottom: 2 }}
+                    <div className="relative h-full">
+                      <div
+                        className={`chart-plot-layer ${outgoingPCIeChartData ? 'chart-plot-incoming' : ''}`}
                       >
-                        <CartesianGrid
-                          stroke="var(--border)"
-                          vertical={false}
-                        />
-                        <XAxis
-                          dataKey="time"
-                          type="number"
-                          domain={['dataMin', 'dataMax']}
-                          tickFormatter={(value) =>
-                            new Date(value).toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })
-                          }
-                          tick={{
-                            fontSize: 9,
-                            fill: 'var(--muted-foreground)',
-                          }}
-                          axisLine={false}
-                          tickLine={false}
-                        />
-                        <YAxis
-                          domain={[
-                            0,
-                            (maximum: number) =>
-                              maximum > 0 ? Math.ceil(maximum * 1.08) : 1,
-                          ]}
-                          tickFormatter={(value: number) =>
-                            formatBytesPerSecond(value)
-                          }
-                          tick={{
-                            fontSize: 9,
-                            fill: 'var(--muted-foreground)',
-                          }}
-                          axisLine={false}
-                          tickLine={false}
-                          tickMargin={4}
-                          width={72}
-                        />
-                        <Tooltip
-                          isAnimationActive={false}
-                          wrapperStyle={{ zIndex: 50, pointerEvents: 'none' }}
-                          contentStyle={{
-                            background: 'var(--popover)',
-                            border: '1px solid var(--border)',
-                            borderRadius: 4,
-                            fontSize: 11,
-                          }}
-                          labelFormatter={(value) =>
-                            new Date(Number(value)).toLocaleTimeString()
-                          }
-                          formatter={(value, name) => [
-                            formatBytesPerSecond(Number(value)),
-                            String(name),
-                          ]}
-                        />
-                        {pcieChartMetrics.map((descriptor) => (
-                          <Line
-                            key={descriptor.key}
-                            type="monotoneX"
-                            dataKey={descriptor.key}
-                            name={descriptor.label}
-                            stroke={descriptor.color}
-                            strokeWidth={descriptor.strokeWidth}
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            dot={false}
-                            connectNulls={false}
-                            isAnimationActive={false}
+                        <PCIeHistoryPlot data={pcieChartData} />
+                      </div>
+                      {outgoingPCIeChartData ? (
+                        <div
+                          className="chart-plot-layer chart-plot-outgoing"
+                          aria-hidden="true"
+                        >
+                          <PCIeHistoryPlot
+                            data={outgoingPCIeChartData}
+                            interactive={false}
                           />
-                        ))}
-                      </LineChart>
-                    </ResponsiveContainer>
+                        </div>
+                      ) : null}
+                    </div>
                   )}
                 </div>
+                <MetricDataSummary
+                  title="PCIe transfer history"
+                  rows={pcieChartData}
+                  metrics={pcieChartMetrics}
+                  format={formatBytesPerSecond}
+                />
               </section>
             </>
           )}
 
-          <section
-            className="grid gap-3 sm:grid-cols-2"
-            aria-label={physical ? 'GPU facts' : 'Instance facts'}
-          >
+          <section aria-label={physical ? 'GPU memory' : 'Instance memory'}>
             <div className="border border-border bg-card p-3">
-              <p className="mb-2 flex items-center gap-2 text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+              <p className="mb-2 flex items-center gap-2 text-[13px] uppercase tracking-[0.08em] text-muted-foreground">
                 <Database className="size-3" />{' '}
                 {physical ? `${physicalLabel} memory` : 'GI memory'}
               </p>
@@ -791,12 +1058,12 @@ export default function DetailSheet(props: Props) {
                   {formatBytes(source.memory.usedBytes)} /{' '}
                   {formatBytes(source.memory.totalBytes)}
                 </p>
-                <p className="font-mono text-xs text-muted-foreground">
+                <p className="font-mono text-[13px] text-muted-foreground">
                   {memory == null ? '—' : formatPercent(memory)}
                 </p>
               </div>
               <Progress
-                value={memory ?? 0}
+                value={memory}
                 aria-label={
                   physical
                     ? `${physicalLabel} memory used`
@@ -804,30 +1071,6 @@ export default function DetailSheet(props: Props) {
                 }
                 className={`mt-2 ${memory != null && memory >= 85 ? '[&_[data-slot=progress-indicator]]:bg-amber-400' : '[&_[data-slot=progress-indicator]]:bg-primary'}`}
               />
-            </div>
-            <div className="border border-border bg-card p-3">
-              {selection.kind === 'physical_gpu' ? (
-                <>
-                  <p className="mb-2 flex items-center gap-2 text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
-                    <Gauge className="size-3" /> Identity
-                  </p>
-                  <p className="font-mono text-sm font-semibold">
-                    GPU {gpu.index} · {gpu.pciBusId || 'PCI bus unavailable'}
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="mb-2 flex items-center gap-2 text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
-                    <Layers3 className="size-3" /> Hierarchy
-                  </p>
-                  <p className="font-mono text-sm font-semibold">
-                    GI {selection.gi.id} / CI {selection.ci.id}
-                  </p>
-                  <p className="mt-2 font-mono text-[9px] text-muted-foreground">
-                    {selection.gi.profile} · {selection.ci.profile}
-                  </p>
-                </>
-              )}
             </div>
           </section>
         </div>

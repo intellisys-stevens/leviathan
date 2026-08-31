@@ -29,7 +29,6 @@ lock_version_2=$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)",$/\1/p' web/packa
 [[ $lock_version_1 == "$version" && $lock_version_2 == "$version" ]]
 
 grep -Fx 'module github.com/intellisys-stevens/leviathan' go.mod >/dev/null
-grep -Fxq -- "  --version $version \\" README.md
 grep -Fxq -- "  --version $version \\" docs/kubernetes-attribution.md
 grep -Fx 'name: leviathan-attribution' charts/leviathan-attribution/Chart.yaml >/dev/null
 grep -F 'repository: ghcr.io/intellisys-stevens/leviathan-kubernetes-bridge' charts/leviathan-attribution/values.yaml >/dev/null

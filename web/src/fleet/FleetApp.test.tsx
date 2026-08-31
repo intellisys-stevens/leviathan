@@ -519,7 +519,7 @@ describe('FleetApp', () => {
     );
 
     const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByText('GI 1 / CI 0')).toBeVisible();
+    expect(within(dialog).getByText('GPU 0 · GI 1 · CI 0')).toBeVisible();
     expect(within(dialog).getByText('61.0%')).toBeVisible();
   });
 
@@ -546,7 +546,7 @@ describe('FleetApp', () => {
     fireEvent.click(within(gpuRegion).getByRole('button', { name: /CI 1/u }));
 
     const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByText('GI 1 / CI 1')).toBeVisible();
+    expect(within(dialog).getByText('GPU 0 · GI 1 · CI 1')).toBeVisible();
     expect(
       within(dialog).getByText('GI metrics are shared by 2 CIs.'),
     ).toBeVisible();
@@ -698,7 +698,12 @@ describe('FleetApp', () => {
     expect(gpuRegion).toHaveTextContent('Exosphere console');
     expect(gpuRegion).toHaveTextContent('Processes unavailable');
     expect(gpuRegion).toHaveTextContent('GPU-connected users: Unavailable');
-    expect(gpuRegion).toHaveTextContent('Full GPU memory: — / —');
+    const telemetry = within(gpuRegion).getByRole('region', {
+      name: 'GPU 0 live telemetry',
+    });
+    expect(telemetry).toHaveTextContent('Memory');
+    expect(telemetry).toHaveTextContent('Unavailable');
+    expect(telemetry).not.toHaveTextContent('Full GPU memory:');
     expect(gpuRegion).toHaveTextContent(
       'GPU memory is unavailable from Exosphere console output',
     );

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { Attribution } from '../types';
 import {
@@ -43,6 +43,14 @@ const attribution: Attribution = {
 };
 
 describe('workspace attribution presentation', () => {
+  it('renders a concise configured-state placeholder when attribution is absent', () => {
+    render(<AttributionSummary />);
+
+    expect(
+      screen.getByLabelText('Workspace attribution unavailable'),
+    ).toHaveTextContent('Workspace attributionNot configured');
+  });
+
   it('treats allocated and reserved DRA states as neutral assignments', () => {
     const targets = [
       { entityType: 'physical_gpu' as const, entityUuid: 'GPU-a' },
@@ -63,15 +71,22 @@ describe('workspace attribution presentation', () => {
     expect(view.container).not.toHaveTextContent('opaque-reserved');
   });
 
-  it('groups assigned devices by workspace without exposing opaque refs', () => {
+  it('groups assigned devices by workspace without exposing opaque refs', async () => {
     const view = render(<AttributionSummary attribution={attribution} />);
 
+    const trigger = screen.getByRole('button', {
+      name: /Kubernetes DRA attribution: 2 workspaces, 1 device, available/,
+    });
+    expect(trigger).toHaveTextContent(/Kubernetes DRA.*2 workspaces.*1 device/);
+    fireEvent.click(trigger);
+    expect(await screen.findByText('alice / active')).toBeInTheDocument();
+    expect(screen.getByText('bob / queued')).toBeInTheDocument();
     expect(
-      screen.getByLabelText('Workspace attribution summary'),
-    ).toHaveTextContent(/Kubernetes DRA.*2 workspaces.*1 device/);
-    expect(view.container).toHaveTextContent('alice / active');
-    expect(view.container).toHaveTextContent('bob / queued');
-    expect(view.container).toHaveTextContent('Physical GPU');
+      screen.queryByText(
+        'Scheduler assignments; these do not imply active GPU use.',
+      ),
+    ).toBeNull();
+    expect(screen.getAllByText('Physical GPU')).toHaveLength(2);
     expect(view.container).not.toHaveTextContent('GPU-a');
     expect(view.container).not.toHaveTextContent('opaque-allocated');
     expect(view.container).not.toHaveTextContent('opaque-reserved');
@@ -92,7 +107,9 @@ describe('workspace attribution presentation', () => {
     );
 
     expect(
-      screen.getByLabelText('Workspace attribution summary'),
+      screen.getByLabelText(
+        'Kubernetes DRA attribution: 2 workspaces, 1 device, stale',
+      ),
     ).toHaveTextContent('stale');
     expect(screen.queryByText('scheduler assignments')).toBeNull();
 
@@ -104,7 +121,9 @@ describe('workspace attribution presentation', () => {
       </>,
     );
     expect(
-      screen.getByLabelText('Workspace attribution summary'),
+      screen.getByLabelText(
+        'Kubernetes DRA attribution: 2 workspaces, 1 device, unavailable',
+      ),
     ).toHaveTextContent('unavailable');
     expect(screen.queryByText('alice / active')).toBeNull();
   });

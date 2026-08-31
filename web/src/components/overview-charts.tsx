@@ -9,6 +9,7 @@ import {
   YAxis,
 } from 'recharts';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { formatDuration } from '../chart-window';
 import {
   clampRenderedPercent,
@@ -29,7 +30,6 @@ import {
 } from '../overview-history';
 import type { Snapshot } from '../types';
 import type { ConnectionState } from '../use-leviathan';
-import { ChartWindowControl } from './chart-window-control';
 
 const colors = [
   'var(--chart-1)',
@@ -39,6 +39,7 @@ const colors = [
   'var(--chart-5)',
   'var(--chart-6)',
 ];
+const dashPatterns = ['', '7 3', '2 3', '10 3 2 3', '5 3 1 3', '1 3'];
 const percentageTicks = [0, 25, 50, 75, 100];
 export { movingAverageChartRows } from '../overview-history';
 
@@ -66,7 +67,6 @@ type Props = {
   connection: ConnectionState;
   chartWindowMs: number;
   retentionMs: number;
-  onChartWindowChange: (milliseconds: number) => void;
   loadHistory: LoadAlignedHistory;
 };
 
@@ -82,6 +82,11 @@ type TooltipDatum = {
   value?: number | string | readonly (number | string)[];
   payload?: ChartRow;
 };
+
+function seriesDashPattern(colorIndex: number): string {
+  const paletteCycle = Math.floor(colorIndex / colors.length);
+  return dashPatterns[(colorIndex + paletteCycle) % dashPatterns.length];
+}
 
 function historyMetrics(
   metric: ChartMetric,
@@ -105,6 +110,21 @@ function chartValueLabel(value: number, unit: ChartUnit): string {
   if (unit === 'bytes_per_second') return formatBytesPerSecond(value);
   if (unit === '%') return formatPercent(value);
   return `${value.toFixed(0)}${unit}`;
+}
+
+export function summarizeSeries(
+  rows: ChartRow[],
+  valueKey: string,
+): { current: number | null; minimum: number | null; maximum: number | null } {
+  const values = rows.flatMap((row) => {
+    const value = row[valueKey];
+    return typeof value === 'number' && Number.isFinite(value) ? [value] : [];
+  });
+  return {
+    current: values.at(-1) ?? null,
+    minimum: values.length > 0 ? Math.min(...values) : null,
+    maximum: values.length > 0 ? Math.max(...values) : null,
+  };
 }
 
 export function SeriesTooltip({
@@ -133,10 +153,10 @@ export function SeriesTooltip({
 
   return (
     <div
-      className="max-w-[calc(100vw-2rem)] rounded border border-input bg-popover px-3 py-2 text-[11px] shadow-xl"
+      className="max-w-[calc(100vw-2rem)] rounded border border-input bg-popover px-3 py-2 text-[13px] shadow-xl"
       data-testid={testId}
     >
-      <p className="mb-1 font-mono text-[9px] text-muted-foreground">
+      <p className="mb-1 font-mono text-[13px] text-muted-foreground">
         {new Date(Number(label)).toLocaleString()}
       </p>
       <div
@@ -164,7 +184,7 @@ export function SeriesTooltip({
             <span className="text-right font-mono font-medium text-foreground">
               {chartValueLabel(Number(item.value), unit)}
               {unit === 'bytes_per_second' && item.dataKey ? (
-                <span className="mt-0.5 block whitespace-nowrap text-[9px] font-normal text-muted-foreground">
+                <span className="mt-0.5 block whitespace-nowrap text-[13px] font-normal text-muted-foreground">
                   RX{' '}
                   {formatBytesPerSecond(
                     Number(item.payload?.[`${String(item.dataKey)}_rx`]),
@@ -301,13 +321,19 @@ function ChartLegend({
   onLeave: () => void;
   onToggle: (key: string) => void;
 }) {
+  const mobileLabel = (entity: OverviewEntity) =>
+    entity.label.replace(/^GPU (\d+) · GI (\d+)$/, 'G$1 · GI$2');
+
   return (
-    <div className="flex min-h-5 flex-wrap gap-x-3 gap-y-1">
+    <div
+      className="mobile-chart-legend flex min-h-5 flex-wrap gap-x-3 gap-y-1"
+      data-series-count={entities.length}
+    >
       {entities.map((entity, index) => (
         <button
           type="button"
           key={entity.key}
-          className={`inline-flex items-center gap-1.5 rounded-sm px-1.5 py-1 font-mono text-[9px] outline-none transition-[color,background-color,opacity] duration-150 focus-visible:ring-2 focus-visible:ring-ring ${
+          className={`mobile-chart-legend-item inline-flex min-h-8 items-center gap-1.5 rounded-sm px-1.5 py-1 font-mono text-[13px] outline-none transition-[color,background-color,opacity] duration-[var(--duration-feedback)] ease-[var(--ease-out)] focus-visible:ring-2 focus-visible:ring-ring ${
             activeKey === entity.key
               ? 'bg-accent text-foreground'
               : activeKey
@@ -331,13 +357,147 @@ function ChartLegend({
               y2="2.5"
               stroke={colors[entity.colorIndex % colors.length]}
               strokeWidth="2"
+              strokeDasharray={seriesDashPattern(entity.colorIndex)}
               strokeLinecap="round"
             />
           </svg>
-          {entity.label}
+          {mobileLabel(entity) === entity.label ? (
+            <span className="truncate">{entity.label}</span>
+          ) : (
+            <>
+              <span className="mobile-only-label truncate">
+                {mobileLabel(entity)}
+              </span>
+              <span className="desktop-only-label truncate">
+                {entity.label}
+              </span>
+            </>
+          )}
         </button>
       ))}
     </div>
+  );
+}
+
+function HistoryLinePlot({
+  rows,
+  orderedSeries,
+  activeKey,
+  activeDataKey,
+  unit,
+  definitionID,
+  interactive = true,
+}: {
+  rows: ChartRow[];
+  orderedSeries: SeriesDescriptor[];
+  activeKey: string | null;
+  activeDataKey: string | null;
+  unit: ChartUnit;
+  definitionID: string;
+  interactive?: boolean;
+}) {
+  const percent = unit === '%';
+  const throughput = unit === 'bytes_per_second';
+  return (
+    <ResponsiveContainer
+      width="100%"
+      height="100%"
+      minWidth={0}
+      initialDimension={{ width: 600, height: 224 }}
+    >
+      <LineChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+        <CartesianGrid stroke="var(--border)" vertical={false} />
+        <XAxis
+          dataKey="time"
+          type="number"
+          domain={['dataMin', 'dataMax']}
+          tickCount={4}
+          tickFormatter={(value) =>
+            new Date(value).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            })
+          }
+          tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
+          axisLine={false}
+          tickLine={false}
+        />
+        <YAxis
+          domain={
+            percent
+              ? [0, 100]
+              : throughput
+                ? [
+                    0,
+                    (maximum: number) =>
+                      maximum > 0 ? Math.ceil(maximum * 1.08) : 1,
+                  ]
+                : [
+                    (minimum: number) => Math.max(0, Math.floor(minimum - 5)),
+                    (maximum: number) => Math.ceil(maximum + 5),
+                  ]
+          }
+          allowDataOverflow={percent}
+          interval={percent ? 0 : undefined}
+          ticks={percent ? percentageTicks : undefined}
+          tickFormatter={(value) =>
+            throughput
+              ? formatBytesPerSecond(Number(value))
+              : percent
+                ? formatRoundedPercent(Number(value))
+                : `${Math.round(Number(value))}${unit}`
+          }
+          tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
+          axisLine={false}
+          tickLine={false}
+          tickMargin={4}
+          padding={percent ? { top: 6, bottom: 4 } : undefined}
+          width={throughput ? 72 : percent ? 44 : 52}
+        />
+        {interactive ? (
+          <Tooltip
+            isAnimationActive={false}
+            wrapperStyle={{ zIndex: 50, pointerEvents: 'none' }}
+            content={
+              <SeriesTooltip
+                activeDataKey={activeDataKey}
+                unit={unit}
+                testId={`${definitionID}-tooltip`}
+              />
+            }
+          />
+        ) : null}
+        {orderedSeries.map(({ entity, valueKey }) => {
+          const focused = activeKey === entity.key;
+          const muted = activeKey !== null && !focused;
+          return (
+            <Line
+              key={entity.key}
+              className={`overview-series ${
+                focused
+                  ? 'overview-series-focused'
+                  : muted
+                    ? 'overview-series-muted'
+                    : 'overview-series-default'
+              }`}
+              type="monotoneX"
+              dataKey={valueKey}
+              name={entity.label}
+              stroke={colors[entity.colorIndex % colors.length]}
+              strokeWidth={focused ? 3 : muted ? 1.5 : 2.25}
+              strokeOpacity={muted ? 0.18 : focused ? 1 : 0.9}
+              strokeDasharray={seriesDashPattern(entity.colorIndex)}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              dot={false}
+              connectNulls={false}
+              isAnimationActive={false}
+              unit={unit}
+            />
+          );
+        })}
+      </LineChart>
+    </ResponsiveContainer>
   );
 }
 
@@ -368,21 +528,27 @@ function ChartPanel({
       })),
     [entities, metric],
   );
-  const { points, loading, failedEntities } = useOverviewHistory(
-    snapshot,
-    definition.id,
-    entities,
-    descriptors,
-    loadHistory,
-    chartWindowMs,
-    retentionMs,
-  );
+  const { points, loading, outgoingPoints, failedEntities, error, retry } =
+    useOverviewHistory(
+      snapshot,
+      definition.id,
+      entities,
+      descriptors,
+      loadHistory,
+      chartWindowMs,
+      retentionMs,
+    );
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   const [pinnedKey, setPinnedKey] = useState<string | null>(null);
-  const { rows, valueKeys, availableSeries } = useMemo(
+  const retainedData = useMemo(
     () => chartRows(entities, points, metric),
     [entities, metric, points],
   );
+  const outgoingData = useMemo(
+    () => (outgoingPoints ? chartRows(entities, outgoingPoints, metric) : null),
+    [entities, metric, outgoingPoints],
+  );
+  const { rows, valueKeys, availableSeries } = retainedData;
   const timestampsWithValues = useMemo(() => {
     let count = 0;
     for (const row of rows) {
@@ -451,9 +617,6 @@ function ChartPanel({
           : timestampsWithValues < 2
             ? 'Collecting history…'
             : null;
-  const percent = unit === '%';
-  const throughput = unit === 'bytes_per_second';
-
   return (
     <section
       className={`frost-panel relative min-w-0 overflow-visible border border-border/75 bg-card/90 p-4 ${definition.fullWidth ? 'md:col-span-2' : ''}`}
@@ -462,16 +625,19 @@ function ChartPanel({
     >
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <h2 id={`${definition.id}-heading`} className="text-sm font-semibold">
+          <h3
+            id={`${definition.id}-heading`}
+            className="text-[17px] font-semibold"
+          >
             {title}
-          </h2>
-          <p className="mt-0.5 text-[10px] text-muted-foreground">
+          </h3>
+          <p className="mt-0.5 text-[13px] text-muted-foreground">
             {description}
           </p>
         </div>
         <Badge
           variant="outline"
-          className={`shrink-0 rounded font-mono text-[8px] uppercase ${
+          className={`shrink-0 rounded font-mono text-[13px] uppercase ${
             stateLabel === 'live'
               ? 'text-primary'
               : stateLabel === 'unavailable'
@@ -496,125 +662,106 @@ function ChartPanel({
       />
 
       <figure
-        className="mt-2 h-56 min-w-0"
+        className="chart-plot-frame mt-2 h-56 min-w-0"
         aria-label={`${title} over ${rangeLabel}`}
+        aria-busy={loading}
       >
         {emptyMessage ? (
-          <div className="grid h-full place-items-center border border-dashed border-border/80 text-xs text-muted-foreground">
-            {emptyMessage}
+          <div className="grid h-full place-items-center border border-dashed border-border/80 px-4 text-center text-[13px] text-muted-foreground">
+            <span>
+              {error ?? emptyMessage}
+              {error ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mx-auto mt-3 flex"
+                  onClick={retry}
+                >
+                  Retry history
+                </Button>
+              ) : null}
+            </span>
           </div>
         ) : (
-          <ResponsiveContainer
-            width="100%"
-            height="100%"
-            minWidth={0}
-            initialDimension={{ width: 600, height: 224 }}
-          >
-            <LineChart
-              data={rows}
-              margin={{
-                top: 8,
-                right: 8,
-                left: 0,
-                bottom: 0,
-              }}
+          <>
+            <div
+              className={`chart-plot-layer ${outgoingData ? 'chart-plot-incoming' : ''}`}
+              data-window={chartWindowMs}
             >
-              <CartesianGrid stroke="var(--border)" vertical={false} />
-              <XAxis
-                dataKey="time"
-                type="number"
-                domain={['dataMin', 'dataMax']}
-                tickCount={4}
-                tickFormatter={(value) =>
-                  new Date(value).toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })
-                }
-                tick={{ fontSize: 9, fill: 'var(--muted-foreground)' }}
-                axisLine={false}
-                tickLine={false}
+              <HistoryLinePlot
+                rows={rows}
+                orderedSeries={orderedSeries}
+                activeKey={activeKey}
+                activeDataKey={activeDataKey}
+                unit={unit}
+                definitionID={definition.id}
               />
-              <YAxis
-                domain={
-                  percent
-                    ? [0, 100]
-                    : throughput
-                      ? [
-                          0,
-                          (maximum: number) =>
-                            maximum > 0 ? Math.ceil(maximum * 1.08) : 1,
-                        ]
-                      : [
-                          (minimum: number) =>
-                            Math.max(0, Math.floor(minimum - 5)),
-                          (maximum: number) => Math.ceil(maximum + 5),
-                        ]
-                }
-                allowDataOverflow={percent}
-                interval={percent ? 0 : undefined}
-                ticks={percent ? percentageTicks : undefined}
-                tickFormatter={(value) =>
-                  throughput
-                    ? formatBytesPerSecond(Number(value))
-                    : percent
-                      ? formatRoundedPercent(Number(value))
-                      : `${Math.round(Number(value))}${unit}`
-                }
-                tick={{ fontSize: 9, fill: 'var(--muted-foreground)' }}
-                axisLine={false}
-                tickLine={false}
-                tickMargin={4}
-                padding={percent ? { top: 6, bottom: 4 } : undefined}
-                width={throughput ? 72 : percent ? 44 : 52}
-              />
-              <Tooltip
-                isAnimationActive={false}
-                wrapperStyle={{ zIndex: 50, pointerEvents: 'none' }}
-                content={
-                  <SeriesTooltip
-                    activeDataKey={activeDataKey}
-                    unit={unit}
-                    testId={`${definition.id}-tooltip`}
-                  />
-                }
-              />
-              {orderedSeries.map(({ entity, valueKey }) => {
-                const focused = activeKey === entity.key;
-                const muted = activeKey !== null && !focused;
-                return (
-                  <Line
-                    key={`${focused ? 'focused' : muted ? 'muted' : 'default'}:${entity.key}`}
-                    className={`overview-series ${
-                      focused
-                        ? 'overview-series-focused'
-                        : muted
-                          ? 'overview-series-muted'
-                          : 'overview-series-default'
-                    }`}
-                    type="monotoneX"
-                    dataKey={valueKey}
-                    name={entity.label}
-                    stroke={colors[entity.colorIndex % colors.length]}
-                    strokeWidth={focused ? 3 : muted ? 1.5 : 2.25}
-                    strokeOpacity={muted ? 0.18 : focused ? 1 : 0.9}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    dot={false}
-                    connectNulls={false}
-                    isAnimationActive={false}
-                    unit={unit}
-                    style={{
-                      transition:
-                        'stroke-opacity 160ms ease, stroke-width 160ms ease',
-                    }}
-                  />
-                );
-              })}
-            </LineChart>
-          </ResponsiveContainer>
+            </div>
+            {outgoingData ? (
+              <div
+                className="chart-plot-layer chart-plot-outgoing"
+                aria-hidden="true"
+              >
+                <HistoryLinePlot
+                  rows={outgoingData.rows}
+                  orderedSeries={orderedSeries}
+                  activeKey={null}
+                  activeDataKey={null}
+                  unit={unit}
+                  definitionID={definition.id}
+                  interactive={false}
+                />
+              </div>
+            ) : null}
+          </>
         )}
       </figure>
+      {error && availableSeries > 0 ? (
+        <output className="mt-3 flex items-center justify-between gap-3 border border-amber-500/25 bg-amber-500/[0.05] px-3 py-2 text-[13px] text-amber-700 dark:text-amber-300">
+          <span>Some retained history could not be loaded.</span>
+          <Button type="button" size="sm" variant="outline" onClick={retry}>
+            Retry
+          </Button>
+        </output>
+      ) : null}
+      <details className="mt-3 border-t border-border/70 pt-2">
+        <summary className="cursor-pointer select-none font-mono text-[13px] text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          Current / minimum / maximum data
+        </summary>
+        <div className="mt-2 overflow-x-auto">
+          <table className="w-full min-w-[26rem] text-left text-[13px]">
+            <caption className="sr-only">
+              {title} current, minimum, and maximum values over {rangeLabel}
+            </caption>
+            <thead className="font-mono uppercase tracking-[0.06em] text-muted-foreground">
+              <tr>
+                <th className="py-1 pr-3 font-medium">Series</th>
+                <th className="px-3 py-1 font-medium">Current</th>
+                <th className="px-3 py-1 font-medium">Minimum</th>
+                <th className="pl-3 py-1 font-medium">Maximum</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/60 font-mono">
+              {series.map(({ entity, valueKey }) => {
+                const summary = summarizeSeries(rows, valueKey);
+                const label = (value: number | null) =>
+                  value == null ? 'Unavailable' : chartValueLabel(value, unit);
+                return (
+                  <tr key={entity.key}>
+                    <th className="py-1.5 pr-3 font-medium text-foreground">
+                      {entity.label}
+                    </th>
+                    <td className="px-3 py-1.5">{label(summary.current)}</td>
+                    <td className="px-3 py-1.5">{label(summary.minimum)}</td>
+                    <td className="pl-3 py-1.5">{label(summary.maximum)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </details>
     </section>
   );
 }
@@ -626,7 +773,6 @@ export function OverviewCharts({
   connection,
   chartWindowMs,
   retentionMs,
-  onChartWindowChange,
   loadHistory,
 }: Props) {
   const entities = useMemo(() => buildOverviewEntities(snapshot), [snapshot]);
@@ -650,18 +796,10 @@ export function OverviewCharts({
   const definitions: PanelDefinition[] = useMemo(
     () => [
       {
-        id: 'temperature-chart',
-        title: 'Temperature',
-        metric: 'temperature',
-        description: `${rangeLabel} · Physical GPUs`,
-        unit: '°C',
-        entities: physicalEntities,
-      },
-      {
         id: 'utilization-chart',
         title: 'Utilization',
         metric: 'utilization',
-        description: `${rangeLabel} · SM activity by GI · GPU activity for full GPUs`,
+        description: `SM activity · ${rangeLabel}`,
         unit: '%',
         entities: activityEntities,
       },
@@ -669,15 +807,23 @@ export function OverviewCharts({
         id: 'memory-chart',
         title: 'Memory',
         metric: 'memory_percent',
-        description: `${rangeLabel} · Instance memory used`,
+        description: `Memory used · ${rangeLabel}`,
         unit: '%',
         entities: activityEntities,
+      },
+      {
+        id: 'temperature-chart',
+        title: 'Temperature',
+        metric: 'temperature',
+        description: `Physical GPUs · ${rangeLabel}`,
+        unit: '°C',
+        entities: physicalEntities,
       },
       {
         id: 'memory-activity-chart',
         title: 'Memory Activity',
         metric: 'memory_activity',
-        description: `${rangeLabel} · DRAM bandwidth utilization by GI · read/write busy time for full GPUs`,
+        description: `Memory activity · ${rangeLabel}`,
         unit: '%',
         entities: activityEntities,
       },
@@ -685,7 +831,7 @@ export function OverviewCharts({
         id: 'pcie-throughput-chart',
         title: 'PCIe Transfer',
         metric: 'pcie_total',
-        description: `${rangeLabel} · Exact Host → GPU + GPU → Host by GPU / GI`,
+        description: `Host ↔ GPU · ${rangeLabel}`,
         unit: 'bytes_per_second',
         entities: activityEntities,
         fullWidth: true,
@@ -695,31 +841,23 @@ export function OverviewCharts({
   );
 
   return (
-    <>
-      <ChartWindowControl
-        chartWindowMs={chartWindowMs}
-        retentionMs={retentionMs}
-        onChartWindowChange={onChartWindowChange}
-        className="mt-4"
-      />
-      <section
-        className="relative z-10 mt-2 grid grid-cols-1 gap-4 md:grid-cols-2"
-        aria-label={`${rangeLabel} GPU history`}
-      >
-        {definitions.map((definition) => (
-          <MemoizedChartPanel
-            key={definition.id}
-            definition={definition}
-            snapshot={snapshot}
-            loadHistory={loadHistory}
-            chartWindowMs={chartWindowMs}
-            retentionMs={retentionMs}
-            connection={connection}
-            rangeLabel={rangeLabel}
-          />
-        ))}
-      </section>
-    </>
+    <section
+      className="relative z-10 mt-4 grid grid-cols-1 gap-4 md:grid-cols-2"
+      aria-label={`${rangeLabel} GPU history`}
+    >
+      {definitions.map((definition) => (
+        <MemoizedChartPanel
+          key={definition.id}
+          definition={definition}
+          snapshot={snapshot}
+          loadHistory={loadHistory}
+          chartWindowMs={chartWindowMs}
+          retentionMs={retentionMs}
+          connection={connection}
+          rangeLabel={rangeLabel}
+        />
+      ))}
+    </section>
   );
 }
 
