@@ -70,6 +70,34 @@ func TestServeRejectsNonLoopbackBeforeBinding(t *testing.T) {
 	}
 }
 
+func TestUplinkRejectsUnsafeInputsBeforeStartingCollector(t *testing.T) {
+	t.Setenv("LEVIATHAN_TEST_UPLINK_TOKEN", strings.Repeat("t", 48))
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "missing URL", args: []string{"uplink", "--token-env", "LEVIATHAN_TEST_UPLINK_TOKEN"}, want: "uplink URL is required"},
+		{name: "conflicting URL aliases", args: []string{"uplink", "--uplink-url", "https://uplink.example.test", "--hub-url", "https://old.example.test", "--token-env", "LEVIATHAN_TEST_UPLINK_TOKEN"}, want: "conflicting values"},
+		{name: "interval", args: []string{"uplink", "--uplink-url", "https://uplink.example.test", "--uplink-interval", "1s"}, want: "between 5s and 5m"},
+		{name: "token environment", args: []string{"uplink", "--uplink-url", "https://uplink.example.test", "--token-env", "bad-name"}, want: "environment variable name"},
+		{name: "instance UUID", args: []string{"uplink", "--uplink-url", "https://uplink.example.test", "--instance-uuid", "not-a-uuid", "--token-env", "LEVIATHAN_TEST_UPLINK_TOKEN"}, want: "canonical lowercase UUID"},
+		{name: "HTTP endpoint", args: []string{"uplink", "--uplink-url", "http://uplink.example.test", "--instance-uuid", "11111111-1111-4111-8111-111111111111", "--token-env", "LEVIATHAN_TEST_UPLINK_TOKEN"}, want: "base URL is invalid"},
+		{name: "missing token", args: []string{"uplink", "--uplink-url", "https://uplink.example.test", "--instance-uuid", "11111111-1111-4111-8111-111111111111", "--token-env", "LEVIATHAN_MISSING_UPLINK_TOKEN"}, want: "LEVIATHAN_MISSING_UPLINK_TOKEN is not set"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := Execute(context.Background(), &bytes.Buffer{}, &bytes.Buffer{}, test.args)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Execute() error = %v, want %q", err, test.want)
+			}
+			if strings.Contains(err.Error(), strings.Repeat("t", 16)) {
+				t.Fatal("uplink error leaked bearer token")
+			}
+		})
+	}
+}
+
 func TestTunnelHintUsesBoundPort(t *testing.T) {
 	hint := tunnelHint(&net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 41397})
 	if hint != "Remote access: ssh -L 41397:127.0.0.1:41397 <host>" {

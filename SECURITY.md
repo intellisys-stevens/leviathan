@@ -18,8 +18,9 @@ Unix user. It intentionally:
 
 - refuses non-loopback dashboard addresses;
 - exposes no mutation endpoint;
-- makes no outbound network request (the optional attribution client uses a
-  configured local Unix socket only);
+- makes no outbound network request in its default TUI, snapshot, watch, or
+  serve modes (the optional attribution client uses a configured local Unix
+  socket only);
 - reads no process environment;
 - hides full command arguments unless explicitly enabled;
 - lists only GPU-connected processes with an open UVM device handle in its
@@ -39,6 +40,15 @@ systemd instance intentionally expands the candidate process inventory. See
 `docs/permissions.md` for that boundary. An SSH or Tailnet proxy does not make
 it safe to bind Leviathan publicly; every release still refuses non-loopback
 dashboard addresses.
+
+The optional `uplink` command is an explicit outbound-only trust boundary. It
+reads the current OpenStack instance UUID from the fixed link-local metadata
+address, sends bounded snapshots to one credential-free HTTPS Yggdrasil origin,
+and authenticates with a bearer token supplied through a named environment
+variable. It rejects redirects, URL paths, embedded credentials, query strings,
+and non-HTTPS destinations. Keep the environment file root-owned and mode 0600.
+Leviathan does not implement Yggdrasil's ingress, inventory, identity, or
+accounting logic.
 
 The optional Kubernetes bridge is a separate trust boundary. It receives a
 read-only service-account token, watches ResourceSlices and explicitly selected

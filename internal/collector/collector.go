@@ -259,7 +259,7 @@ func staleMemory(memory model.Memory, detail string) model.Memory {
 }
 
 func staleProcesses(processes []model.Process, detail string) []model.Process {
-	result := append([]model.Process(nil), processes...)
+	result := append([]model.Process{}, processes...)
 	for index := range result {
 		if result[index].Status == model.StatusAvailable {
 			result[index].Status, result[index].Message = model.StatusStale, detail

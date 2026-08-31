@@ -66,6 +66,7 @@ echo "verified glibc requirement ${required_glibc} <= ${glibc_baseline}" >&2
 cp LICENSE NOTICE README.md CONTRIBUTING.md SECURITY.md "${stage}/"
 cp contrib/systemd/leviathan@.service "${stage}/"
 cp contrib/systemd/leviathan.env.example contrib/systemd/leviathan-attribution.env "${stage}/"
+cp contrib/systemd/leviathan-uplink@.service contrib/systemd/leviathan-uplink.env.example "${stage}/"
 mkdir -p "${stage}/leviathan@root.service.d"
 cp contrib/systemd/leviathan@root.service.d/10-hardening.conf "${stage}/leviathan@root.service.d/"
 mkdir -p "${stage}/api" "${stage}/charts" "${stage}/contrib" "${stage}/web/public"

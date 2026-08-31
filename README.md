@@ -27,6 +27,8 @@ Kubernetes bridge adds scheduler-authoritative workspace assignments.
 - Explicit unavailable, stale, permission-denied, and error states—never fake zeros.
 - GPU-connected processes visible in the current PID namespace, with optional
   Coder workspace labels and no container-runtime socket.
+- Optional Jetstream Uplink mode that discovers the current OpenStack instance
+  UUID locally and pushes bounded, complete snapshots to Yggdrasil.
 - One-hour in-memory history with continuous, timestamp-aligned overview charts,
   plus live `0.5s`, `1s`, or `2s` sampling and independently throttled profiling
   and process scans.
@@ -55,6 +57,7 @@ leviathan --fixture blackwell serve
 | `leviathan snapshot -f table\|json` | One current snapshot |
 | `leviathan watch -f table\|jsonl` | Continuous scriptable output |
 | `leviathan serve` | Local dashboard on `127.0.0.1:1397` |
+| `leviathan uplink --uplink-url https://…` | Push this Jetstream instance's telemetry to Yggdrasil |
 | `leviathan doctor -f text\|json` | Capability and permission report |
 | `leviathan version` | Version, commit, and build time |
 
@@ -76,6 +79,20 @@ assignment describes scheduler intent; it does not prove active GPU use.
 
 See [Kubernetes and Coder attribution](docs/kubernetes-attribution.md) for setup,
 prerequisites, RBAC, privacy, limits, and rollback.
+
+## 🌩️ Optional Jetstream Uplink
+
+On a Jetstream instance, `leviathan uplink` samples the same local collector,
+discovers the instance UUID from OpenStack's fixed link-local metadata service,
+and sends one bounded HTTPS snapshot at each interval. It does not contain the
+Nova inventory adapter, platform dashboard, identities, rates, credits, or any
+server-side state; those belong to
+[Yggdrasil](https://github.com/intellisys-stevens/yggdrasil).
+
+The current client preserves Yggdrasil's migration endpoint while the
+machine-credential `uplink-v1` contract is introduced. See
+[Jetstream Uplink](docs/jetstream-uplink.md) for deployment and compatibility
+details.
 
 ## 🔐 Security and privacy
 
@@ -102,6 +119,7 @@ profiler such as Nsight owns the profiling hardware.
 | Architecture and metric semantics | [docs/architecture.md](docs/architecture.md) |
 | Container and process visibility | [docs/permissions.md](docs/permissions.md) |
 | Optional Kubernetes/Coder attribution | [docs/kubernetes-attribution.md](docs/kubernetes-attribution.md) |
+| Optional Jetstream Uplink | [docs/jetstream-uplink.md](docs/jetstream-uplink.md) |
 | Security and privacy model | [docs/security-and-privacy.md](docs/security-and-privacy.md) |
 | Upgrade from v0.2.1 | [docs/migration-v0.3.md](docs/migration-v0.3.md) |
 | OpenAPI 3.1 contract | [api/openapi.yaml](api/openapi.yaml) |

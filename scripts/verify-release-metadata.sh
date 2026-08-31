@@ -34,6 +34,9 @@ grep -Fx 'name: leviathan-attribution' charts/leviathan-attribution/Chart.yaml >
 grep -F 'repository: ghcr.io/intellisys-stevens/leviathan-kubernetes-bridge' charts/leviathan-attribution/values.yaml >/dev/null
 grep -F 'ExecStart=/usr/local/bin/leviathan ' contrib/systemd/leviathan@.service >/dev/null
 grep -F 'EnvironmentFile=-/etc/leviathan/leviathan.env' contrib/systemd/leviathan@.service >/dev/null
+# shellcheck disable=SC2016 # The systemd environment expression must remain literal.
+grep -Fx 'ExecStart=/usr/local/bin/leviathan uplink --uplink-url=${YGGDRASIL_UPLINK_URL} --token-env=LEVIATHAN_UPLINK_TOKEN --uplink-interval=15s' contrib/systemd/leviathan-uplink@.service >/dev/null
+grep -Fx 'YGGDRASIL_UPLINK_URL=https://yggdrasil.example.test' contrib/systemd/leviathan-uplink.env.example >/dev/null
 grep -F 'ENTRYPOINT ["/leviathan-kubernetes-bridge"]' contrib/container/leviathan-kubernetes-bridge.Dockerfile >/dev/null
 
 printf 'verified Leviathan release metadata: %s\n' "$version"

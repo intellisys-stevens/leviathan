@@ -11,7 +11,7 @@ DIST_DIR ?= dist
 LDFLAGS := -s -w -X github.com/intellisys-stevens/leviathan/internal/cli.Version=$(VERSION) -X github.com/intellisys-stevens/leviathan/internal/cli.Commit=$(COMMIT) -X github.com/intellisys-stevens/leviathan/internal/cli.BuildDate=$(BUILD_DATE)
 BRIDGE_LDFLAGS := -s -w -X main.BridgeVersion=$(VERSION)
 
-.PHONY: bootstrap generate fmt frontend build build-leviathan build-bridge bridge-image branding-check release-metadata-check helm-check helm-package test test-go test-race test-install license-check vulncheck soak soak-one-hour clean
+.PHONY: bootstrap generate fmt frontend build build-leviathan build-bridge bridge-image branding-check repository-boundary-check release-metadata-check helm-check helm-package test test-go test-race test-install test-jetstream-bootstrap license-check vulncheck soak soak-one-hour clean
 
 bootstrap:
 	cd web && $(NPM) ci
@@ -48,6 +48,9 @@ bridge-image:
 branding-check:
 	scripts/verify-branding.sh
 
+repository-boundary-check:
+	scripts/verify-repository-boundary.sh
+
 release-metadata-check:
 	scripts/verify-release-metadata.sh
 
@@ -68,12 +71,15 @@ test-race:
 test-install:
 	scripts/install_test.sh
 
+test-jetstream-bootstrap:
+	scripts/bootstrap-jetstream-uplink_test.sh
+
 license-check:
 	CGO_CFLAGS='$(CGO_CFLAGS)' $(GO) run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/leviathan --disallowed_types=forbidden,restricted,unknown
 	$(GO) run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/leviathan-kubernetes-bridge --disallowed_types=forbidden,restricted,unknown
 	cd web && $(NPM) run license:check
 
-test: test-go test-race test-install frontend branding-check release-metadata-check helm-check license-check
+test: test-go test-race test-install test-jetstream-bootstrap frontend branding-check repository-boundary-check release-metadata-check helm-check license-check
 
 vulncheck:
 	CGO_CFLAGS='$(CGO_CFLAGS)' $(GO) run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...

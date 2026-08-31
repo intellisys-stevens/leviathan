@@ -146,9 +146,12 @@ jobs:
       - name: Verify clean product rename and release metadata
         run: |
           scripts/verify-branding.sh
+          scripts/verify-repository-boundary.sh
           scripts/verify-release-metadata.sh 0.3.1
       - name: Test installer
         run: scripts/install_test.sh
+      - name: Test Jetstream Uplink bootstrap
+        run: scripts/bootstrap-jetstream-uplink_test.sh
       - name: Dry-run Helm chart package
         id: chart
         run: |

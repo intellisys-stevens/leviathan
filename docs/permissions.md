@@ -60,6 +60,15 @@ The container still needs its intended NVIDIA GPU or MIG device allocation,
 provided by the NVIDIA runtime or device plugin. Leviathan never requests MIG
 configuration access and provides no GPU mutation endpoint.
 
+## Jetstream Uplink
+
+The optional `uplink` command adds two narrowly scoped outbound reads: HTTP to
+OpenStack's fixed link-local metadata endpoint for the current instance UUID,
+and HTTPS to the explicitly configured Yggdrasil uplink origin. The metadata
+client disables proxies and accepts only the exact metadata URL. The uplink
+client refuses redirects and sends no cookies. Neither path grants Leviathan
+Nova credentials or visibility into other instances.
+
 ## Coder workspaces
 
 No Coder template integration is required when the existing workspace already

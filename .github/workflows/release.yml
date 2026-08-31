@@ -40,6 +40,7 @@ jobs:
           test "$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)",$/\1/p' web/package-lock.json | sed -n '2p')" = "$version"
           grep -Fxq -- "  --version $version \\" docs/kubernetes-attribution.md
           scripts/verify-branding.sh
+          scripts/verify-repository-boundary.sh
           scripts/verify-release-metadata.sh "$version"
           source_epoch=$(git log -1 --format=%ct)
           build_date=$(date -u -d "@$source_epoch" +%Y-%m-%dT%H:%M:%SZ)
@@ -67,10 +68,12 @@ jobs:
       - uses: azure/setup-helm@v5
         with:
           version: v3.18.6
-      - name: Test and vet attribution components
+      - name: Test and vet release components
         run: |
-          go test ./cmd/leviathan-kubernetes-bridge ./internal/attribution ./internal/kubernetesbridge
-          go vet ./cmd/leviathan-kubernetes-bridge ./internal/attribution ./internal/kubernetesbridge
+          go test ./cmd/leviathan ./internal/cli ./internal/openstackmetadata ./internal/uplinkclient ./cmd/leviathan-kubernetes-bridge ./internal/attribution ./internal/kubernetesbridge
+          go vet ./cmd/leviathan ./internal/cli ./internal/openstackmetadata ./internal/uplinkclient ./cmd/leviathan-kubernetes-bridge ./internal/attribution ./internal/kubernetesbridge
+      - name: Test Jetstream Uplink bootstrap
+        run: scripts/bootstrap-jetstream-uplink_test.sh
       - name: Check Go dependency licenses
         run: |
           go run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/leviathan --disallowed_types=forbidden,restricted,unknown

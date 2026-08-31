@@ -59,10 +59,14 @@ for required_path in \
   "${archive_root}/leviathan@.service" \
   "${archive_root}/leviathan.env.example" \
   "${archive_root}/leviathan-attribution.env" \
+  "${archive_root}/leviathan-uplink@.service" \
+  "${archive_root}/leviathan-uplink.env.example" \
   "${archive_root}/leviathan@root.service.d/10-hardening.conf" \
   "${archive_root}/contrib/systemd/leviathan@.service" \
   "${archive_root}/contrib/systemd/leviathan.env.example" \
   "${archive_root}/contrib/systemd/leviathan-attribution.env" \
+  "${archive_root}/contrib/systemd/leviathan-uplink@.service" \
+  "${archive_root}/contrib/systemd/leviathan-uplink.env.example" \
   "${archive_root}/contrib/systemd/leviathan@root.service.d/10-hardening.conf" \
   "${archive_root}/charts/leviathan-attribution/Chart.yaml" \
   "${archive_root}/charts/leviathan-attribution/values.yaml" \
@@ -73,6 +77,7 @@ for required_path in \
   "${archive_root}/docs/assets/architecture.svg" \
   "${archive_root}/docs/config.example.toml" \
   "${archive_root}/docs/deployment.md" \
+  "${archive_root}/docs/jetstream-uplink.md" \
   "${archive_root}/docs/kubernetes-attribution.md" \
   "${archive_root}/docs/migration-v0.3.md" \
   "${archive_root}/docs/permissions.md" \
@@ -112,6 +117,9 @@ grep -Fx 'ExecStart=/usr/local/bin/leviathan --listen 127.0.0.1:1397 serve' "${r
 grep -Fx 'EnvironmentFile=-/etc/leviathan/leviathan.env' "${root}/leviathan@.service" >/dev/null
 grep -Fx '# LEVIATHAN_ATTRIBUTION_SOCKET=/run/leviathan/attribution.sock' "${root}/leviathan.env.example" >/dev/null
 grep -Fx 'LEVIATHAN_ATTRIBUTION_SOCKET=/run/leviathan/attribution.sock' "${root}/leviathan-attribution.env" >/dev/null
+# shellcheck disable=SC2016 # The systemd environment expression must remain literal.
+grep -Fx 'ExecStart=/usr/local/bin/leviathan uplink --uplink-url=${YGGDRASIL_UPLINK_URL} --token-env=LEVIATHAN_UPLINK_TOKEN --uplink-interval=15s' "${root}/leviathan-uplink@.service" >/dev/null
+grep -Fx 'YGGDRASIL_UPLINK_URL=https://yggdrasil.example.test' "${root}/leviathan-uplink.env.example" >/dev/null
 root_hardening="${root}/leviathan@root.service.d/10-hardening.conf"
 for directive in \
   'CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_SYS_PTRACE' \

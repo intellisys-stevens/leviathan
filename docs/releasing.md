@@ -62,3 +62,8 @@ The tag workflow must finish successfully before v0.3.1 is treated as
 published. Verify both native archives, checksums, attestations, SBOMs, the
 `leviathan-kubernetes-bridge:0.3.1` image, and the
 `leviathan-attribution:0.3.1` OCI chart.
+
+Release archives include `leviathan-uplink@.service` and
+`leviathan-uplink.env.example`. They are agent-side deployment assets only;
+Yggdrasil's server, platform adapters, dashboard, and API implementation are
+released from the separate `intellisys-stevens/yggdrasil` repository.
