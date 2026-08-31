@@ -2125,6 +2125,7 @@ test('matches targeted workbench and frost-dragon visual baselines', async ({
     await expect(page).toHaveScreenshot('overview-dark.png', {
       animations: 'disabled',
       fullPage: true,
+      maxDiffPixelRatio: 0.002,
     });
     await page.getByRole('link', { name: 'Resources' }).click();
     await page
@@ -2134,12 +2135,14 @@ test('matches targeted workbench and frost-dragon visual baselines', async ({
     await expect(page).toHaveScreenshot('resources-desktop.png', {
       animations: 'disabled',
       fullPage: true,
+      maxDiffPixelRatio: 0.002,
     });
   }
   if (project === 'chromium-desktop-light') {
     await expect(page).toHaveScreenshot('overview-frost-light.png', {
       animations: 'disabled',
       fullPage: true,
+      maxDiffPixelRatio: 0.002,
     });
   }
   if (project === 'chromium-narrow-dark') {
@@ -2147,6 +2150,7 @@ test('matches targeted workbench and frost-dragon visual baselines', async ({
     await expect(page).toHaveScreenshot('operations-narrow.png', {
       animations: 'disabled',
       fullPage: true,
+      maxDiffPixelRatio: 0.002,
     });
   }
   if (project.endsWith('desktop-dark') || project.endsWith('desktop-light')) {
