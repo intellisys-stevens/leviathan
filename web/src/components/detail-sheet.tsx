@@ -20,13 +20,14 @@ import {
 } from '@/components/ui/sheet';
 import { durationQuery, formatDuration } from '../chart-window';
 import {
+  clampRenderedPercent,
   formatBytes,
   formatBytesPerSecond,
   formatMetric,
+  formatPercent,
   formatRoundedPercent,
   memoryPercent,
   metricValue,
-  shortUUID,
 } from '../lib';
 import {
   downsampleChartRows,
@@ -217,6 +218,7 @@ function currentHistoryPoint(
 function chartRowsForMetrics(
   series: HistorySeries | null,
   metrics: readonly ChartDescriptor[],
+  percentage = false,
 ): ChartRow[] {
   const keys = metrics.map(({ key }) => key);
   const rows: ChartRow[] =
@@ -231,7 +233,16 @@ function chartRowsForMetrics(
       }
       return row;
     }) ?? [];
-  return downsampleChartRows(movingAverageChartRows(rows, keys), keys, 720);
+  const averaged = movingAverageChartRows(rows, keys);
+  if (percentage) {
+    for (const row of averaged) {
+      for (const key of keys) {
+        const value = row[key];
+        if (typeof value === 'number') row[key] = clampRenderedPercent(value);
+      }
+    }
+  }
+  return downsampleChartRows(averaged, keys, 720);
 }
 
 function hasChartValues(
@@ -404,7 +415,7 @@ export default function DetailSheet({
   const historyError =
     historyState.key === historyKey ? historyState.error : null;
   const chartData = useMemo(() => {
-    return chartRowsForMetrics(series, chartMetrics);
+    return chartRowsForMetrics(series, chartMetrics, true);
   }, [chartMetrics, series]);
   const pcieChartData = useMemo(
     () => chartRowsForMetrics(series, pcieChartMetrics),
@@ -436,7 +447,7 @@ export default function DetailSheet({
                 </Badge>
               </SheetTitle>
               <SheetDescription className="font-mono text-[10px]">
-                {gpu.uuid}
+                GPU {gpu.index} · {gpu.pciBusId || 'PCI bus unavailable'}
               </SheetDescription>
             </>
           ) : (
@@ -455,7 +466,7 @@ export default function DetailSheet({
                 </Badge>
               </SheetTitle>
               <SheetDescription className="font-mono text-[10px]">
-                {selection.ci.uuid}
+                GPU {gpu.index} · GI {selection.gi.id} · CI {selection.ci.id}
               </SheetDescription>
             </>
           )}
@@ -555,6 +566,7 @@ export default function DetailSheet({
                     />
                     <YAxis
                       domain={[0, 100]}
+                      allowDataOverflow
                       tickFormatter={(value: number) =>
                         formatRoundedPercent(value)
                       }
@@ -723,7 +735,7 @@ export default function DetailSheet({
                   {formatBytes(source.memory.totalBytes)}
                 </p>
                 <p className="font-mono text-xs text-muted-foreground">
-                  {memory == null ? '—' : `${memory.toFixed(1)}%`}
+                  {memory == null ? '—' : formatPercent(memory)}
                 </p>
               </div>
               <Progress
@@ -739,9 +751,6 @@ export default function DetailSheet({
                   </p>
                   <p className="font-mono text-sm font-semibold">
                     GPU {gpu.index} · {gpu.pciBusId || 'PCI bus unavailable'}
-                  </p>
-                  <p className="mt-2 font-mono text-[9px] text-muted-foreground">
-                    {shortUUID(gpu.uuid)} · Full GPU
                   </p>
                 </>
               ) : (
@@ -759,17 +768,6 @@ export default function DetailSheet({
               )}
             </div>
           </section>
-
-          <p className="font-mono text-[9px] text-muted-foreground">
-            {selection.kind === 'physical_gpu' ? (
-              <>{shortUUID(gpu.uuid)} · Physical GPU</>
-            ) : (
-              <>
-                Generation {selection.ci.generation} · {shortUUID(gpu.uuid)} /
-                GI {selection.gi.id} / CI {selection.ci.id}
-              </>
-            )}
-          </p>
         </div>
       </SheetContent>
     </Sheet>

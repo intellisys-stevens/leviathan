@@ -71,7 +71,8 @@ describe('workspace attribution presentation', () => {
     ).toHaveTextContent(/Kubernetes DRA.*2 workspaces.*1 device/);
     expect(view.container).toHaveTextContent('alice / active');
     expect(view.container).toHaveTextContent('bob / queued');
-    expect(view.container).toHaveTextContent('GPU GPU-a');
+    expect(view.container).toHaveTextContent('Physical GPU');
+    expect(view.container).not.toHaveTextContent('GPU-a');
     expect(view.container).not.toHaveTextContent('opaque-allocated');
     expect(view.container).not.toHaveTextContent('opaque-reserved');
   });

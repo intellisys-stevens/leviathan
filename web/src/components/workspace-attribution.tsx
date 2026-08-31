@@ -8,8 +8,7 @@ import {
   workloadLabel,
   type AttributionTarget,
 } from '../attribution';
-import { shortUUID } from '../lib';
-import type { Attribution } from '../types';
+import type { Attribution, Snapshot } from '../types';
 
 function observedLabel(observedAt: string | undefined): string | null {
   if (!observedAt) return null;
@@ -68,10 +67,27 @@ export function WorkspaceBadges({
 
 function assignmentLabel(
   assignment: Attribution['assignments'][number],
+  snapshot?: Snapshot,
 ): string {
+  if (snapshot) {
+    for (const gpu of snapshot.gpus) {
+      if (
+        assignment.entityType === 'physical_gpu' &&
+        gpu.uuid === assignment.entityUuid
+      )
+        return `GPU ${gpu.index} · Full GPU`;
+      if (assignment.entityType !== 'compute_instance') continue;
+      for (const gi of gpu.gpuInstances) {
+        const ci = gi.computeInstances.find(
+          (candidate) => candidate.uuid === assignment.entityUuid,
+        );
+        if (ci) return `GPU ${gpu.index} · GI ${gi.id} · CI ${ci.id}`;
+      }
+    }
+  }
   return assignment.entityType === 'physical_gpu'
-    ? `GPU ${shortUUID(assignment.entityUuid)}`
-    : `MIG ${shortUUID(assignment.entityUuid)}`;
+    ? 'Physical GPU'
+    : 'Compute instance';
 }
 
 function groupedAssignments(attribution: Attribution) {
@@ -93,8 +109,10 @@ function groupedAssignments(attribution: Attribution) {
 
 function AttributionSummaryComponent({
   attribution,
+  snapshot,
 }: {
   attribution?: Attribution;
+  snapshot?: Snapshot;
 }) {
   if (!attribution) return null;
   const summary = assignmentSummary(attribution);
@@ -177,7 +195,7 @@ function AttributionSummaryComponent({
                     className="rounded border-border bg-muted/45 font-mono text-[9px] text-muted-foreground"
                     title={`Scheduler state: ${assignment.state}`}
                   >
-                    {assignmentLabel(assignment)}
+                    {assignmentLabel(assignment, snapshot)}
                   </Badge>
                 ))}
               </div>

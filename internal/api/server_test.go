@@ -407,6 +407,50 @@ func TestSSEProvidesSnapshotOnReconnect(t *testing.T) {
 	}
 }
 
+func TestSSEPublishesProcessWorkloadReferenceWithoutScope(t *testing.T) {
+	source := newStubSource()
+	const workloadRef = "workspace_11111111111111111111111111111111"
+	const scopeRef = "scope_22222222222222222222222222222222"
+	source.snapshot.Processes = []model.Process{{
+		PID: 42, WorkloadRef: workloadRef, ScopeRef: scopeRef, Status: model.StatusAvailable,
+	}}
+	source.snapshot.Attribution = &model.Attribution{
+		Provider: model.AttributionProviderKubernetesDRA, Status: model.AttributionAvailable,
+		Workloads: []model.WorkloadAttribution{{
+			Ref: workloadRef, Platform: model.WorkloadPlatformCoder, Kind: model.WorkloadKindWorkspace,
+			Name: "workspace", OwnerName: "owner",
+		}}, Assignments: []model.ResourceAssignment{},
+	}
+	server := httptest.NewServer(newTestServer(source, nil))
+	defer server.Close()
+	response, err := http.Get(server.URL + "/api/v1/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	scanner := bufio.NewScanner(response.Body)
+	foundEvent := false
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "event: snapshot" {
+			foundEvent = true
+			continue
+		}
+		if !foundEvent || !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		payload := strings.TrimPrefix(line, "data: ")
+		if !strings.Contains(payload, `"workloadRef":"`+workloadRef+`"`) {
+			t.Fatalf("SSE process workload reference is absent: %s", payload)
+		}
+		if strings.Contains(payload, "scopeRef") || strings.Contains(payload, scopeRef) {
+			t.Fatalf("internal process scope leaked into SSE: %s", payload)
+		}
+		return
+	}
+	t.Fatalf("snapshot SSE event not received: %v", scanner.Err())
+}
+
 func TestRuntimeSettingsGetAndPatch(t *testing.T) {
 	source := newStubSource()
 	source.settings.SamplingIntervalMs = 250
@@ -535,7 +579,17 @@ func TestStaticFallbackDoesNotCaptureUnknownAPI(t *testing.T) {
 
 func TestSnapshotContractKeepsProcessesTopLevel(t *testing.T) {
 	source := newStubSource()
-	source.snapshot.Processes = []model.Process{{PID: 42, User: "coder", Executable: "/usr/bin/python3", Status: model.StatusAvailable}}
+	source.snapshot.Processes = []model.Process{{
+		PID: 42, User: "coder", Executable: "/usr/bin/python3", Status: model.StatusAvailable,
+		WorkloadRef: "workspace_11111111111111111111111111111111", ScopeRef: "scope_22222222222222222222222222222222",
+	}}
+	source.snapshot.Attribution = &model.Attribution{
+		Provider: model.AttributionProviderKubernetesDRA, Status: model.AttributionAvailable,
+		Workloads: []model.WorkloadAttribution{{
+			Ref: "workspace_11111111111111111111111111111111", Platform: model.WorkloadPlatformCoder,
+			Kind: model.WorkloadKindWorkspace, Name: "workspace", OwnerName: "owner",
+		}}, Assignments: []model.ResourceAssignment{},
+	}
 	at := source.snapshot.SampledAt
 	source.snapshot.GPUs = []model.GPU{{
 		UUID: "GPU-a", GPUInstances: []model.GPUInstance{{
@@ -556,10 +610,20 @@ func TestSnapshotContractKeepsProcessesTopLevel(t *testing.T) {
 	process := processes[0].(map[string]any)
 	for key := range process {
 		switch key {
-		case "pid", "user", "executable", "commandLine", "startTime", "status", "message":
+		case "pid", "user", "executable", "commandLine", "startTime", "workloadRef", "status", "message":
 		default:
 			t.Fatalf("unexpected GPU-process field %q: %#v", key, process)
 		}
+	}
+	if process["workloadRef"] != "workspace_11111111111111111111111111111111" {
+		t.Fatalf("process workload reference = %#v", process["workloadRef"])
+	}
+	encodedPayload, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := process["scopeRef"]; exists || strings.Contains(string(encodedPayload), "scope_22222222222222222222222222222222") {
+		t.Fatalf("internal process scope leaked into response: %s", encodedPayload)
 	}
 	gpus := payload["gpus"].([]any)
 	gpu := gpus[0].(map[string]any)
@@ -579,5 +643,21 @@ func TestSnapshotContractKeepsProcessesTopLevel(t *testing.T) {
 		if _, exists := ci[removed]; exists {
 			t.Fatalf("removed CI field %q leaked into contract: %#v", removed, ci)
 		}
+	}
+}
+
+func TestSnapshotOmitsOrphanedProcessWorkloadReferenceWithoutMutatingSource(t *testing.T) {
+	source := newStubSource()
+	source.snapshot.Processes = []model.Process{{
+		PID: 42, WorkloadRef: "workspace_11111111111111111111111111111111", Status: model.StatusAvailable,
+	}}
+	server := newTestServer(source, nil)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/snapshot", nil))
+	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "workloadRef") {
+		t.Fatalf("orphaned workload reference reached API: %d %s", response.Code, response.Body.String())
+	}
+	if source.snapshot.Processes[0].WorkloadRef == "" {
+		t.Fatal("wire normalization mutated the source snapshot")
 	}
 }

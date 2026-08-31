@@ -142,6 +142,11 @@ const snapshot = {
     commandLine: `python3 synthetic-worker-${String(index).padStart(2, '0')}.py`,
     startTime: `2026-08-30T15:${String(index).padStart(2, '0')}:00.000Z`,
     status: 'available',
+    ...(index < 6
+      ? { workloadRef: 'opaque-synthetic-workspace-reference' }
+      : index < 12
+        ? { workloadRef: 'opaque-second-workspace-reference' }
+        : {}),
   })),
   capabilities: {
     nvml: { name: 'Synthetic NVML', available: true, status: 'available' },
@@ -285,12 +290,26 @@ async function installSyntheticBackend(
       return;
     }
     if (url.pathname === '/api/v1/settings') {
-      await route.fulfill({ json: settings });
+      if (request.method() === 'PATCH') {
+        const update = request.postDataJSON() as {
+          samplingIntervalMs?: number;
+        };
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        await route.fulfill({
+          json: {
+            ...settings,
+            samplingIntervalMs:
+              update.samplingIntervalMs ?? settings.samplingIntervalMs,
+          },
+        });
+      } else {
+        await route.fulfill({ json: settings });
+      }
       return;
     }
     if (url.pathname === '/api/v1/version') {
       await route.fulfill({
-        json: { version: '0.2.0', commit: 'synthetic', buildDate: sampledAt },
+        json: { version: '0.2.1', commit: 'synthetic', buildDate: sampledAt },
       });
       return;
     }
@@ -419,6 +438,36 @@ test('renders an explicit missing sample as separated path segments', async ({
   }
 });
 
+test('lays out GPU cards responsively without rendering opaque identifiers', async ({
+  page,
+}) => {
+  const topology = page.getByLabel('GPU topology');
+  const cards = topology.locator('.gpu-card');
+  await expect(cards).toHaveCount(2);
+  const [first, second] = await Promise.all([
+    cards.nth(0).boundingBox(),
+    cards.nth(1).boundingBox(),
+  ]);
+  expect(first).not.toBeNull();
+  expect(second).not.toBeNull();
+  if (page.viewportSize()!.width >= 1280) {
+    expect(Math.abs(first!.y - second!.y)).toBeLessThanOrEqual(1);
+    expect(second!.x).toBeGreaterThan(first!.x + first!.width);
+  } else {
+    expect(second!.y).toBeGreaterThanOrEqual(first!.y + first!.height + 15);
+  }
+
+  for (const identifier of [
+    gpuUUID,
+    secondGPUUUID,
+    secondGIUUID,
+    secondCIUUID,
+    `${secondCIUUID}@g1`,
+  ]) {
+    await expect(page.getByText(identifier, { exact: true })).toHaveCount(0);
+  }
+});
+
 test('keeps the live cadence control concise and visually balanced', async ({
   page,
 }) => {
@@ -501,6 +550,22 @@ test('keeps the live cadence control concise and visually balanced', async ({
     expect(Math.max(...widths) - Math.min(...widths)).toBeLessThanOrEqual(1);
   }
 
+  const halfSecond = samplingButtons.filter({ hasText: /^0\.5s$/u }).first();
+  const beforeUpdate = await halfSecond.evaluate((element) => ({
+    width: (element as HTMLElement).offsetWidth,
+    height: (element as HTMLElement).offsetHeight,
+  }));
+  await halfSecond.click();
+  await expect(halfSecond).toHaveText('0.5s');
+  await expect(halfSecond.locator('svg')).toHaveCount(0);
+  await expect(halfSecond.locator('.animate-spin')).toHaveCount(0);
+  await expect(halfSecond).toHaveAttribute('aria-pressed', 'true');
+  const duringUpdate = await halfSecond.evaluate((element) => ({
+    width: (element as HTMLElement).offsetWidth,
+    height: (element as HTMLElement).offsetHeight,
+  }));
+  expect(duringUpdate).toEqual(beforeUpdate);
+
   await expect(page.getByText('Sampling', { exact: true })).toHaveCount(0);
 });
 
@@ -511,9 +576,18 @@ test('bounds the process table with sticky headers and a scroll viewport', async
   const viewport = page.getByTestId('process-scroll-viewport');
   const search = page.getByLabel('Filter GPU processes');
   await processSection.scrollIntoViewIfNeeded();
-  await expect(page.getByTestId('process-count')).toHaveText(
-    `${syntheticProcessCount} CUDA clients`,
-  );
+  await expect(page.getByText(/CUDA clients/u)).toHaveCount(0);
+  await expect(page.getByText(/current PID namespace/u)).toHaveCount(0);
+  await expect(page.getByText(/not workspace-attributed/u)).toHaveCount(0);
+  await expect(
+    viewport.getByRole('columnheader', { name: 'Workspace' }),
+  ).toBeVisible();
+  await expect(
+    viewport.getByText('synthetic-owner / synthetic-training'),
+  ).toHaveCount(6);
+  await expect(
+    page.getByText('opaque-synthetic-workspace-reference'),
+  ).toHaveCount(0);
   await expect(viewport).toBeVisible();
 
   const dimensions = await viewport.evaluate((element) => ({
@@ -552,6 +626,10 @@ test('bounds the process table with sticky headers and a scroll viewport', async
     viewportBox!.y + viewportBox!.height + 1,
   );
   expect(rowBox!.y).toBeGreaterThanOrEqual(viewportBox!.y - 1);
+
+  await search.fill('synthetic-training');
+  await expect(viewport.locator('tbody tr')).toHaveCount(6);
+  await search.fill('');
 });
 
 test('switches GPU and People views without reloading charts or clearing process filters', async ({
@@ -560,9 +638,9 @@ test('switches GPU and People views without reloading charts or clearing process
   await expect.poll(() => alignedRequestCount(page)).toBe(5);
   const filter = page.getByLabel('Filter GPU processes');
   await filter.fill('synthetic-user-17');
-  await expect(page.getByTestId('process-count')).toHaveText(
-    `1 of ${syntheticProcessCount}`,
-  );
+  await expect(
+    page.getByTestId('process-scroll-viewport').locator('tbody tr'),
+  ).toHaveCount(1);
 
   await page.getByRole('button', { name: 'People' }).click();
   await expect(page.getByTestId('people-view')).toBeVisible();
@@ -644,9 +722,9 @@ test('switches GPU and People views without reloading charts or clearing process
   await page.getByRole('button', { name: 'GPUs' }).click();
   await expect(page.getByLabel('GPU topology')).toBeVisible();
   await expect(filter).toHaveValue('synthetic-user-17');
-  await expect(page.getByTestId('process-count')).toHaveText(
-    `1 of ${syntheticProcessCount}`,
-  );
+  await expect(
+    page.getByTestId('process-scroll-viewport').locator('tbody tr'),
+  ).toHaveCount(1);
   await expect.poll(() => alignedRequestCount(page)).toBe(5);
 });
 
@@ -685,6 +763,30 @@ test('keeps the detail chart 100% tick fully visible', async ({ page }) => {
   expect(bounds.tick.left).toBeGreaterThanOrEqual(bounds.chart.left);
   expect(bounds.tick.right).toBeLessThanOrEqual(bounds.chart.right);
   expect(bounds.tick.bottom).toBeLessThanOrEqual(bounds.chart.bottom);
+  await expect(page.getByTestId('detail-sheet')).not.toContainText(gpuUUID);
+  await expect(page.getByTestId('detail-sheet')).not.toContainText(
+    `${gpuUUID}@g1`,
+  );
+});
+
+test('renders canonical fixed percentage axes without negative zero', async ({
+  page,
+}) => {
+  for (const chartID of [
+    'utilization-chart',
+    'memory-chart',
+    'memory-activity-chart',
+  ]) {
+    const chart = page.getByTestId(chartID);
+    const labels = chart.locator('svg text');
+    for (const tick of ['0%', '25%', '50%', '75%', '100%']) {
+      await expect(
+        labels.filter({ hasText: new RegExp(`^${tick}$`, 'u') }),
+      ).toHaveCount(1);
+    }
+    const text = await chart.textContent();
+    expect(text).not.toMatch(/(?:-0(?:\.0)?%|99964%|\d+\.\d{4,}%)/u);
+  }
 });
 
 test('keeps the Memory tooltip above the process-search stacking context', async ({

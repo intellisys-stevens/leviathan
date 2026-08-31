@@ -38,7 +38,7 @@ func (s *countingScanner) Scan() workspaceprocess.Inventory {
 	s.calls++
 	startedAt := time.Date(2026, 8, 30, 11, 0, s.calls, 0, time.UTC)
 	return workspaceprocess.Inventory{
-		Processes: []model.Process{{PID: uint32(1000 + s.calls), StartTime: &startedAt, Status: model.StatusAvailable}},
+		Processes: []model.Process{{PID: uint32(1000 + s.calls), StartTime: &startedAt, ScopeRef: "scope_internal", Status: model.StatusAvailable}},
 		Capability: model.ProviderState{
 			Name: "test process inventory", Available: true, Status: model.StatusAvailable,
 		},
@@ -120,6 +120,7 @@ func TestCachedInventoryIsCloned(t *testing.T) {
 		t.Fatal(err)
 	}
 	first.Processes[0].PID = 9999
+	first.Processes[0].ScopeRef = "mutated"
 	*first.Processes[0].StartTime = time.Time{}
 	first.Diagnostics[0].Detail = "mutated"
 
@@ -127,7 +128,7 @@ func TestCachedInventoryIsCloned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.Processes[0].PID == 9999 || second.Processes[0].StartTime.IsZero() || second.Diagnostics[0].Detail == "mutated" {
+	if second.Processes[0].PID == 9999 || second.Processes[0].ScopeRef != "scope_internal" || second.Processes[0].StartTime.IsZero() || second.Diagnostics[0].Detail == "mutated" {
 		t.Fatalf("caller mutation reached cached inventory: %+v", second)
 	}
 }

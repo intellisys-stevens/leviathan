@@ -24,8 +24,8 @@ Kubernetes bridge adds scheduler-authoritative workspace assignments.
 - GPU and People perspectives, with optional Coder workspace attribution through
   Kubernetes DRA.
 - Explicit unavailable, stale, permission-denied, and error states—never fake zeros.
-- GPU-connected processes visible in the current PID namespace, detected through
-  NVIDIA UVM without host PID access or runtime sockets.
+- GPU-connected processes visible in the current PID namespace, with optional
+  Coder workspace labels and no container-runtime socket.
 - One-hour in-memory history with continuous, timestamp-aligned overview charts,
   plus live `0.5s`, `1s`, or `2s` sampling and independently throttled profiling
   and process scans.
@@ -109,20 +109,21 @@ command lines stay hidden unless explicitly enabled. See
 MIGLens can display which Coder user/workspace has been assigned each full GPU
 or MIG compute instance. A least-privilege bridge reads Kubernetes DRA claims
 and publishes sanitized assignments over a root-only Unix socket; it does not
-use a Coder token, container-runtime socket, or process inference.
+use a Coder token or container-runtime socket and does not inspect host
+processes.
 
 The GPU perspective organizes host-wide topology and telemetry by device. The
 People perspective groups scheduler assignments by Coder user and workspace.
-An assignment means reserved or allocated by the scheduler, not active GPU use;
-charts and the process inventory remain host-wide, and process rows are not
-attributed to workspaces.
+MIGLens can label a detected GPU client with its workspace by joining the
+process cgroup to sanitized claim metadata; this identifies workspace
+membership, not active GPU use or a particular GPU, GI, or CI.
 
 Install the versioned Helm chart published with the release:
 
 ```bash
 helm upgrade --install miglens-attribution \
   oci://ghcr.io/intellisys-stevens/charts/miglens-attribution \
-  --version 0.2.0 \
+  --version 0.2.1 \
   --namespace miglens-system \
   --create-namespace \
   --set-json 'workspaceNamespaces=["coder-workspaces"]'
@@ -141,10 +142,15 @@ per-GI activity, and a local DCGM hostengine as an optional fallback. It never
 parses `nvidia-smi` output and never mutates GPU configuration.
 
 Process discovery reads numeric `/proc` entries and file-descriptor device
-metadata only. Command arguments are hidden unless `--show-command-line` is
-enabled. MIGLens does not read environments, contact external services, cross
-PID namespaces, or require Docker, Kubernetes, or CRI sockets. Kubernetes is
-contacted only by the explicitly installed attribution bridge.
+metadata. When attribution is enabled, it also reads matched clients' cgroup
+paths for a one-way workspace join. Command arguments are hidden unless
+`--show-command-line` is enabled. MIGLens does not read environments, contact
+external services, cross PID namespaces, or require Docker, Kubernetes, or CRI
+sockets. Kubernetes is contacted only by the explicitly installed bridge.
+
+The dashboard uses concise GPU/GI/CI numbers in normal views and reserves
+shortened hardware identifiers for Diagnostics. Exact UUIDs remain available in
+the API for stable history and attribution joins.
 
 The dashboard refuses non-loopback addresses. Metrics remain in memory and are
 discarded on restart.

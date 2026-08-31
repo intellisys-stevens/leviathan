@@ -16,10 +16,11 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { processSearchText } from '../lib';
-import type { Process, Snapshot } from '../types';
+import { workloadLabel } from '../attribution';
+import type { Attribution, Process, Snapshot } from '../types';
 
 const column = createColumnHelper<Process>();
-const columns = [
+const baseColumns = [
   column.accessor('pid', {
     header: 'PID',
     cell: (context) => (
@@ -78,24 +79,88 @@ const columns = [
   }),
 ];
 
+function processWorkloadRef(process: Process): string | undefined {
+  return process.workloadRef;
+}
+
+function processWorkload(
+  process: Process,
+  workloadsByRef: Map<string, Attribution['workloads'][number]>,
+) {
+  const reference = processWorkloadRef(process);
+  return reference ? workloadsByRef.get(reference) : undefined;
+}
+
+function processWorkspaceLabel(
+  process: Process,
+  workloadsByRef: Map<string, Attribution['workloads'][number]>,
+): string | undefined {
+  const workload = processWorkload(process, workloadsByRef);
+  return workload ? workloadLabel(workload) : undefined;
+}
+
 function ProcessTableComponent({
   processes,
   procCapability,
+  attribution,
 }: {
   processes: Snapshot['processes'];
   procCapability: Snapshot['capabilities']['proc'];
+  attribution?: Attribution;
 }) {
   const [query, setQuery] = useState('');
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
+  const attributionConfigured = attribution != null;
+  const workloadsByRef = useMemo(
+    () =>
+      new Map(
+        (attribution?.workloads ?? []).map((workload) => [
+          workload.ref,
+          workload,
+        ]),
+      ),
+    [attribution?.workloads],
+  );
   const rows = useMemo(
     () =>
       deferredQuery
         ? processes.filter((process) =>
-            processSearchText(process).includes(deferredQuery),
+            processSearchText(
+              process,
+              processWorkspaceLabel(process, workloadsByRef),
+            ).includes(deferredQuery),
           )
         : processes,
-    [deferredQuery, processes],
+    [deferredQuery, processes, workloadsByRef],
+  );
+  const columns = useMemo(
+    () =>
+      attributionConfigured
+        ? [
+            ...baseColumns.slice(0, 2),
+            column.accessor(
+              (process) => {
+                const workload = processWorkload(process, workloadsByRef);
+                return workload ? workloadLabel(workload) : '—';
+              },
+              {
+                id: 'workspace',
+                header: 'Workspace',
+                cell: (context) => (
+                  <span
+                    className="block max-w-[240px] truncate"
+                    title={context.getValue()}
+                  >
+                    {context.getValue()}
+                  </span>
+                ),
+              },
+            ),
+            ...baseColumns.slice(2),
+          ]
+        : baseColumns,
+    [attributionConfigured, workloadsByRef],
   );
   const table = useReactTable({
     data: rows,
@@ -103,9 +168,6 @@ function ProcessTableComponent({
     getCoreRowModel: getCoreRowModel(),
     getRowId: (process) => `${process.pid}:${process.startTime || ''}`,
   });
-  const countLabel = deferredQuery
-    ? `${rows.length} of ${processes.length}`
-    : `${processes.length} CUDA ${processes.length === 1 ? 'client' : 'clients'}`;
 
   return (
     <section
@@ -114,20 +176,9 @@ function ProcessTableComponent({
       data-testid="process-section"
     >
       <div className="flex flex-col gap-3 border-b border-border/70 p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 id="process-heading" className="text-sm font-semibold">
-            Host-wide GPU processes
-          </h2>
-          <p
-            id="process-table-description"
-            className="text-xs text-muted-foreground"
-          >
-            <span data-testid="process-count" aria-live="polite">
-              {countLabel}
-            </span>{' '}
-            · current PID namespace · not workspace-attributed
-          </p>
-        </div>
+        <h2 id="process-heading" className="text-sm font-semibold">
+          Host-wide GPU processes
+        </h2>
         <label
           htmlFor="process-filter"
           className="relative block w-full sm:w-[390px]"
@@ -143,7 +194,11 @@ function ProcessTableComponent({
               }
             }}
             className="pl-8 font-mono text-xs"
-            placeholder="PID, user, executable"
+            placeholder={
+              attributionConfigured
+                ? 'PID, user, executable, workspace'
+                : 'PID, user, executable'
+            }
             aria-label="Filter GPU processes"
           />
         </label>
@@ -159,14 +214,13 @@ function ProcessTableComponent({
         </div>
       ) : (
         <Table
-          className="min-w-[58rem]"
+          className={attributionConfigured ? 'min-w-[68rem]' : 'min-w-[58rem]'}
           containerClassName="max-h-[22rem] overflow-auto [scrollbar-gutter:stable] md:max-h-[24rem]"
           containerProps={{
             ref: scrollViewportRef,
             role: 'region',
             tabIndex: 0,
             'aria-label': 'Host-wide GPU processes table',
-            'aria-describedby': 'process-table-description',
             'data-testid': 'process-scroll-viewport',
           }}
         >

@@ -277,6 +277,25 @@ describe('useMIGLens runtime settings', () => {
     expect(updated.attribution).not.toBe(previous.attribution);
   });
 
+  it('replaces structurally shared processes when workspace attribution changes', () => {
+    const unattributed: Snapshot = {
+      ...structuredClone(snapshot),
+      processes: [{ pid: 42, user: 'worker', status: 'available' }],
+    };
+    const attributed = structuredClone(unattributed);
+    attributed.processes[0].workloadRef = 'opaque-workload';
+
+    const joined = shareStableSnapshot(unattributed, attributed);
+    expect(joined.processes).not.toBe(unattributed.processes);
+    expect(joined.processes[0].workloadRef).toBe('opaque-workload');
+
+    const removed = structuredClone(attributed);
+    delete removed.processes[0].workloadRef;
+    const unjoined = shareStableSnapshot(attributed, removed);
+    expect(unjoined.processes).not.toBe(attributed.processes);
+    expect(unjoined.processes[0].workloadRef).toBeUndefined();
+  });
+
   it('normalizes nullable wire collections before snapshots are shared', async () => {
     const nullablePayload: SnapshotPayload = {
       ...snapshot,

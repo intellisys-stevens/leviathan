@@ -100,6 +100,8 @@ cmp "${root}/openapi.yaml" "${root}/api/openapi.yaml" >/dev/null
 version_output="$("${root}/miglens" version --format json)"
 grep -F "\"version\":\"${version}\"" <<<"${version_output}" >/dev/null
 grep -Fx "  version: ${version}" "${root}/openapi.yaml" >/dev/null
+grep -Fx -- "  --version ${version} \\" "${root}/README.md" >/dev/null
+grep -Fx -- "  --version ${version} \\" "${root}/docs/kubernetes-attribution.md" >/dev/null
 
 chart="${root}/charts/miglens-attribution/Chart.yaml"
 grep -Fx "version: ${version}" "${chart}" >/dev/null || {

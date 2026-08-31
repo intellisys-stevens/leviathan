@@ -6,13 +6,28 @@ import {
   within,
 } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { Process, Snapshot } from '../types';
+import type { Attribution, Process, Snapshot } from '../types';
 import { ProcessTable } from './process-table';
 
 const procCapability: Snapshot['capabilities']['proc'] = {
   name: '/proc GPU clients',
   available: true,
   status: 'available',
+};
+
+const attribution: Attribution = {
+  provider: 'kubernetes_dra',
+  status: 'available',
+  workloads: [
+    {
+      ref: 'opaque-workspace-ref',
+      platform: 'coder',
+      kind: 'workspace',
+      name: 'training-lab',
+      ownerName: 'alice',
+    },
+  ],
+  assignments: [],
 };
 
 function processes(count: number): Process[] {
@@ -27,7 +42,7 @@ function processes(count: number): Process[] {
 }
 
 describe('ProcessTable viewport', () => {
-  it('labels host-wide data, reports counts, and keeps search outside its scroll region', () => {
+  it('labels host-wide data and keeps search outside its scroll region', () => {
     render(
       <ProcessTable
         processes={processes(12)}
@@ -38,10 +53,12 @@ describe('ProcessTable viewport', () => {
     expect(
       screen.getByRole('heading', { name: 'Host-wide GPU processes' }),
     ).toBeInTheDocument();
-    expect(screen.getByTestId('process-count')).toHaveTextContent(
-      '12 CUDA clients',
-    );
-    expect(screen.getByText(/not workspace-attributed/)).toBeInTheDocument();
+    expect(screen.queryByText(/CUDA clients/)).toBeNull();
+    expect(screen.queryByText(/current PID namespace/)).toBeNull();
+    expect(screen.queryByText(/not workspace-attributed/)).toBeNull();
+    expect(
+      screen.queryByRole('columnheader', { name: 'Workspace' }),
+    ).toBeNull();
 
     const viewport = screen.getByRole('region', {
       name: 'Host-wide GPU processes table',
@@ -52,10 +69,7 @@ describe('ProcessTable viewport', () => {
       'overflow-auto',
       '[scrollbar-gutter:stable]',
     );
-    expect(viewport).toHaveAttribute(
-      'aria-describedby',
-      'process-table-description',
-    );
+    expect(viewport).not.toHaveAttribute('aria-describedby');
     expect(viewport).not.toContainElement(
       screen.getByLabelText('Filter GPU processes'),
     );
@@ -90,7 +104,36 @@ describe('ProcessTable viewport', () => {
     expect(viewport.scrollTop).toBe(0);
     expect(viewport.scrollLeft).toBe(72);
     await waitFor(() =>
-      expect(screen.getByTestId('process-count')).toHaveTextContent('4 of 12'),
+      expect(within(viewport).getAllByRole('row')).toHaveLength(5),
     );
+  });
+
+  it('shows and searches sanitized workspaces only when attribution is configured', async () => {
+    const attributed = processes(3).map((process, index) =>
+      index === 0
+        ? ({ ...process, workloadRef: 'opaque-workspace-ref' } as Process)
+        : process,
+    );
+    const view = render(
+      <ProcessTable
+        processes={attributed}
+        procCapability={procCapability}
+        attribution={attribution}
+      />,
+    );
+
+    expect(
+      screen.getByRole('columnheader', { name: 'Workspace' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('alice / training-lab')).toBeInTheDocument();
+    expect(view.container).not.toHaveTextContent('opaque-workspace-ref');
+
+    fireEvent.change(screen.getByLabelText('Filter GPU processes'), {
+      target: { value: 'training-lab' },
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('cell', { name: '4000' })).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole('cell', { name: '4001' })).toBeNull();
   });
 });

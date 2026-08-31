@@ -172,11 +172,19 @@ func (c *Client) Poll(ctx context.Context) error {
 }
 
 func (c *Client) Current(now time.Time) model.Attribution {
+	attribution, _ := c.CurrentWithProcessScopes(now)
+	return attribution
+}
+
+// CurrentWithProcessScopes returns the public attribution inventory together
+// with its internal process-scope join. Scope references never leave the
+// attribution provider.
+func (c *Client) CurrentWithProcessScopes(now time.Time) (model.Attribution, map[string]string) {
 	c.mu.RLock()
 	document, receivedAt := c.document, c.receivedAt
 	c.mu.RUnlock()
 	if document == nil {
-		return emptyAttribution()
+		return emptyAttribution(), map[string]string{}
 	}
 
 	freshAt := receivedAt
@@ -187,10 +195,14 @@ func (c *Client) Current(now time.Time) model.Attribution {
 	if age < 0 {
 		age = 0
 	}
-	workloads := append([]model.WorkloadAttribution(nil), document.Workloads...)
-	assignments := append([]model.ResourceAssignment(nil), document.Assignments...)
+	workloads := append([]model.WorkloadAttribution{}, document.Workloads...)
+	assignments := append([]model.ResourceAssignment{}, document.Assignments...)
 	if age >= c.options.ExpireAfter {
-		return emptyAttribution()
+		return emptyAttribution(), map[string]string{}
+	}
+	processScopes := make(map[string]string, len(document.ProcessScopes))
+	for _, processScope := range document.ProcessScopes {
+		processScopes[processScope.ScopeRef] = processScope.WorkloadRef
 	}
 
 	status := model.AttributionAvailable
@@ -201,7 +213,7 @@ func (c *Client) Current(now time.Time) model.Attribution {
 	return model.Attribution{
 		Provider: model.AttributionProviderKubernetesDRA, Status: status, ObservedAt: &observedAt,
 		Workloads: workloads, Assignments: assignments,
-	}
+	}, processScopes
 }
 
 func emptyAttribution() model.Attribution {

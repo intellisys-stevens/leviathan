@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   formatBytesPerSecond,
   formatMetric,
+  formatPercent,
   formatRoundedPercent,
+  clampRenderedPercent,
   powerLevel,
   temperatureLevel,
 } from './lib';
@@ -24,6 +26,12 @@ describe('detail chart formatting', () => {
     expect(formatRoundedPercent(71.6)).toBe('72%');
     expect(formatRoundedPercent(0)).toBe('0%');
     expect(formatRoundedPercent(100)).toBe('100%');
+    expect(formatRoundedPercent(89.99999999999996)).toBe('90%');
+    expect(formatRoundedPercent(-Number.EPSILON)).toBe('0%');
+    expect(formatPercent(-0)).toBe('0.0%');
+    expect(formatPercent(-0.000_01)).toBe('0.0%');
+    expect(clampRenderedPercent(-Number.EPSILON)).toBe(0);
+    expect(clampRenderedPercent(100 + Number.EPSILON)).toBe(100);
   });
 });
 

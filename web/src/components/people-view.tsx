@@ -6,7 +6,13 @@ import {
   buildPeopleAttributionView,
   type AssignedResource,
 } from '../attribution';
-import { formatBytes, formatMetric, memoryPercent, metricValue } from '../lib';
+import {
+  formatBytes,
+  formatMetric,
+  formatPercent,
+  memoryPercent,
+  metricValue,
+} from '../lib';
 import type { Selection, Snapshot } from '../types';
 
 function countLabel(count: number, singular: string, plural = `${singular}s`) {
@@ -76,7 +82,7 @@ function ResourceRow({
                 <HardDrive className="size-3" aria-hidden="true" /> Memory
               </span>
               <span className="font-mono text-foreground">
-                {used == null ? '—' : `${used.toFixed(1)}%`}
+                {used == null ? '—' : formatPercent(used)}
               </span>
             </span>
             <Progress

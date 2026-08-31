@@ -104,9 +104,9 @@
   <rect x="550.0155" y="364.5" width="168.661" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
   <text x="634.346" y="382.95" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Root-only Unix socket</text>
 </g>
-<g class="node" data-id="attribution" data-label="Sanitized workspace assignments" data-shape="rectangle">
+<g class="node" data-id="attribution" data-label="Sanitized workspace + scope refs" data-shape="rectangle">
   <rect x="814.8415" y="364.5" width="242.01999999999998" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="935.8515" y="382.95" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Sanitized workspace assignments</text>
+  <text x="935.8515" y="382.95" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Sanitized workspace + scope refs</text>
 </g>
 <g class="node" data-id="current" data-label="Immutable current snapshot" data-shape="rectangle">
   <rect x="1344.576" y="231.625" width="202.00599999999997" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />

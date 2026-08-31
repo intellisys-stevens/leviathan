@@ -7,6 +7,7 @@ import (
 	"time"
 
 	resourcev1 "k8s.io/api/resource/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 )
@@ -43,8 +44,22 @@ func TestControllerBuildsInventoryFromWatches(t *testing.T) {
 		t.Fatal("controller caches did not become ready")
 	}
 	document := state.Document(at)
-	if len(document.Workloads) != 1 || len(document.Assignments) != 1 || document.Assignments[0].EntityUUID != "MIG-synthetic-controller" {
+	if len(document.Workloads) != 1 || len(document.Assignments) != 1 || len(document.ProcessScopes) != 1 || document.Assignments[0].EntityUUID != "MIG-synthetic-controller" {
 		t.Fatalf("controller document = %+v", document)
+	}
+	if err := client.ResourceV1().ResourceClaims("synthetic-workspaces").Delete(ctx, "synthetic-claim-"+HashRef("", "workspace"), metav1.DeleteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		document = state.Document(at)
+		if len(document.Workloads) == 0 && len(document.Assignments) == 0 && len(document.ProcessScopes) == 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(document.Workloads) != 0 || len(document.Assignments) != 0 || len(document.ProcessScopes) != 0 {
+		t.Fatalf("deleted claim remained in controller document: %+v", document)
 	}
 	cancel()
 	if err := <-done; err != nil {

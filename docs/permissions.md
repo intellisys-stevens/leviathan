@@ -18,12 +18,12 @@ Candidates still come only from the container's PID namespace: PID 1 may be
 `coder`, `tini`, or another workspace-local process, and that is healthy. A
 readable namespace with zero GPU clients is also healthy.
 
-MIGLens does not mount or traverse a host `/proc`, query NVML for host GPU PIDs,
-or infer container and pod ownership. If it is intentionally launched directly
-on a host or in a pod with `hostPID: true`, the visible process scope expands to
-that namespace. The dashboard labels this boundary as the current PID
-namespace. Optional DRA attribution describes scheduler assignments separately;
-it does not attach processes to devices or workspaces.
+MIGLens does not mount or traverse a host `/proc` or query NVML for host GPU
+PIDs. If it is intentionally launched directly on a host or in a pod with
+`hostPID: true`, the visible process scope expands to that namespace. With DRA
+attribution enabled, MIGLens may join an already detected client's cgroup Pod
+UID to a sanitized workspace reference. This labels workspace membership only;
+it does not attach the process to a GPU, GI, or CI.
 
 Process environments are never read. Full command arguments remain disabled
 unless `--show-command-line` or its equivalent configuration setting is
@@ -76,8 +76,8 @@ failures mean some visible processes cannot be checked; they do not require
 host PID access.
 
 On a host-level deployment, the optional Kubernetes bridge can add Coder
-workspace assignments from DRA ResourceClaims. It is deliberately independent
-of `/proc`: an idle claim remains assigned, and an observed GPU process is not
-claimed to use a particular GPU, GI, CI, or workspace. See
+workspace assignments from DRA ResourceClaims. An idle claim remains assigned;
+an attributed GPU client is known to belong to a workspace but is not claimed
+to be actively executing or to use a particular GPU, GI, or CI. See
 [Kubernetes attribution](kubernetes-attribution.md) for its separate RBAC and
 privacy boundary.

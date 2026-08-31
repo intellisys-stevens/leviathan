@@ -123,5 +123,10 @@ describe('detail sheet presentation', () => {
     const memory = within(dialog).getByText('Full GPU memory').parentElement;
     expect(memory).not.toHaveTextContent('dcgm');
     expect(memory).not.toHaveTextContent('error');
+    expect(dialog).not.toHaveTextContent('GPU-synthetic-0');
+    for (const tick of ['0%', '25%', '50%', '75%', '100%']) {
+      expect(within(dialog).getByText(tick)).toBeInTheDocument();
+    }
+    expect(dialog).not.toHaveTextContent(/(?:-0(?:\.0)?%|99964%)/u);
   });
 });

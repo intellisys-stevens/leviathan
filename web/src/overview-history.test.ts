@@ -298,6 +298,18 @@ describe('overview history', () => {
     expect(rows[2].value).toBeNull();
   });
 
+  it('recomputes the active average after eviction without float residue', () => {
+    const values = [89.9, 99.9, 33.3, 66.6, 1e-14, 0, 0, 0, 0, 0];
+    const rows = values.map((value, index) => ({
+      time: index * 1000,
+      value,
+    }));
+
+    const last = movingAverageChartRows(rows, ['value']).at(-1)?.value;
+    expect(last).toBe(0);
+    expect(Object.is(last, -0)).toBe(false);
+  });
+
   it('deduplicates timestamps, prefers incoming points, and bounds the window', () => {
     const old = { sampledAt: '2026-08-29T11:29:59Z', values: { value: 1 } };
     const duplicate = {

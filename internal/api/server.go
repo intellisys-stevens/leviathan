@@ -103,6 +103,26 @@ func snapshotForWire(snapshot model.Snapshot) model.Snapshot {
 		}
 		snapshot.Attribution = &attribution
 	}
+	validWorkloads := map[string]struct{}{}
+	if snapshot.Attribution != nil {
+		for _, workload := range snapshot.Attribution.Workloads {
+			validWorkloads[workload.Ref] = struct{}{}
+		}
+	}
+	processesCloned := false
+	for index := range snapshot.Processes {
+		if snapshot.Processes[index].WorkloadRef == "" {
+			continue
+		}
+		if _, exists := validWorkloads[snapshot.Processes[index].WorkloadRef]; exists {
+			continue
+		}
+		if !processesCloned {
+			snapshot.Processes = append([]model.Process{}, snapshot.Processes...)
+			processesCloned = true
+		}
+		snapshot.Processes[index].WorkloadRef = ""
+	}
 	return snapshot
 }
 

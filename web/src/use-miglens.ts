@@ -76,6 +76,7 @@ function sameProcess(left: Process, right: Process): boolean {
     left.executable === right.executable &&
     left.commandLine === right.commandLine &&
     left.startTime === right.startTime &&
+    left.workloadRef === right.workloadRef &&
     left.status === right.status &&
     left.message === right.message
   );

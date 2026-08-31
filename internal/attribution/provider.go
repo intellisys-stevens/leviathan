@@ -34,7 +34,13 @@ func (p *Provider) Sample(ctx context.Context, at time.Time) (model.Snapshot, er
 	if err != nil {
 		return snapshot, err
 	}
-	attribution := p.client.Current(at)
+	attribution, processScopes := p.client.CurrentWithProcessScopes(at)
+	for index := range snapshot.Processes {
+		snapshot.Processes[index].WorkloadRef = ""
+		if workloadRef, exists := processScopes[snapshot.Processes[index].ScopeRef]; exists {
+			snapshot.Processes[index].WorkloadRef = workloadRef
+		}
+	}
 	snapshot.Attribution = &attribution
 	return snapshot, nil
 }

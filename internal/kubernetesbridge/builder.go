@@ -23,12 +23,15 @@ const (
 )
 
 type BuildStats struct {
-	Claims             int
-	PendingClaims      int
-	MatchedAllocations int
-	UnresolvedDevices  int
-	InvalidClaims      int
-	IncompletePools    int
+	Claims                 int
+	PendingClaims          int
+	MatchedAllocations     int
+	ProcessScopes          int
+	AmbiguousProcessScopes int
+	InvalidConsumers       int
+	UnresolvedDevices      int
+	InvalidClaims          int
+	IncompletePools        int
 }
 
 type deviceKey struct {
@@ -52,7 +55,7 @@ type poolGeneration struct {
 	slices   []*resourcev1.ResourceSlice
 }
 
-func BuildInventory(claims []*resourcev1.ResourceClaim, slices []*resourcev1.ResourceSlice, nodeName, driver string) ([]model.WorkloadAttribution, []model.ResourceAssignment, BuildStats) {
+func BuildInventory(claims []*resourcev1.ResourceClaim, slices []*resourcev1.ResourceSlice, nodeName, driver string) ([]model.WorkloadAttribution, []model.ResourceAssignment, []attribution.ProcessScope, BuildStats) {
 	stats := BuildStats{Claims: len(claims)}
 	devices, incomplete := indexDevices(slices, nodeName, driver)
 	stats.IncompletePools = incomplete
@@ -72,6 +75,8 @@ func BuildInventory(claims []*resourcev1.ResourceClaim, slices []*resourcev1.Res
 	})
 	workloadByRef := make(map[string]model.WorkloadAttribution)
 	assignmentByKey := make(map[string]model.ResourceAssignment)
+	processScopeByRef := make(map[string]attribution.ProcessScope)
+	ambiguousProcessScopes := make(map[string]struct{})
 	for _, claim := range sortedClaims {
 		if claim == nil {
 			stats.InvalidClaims++
@@ -104,17 +109,45 @@ func BuildInventory(claims []*resourcev1.ResourceClaim, slices []*resourcev1.Res
 		if len(claim.Status.ReservedFor) > 0 {
 			state = model.AllocationStateAllocated
 		}
+		matchedClaim := false
 		for _, result := range claim.Status.Allocation.Devices.Results {
 			device, ok := devices[deviceKey{driver: result.Driver, pool: result.Pool, device: result.Device}]
 			if !ok {
 				stats.UnresolvedDevices++
 				continue
 			}
+			matchedClaim = true
 			assignment := model.ResourceAssignment{WorkloadRef: workloadRef, EntityType: device.entityType, EntityUUID: device.uuid, State: state}
 			key := workloadRef + "\x00" + string(device.entityType) + "\x00" + device.uuid
-			if previous, exists := assignmentByKey[key]; !exists || (previous.State == model.AllocationStateAllocated && state == model.AllocationStateReserved) {
+			if previous, exists := assignmentByKey[key]; !exists || (previous.State == model.AllocationStateReserved && state == model.AllocationStateAllocated) {
 				assignmentByKey[key] = assignment
 			}
+		}
+		if !matchedClaim {
+			continue
+		}
+		for _, consumer := range claim.Status.ReservedFor {
+			if consumer.APIGroup != "" || consumer.Resource != "pods" {
+				stats.InvalidConsumers++
+				continue
+			}
+			scopeRef, ok := attribution.ScopeRefForPodUID(string(consumer.UID))
+			if !ok {
+				stats.InvalidConsumers++
+				continue
+			}
+			if _, ambiguous := ambiguousProcessScopes[scopeRef]; ambiguous {
+				continue
+			}
+			if previous, exists := processScopeByRef[scopeRef]; exists {
+				if previous.WorkloadRef != workloadRef {
+					delete(processScopeByRef, scopeRef)
+					ambiguousProcessScopes[scopeRef] = struct{}{}
+					stats.AmbiguousProcessScopes++
+				}
+				continue
+			}
+			processScopeByRef[scopeRef] = attribution.ProcessScope{ScopeRef: scopeRef, WorkloadRef: workloadRef}
 		}
 	}
 
@@ -131,9 +164,21 @@ func BuildInventory(claims []*resourcev1.ResourceClaim, slices []*resourcev1.Res
 	if len(assignments) > attribution.MaxAssignments {
 		assignments = assignments[:attribution.MaxAssignments]
 	}
-	referenced := make(map[string]struct{}, len(assignments))
+	processScopes := make([]attribution.ProcessScope, 0, len(processScopeByRef))
+	for _, processScope := range processScopeByRef {
+		processScopes = append(processScopes, processScope)
+	}
+	sort.Slice(processScopes, func(i, j int) bool { return processScopes[i].ScopeRef < processScopes[j].ScopeRef })
+	stats.ProcessScopes = len(processScopes)
+	if len(processScopes) > attribution.MaxProcessScopes {
+		processScopes = processScopes[:attribution.MaxProcessScopes]
+	}
+	referenced := make(map[string]struct{}, len(assignments)+len(processScopes))
 	for _, assignment := range assignments {
 		referenced[assignment.WorkloadRef] = struct{}{}
+	}
+	for _, processScope := range processScopes {
+		referenced[processScope.WorkloadRef] = struct{}{}
 	}
 	workloads := make([]model.WorkloadAttribution, 0, len(referenced))
 	for reference := range referenced {
@@ -153,8 +198,15 @@ func BuildInventory(claims []*resourcev1.ResourceClaim, slices []*resourcev1.Res
 			}
 		}
 		assignments = filtered
+		filteredScopes := processScopes[:0]
+		for _, processScope := range processScopes {
+			if _, ok := allowed[processScope.WorkloadRef]; ok {
+				filteredScopes = append(filteredScopes, processScope)
+			}
+		}
+		processScopes = filteredScopes
 	}
-	return workloads, assignments, stats
+	return workloads, assignments, processScopes, stats
 }
 
 func indexDevices(slices []*resourcev1.ResourceSlice, nodeName, driver string) (map[deviceKey]resolvedDevice, int) {

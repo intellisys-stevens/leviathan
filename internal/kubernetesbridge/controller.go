@@ -169,10 +169,11 @@ func (c *Controller) reconcile(sliceInformer cache.SharedIndexInformer, claimInf
 			}
 		}
 	}
-	workloads, assignments, stats := BuildInventory(claims, slices, c.options.NodeName, c.options.Driver)
-	c.state.Update(workloads, assignments, stats, observedAt)
+	workloads, assignments, processScopes, stats := BuildInventory(claims, slices, c.options.NodeName, c.options.Driver)
+	c.state.Update(workloads, assignments, processScopes, stats, observedAt)
 	c.options.Logger.Info("attribution inventory updated",
-		"workloads", len(workloads), "assignments", len(assignments), "pendingClaims", stats.PendingClaims,
+		"workloads", len(workloads), "assignments", len(assignments), "processScopes", len(processScopes), "pendingClaims", stats.PendingClaims,
+		"ambiguousProcessScopes", stats.AmbiguousProcessScopes, "invalidConsumers", stats.InvalidConsumers,
 		"unresolved", stats.UnresolvedDevices, "invalidClaims", stats.InvalidClaims, "incompletePools", stats.IncompletePools)
 }
 

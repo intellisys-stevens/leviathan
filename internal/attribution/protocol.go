@@ -3,8 +3,11 @@
 package attribution
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -18,7 +21,10 @@ const (
 	MaxDocumentBytes = 1 << 20
 	MaxWorkloads     = 1024
 	MaxAssignments   = 2048
+	MaxProcessScopes = 4096
 )
+
+var canonicalPodUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 type SourceState string
 
@@ -34,6 +40,14 @@ type SourceStatus struct {
 	Message           string      `json:"message,omitempty"`
 }
 
+// ProcessScope is an internal bridge-to-host join. ScopeRef is derived from a
+// Kubernetes Pod UID before it enters the handoff and is never exposed by the
+// MIGLens public API.
+type ProcessScope struct {
+	ScopeRef    string `json:"scopeRef"`
+	WorkloadRef string `json:"workloadRef"`
+}
+
 // Document is the complete bridge handoff. Upstream Kubernetes identifiers
 // are replaced with opaque hashes before they enter this boundary.
 type Document struct {
@@ -47,6 +61,7 @@ type Document struct {
 	Status           SourceStatus                `json:"status"`
 	Workloads        []model.WorkloadAttribution `json:"workloads"`
 	Assignments      []model.ResourceAssignment  `json:"assignments"`
+	ProcessScopes    []ProcessScope              `json:"processScopes"`
 }
 
 func (d Document) Validate() error {
@@ -79,7 +94,7 @@ func (d Document) Validate() error {
 	if !validDisplayString(d.Status.Message, 512, true) {
 		return errors.New("invalid attribution status message")
 	}
-	if len(d.Workloads) > MaxWorkloads || len(d.Assignments) > MaxAssignments {
+	if len(d.Workloads) > MaxWorkloads || len(d.Assignments) > MaxAssignments || len(d.ProcessScopes) > MaxProcessScopes {
 		return errors.New("attribution document exceeds entity limits")
 	}
 
@@ -134,7 +149,35 @@ func (d Document) Validate() error {
 		}
 		assignments[key] = struct{}{}
 	}
+
+	processScopes := make(map[string]string, len(d.ProcessScopes))
+	for _, processScope := range d.ProcessScopes {
+		if !validOpaqueRef(processScope.ScopeRef, "scope_") {
+			return errors.New("invalid process scope reference")
+		}
+		if _, exists := workloads[processScope.WorkloadRef]; !exists {
+			return errors.New("process scope references an unknown workload")
+		}
+		if previous, exists := processScopes[processScope.ScopeRef]; exists {
+			if previous != processScope.WorkloadRef {
+				return errors.New("ambiguous process scope reference")
+			}
+			return errors.New("duplicate process scope reference")
+		}
+		processScopes[processScope.ScopeRef] = processScope.WorkloadRef
+	}
 	return nil
+}
+
+// ScopeRefForPodUID validates and canonicalizes the UUID-shaped Pod UID used
+// by kubelet cgroups, then returns its stable opaque process-scope reference.
+func ScopeRefForPodUID(value string) (string, bool) {
+	value = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), "_", "-"))
+	if !canonicalPodUID.MatchString(value) {
+		return "", false
+	}
+	digest := sha256.Sum256([]byte("scope_\x00" + value))
+	return "scope_" + hex.EncodeToString(digest[:16]), true
 }
 
 func validOpaqueRef(value, prefix string) bool {
