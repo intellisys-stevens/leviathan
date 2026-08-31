@@ -269,6 +269,70 @@ redirect, carries no cookies, performs one bounded request per interval, and
 keeps no local retry queue. On a transient failure it continues local
 collection and retries with the next newest snapshot.
 
+## Bootstrap a discovered instance over SSH
+
+Until cloud-init is the default for every Jetstream template, the Hub operator
+can bootstrap a newly discovered instance with
+`scripts/bootstrap-jetstream-uplink.sh`. This is an explicit per-instance
+operation, not a fleet-wide SSH scanner. It never attempts an address merely
+because Nova returned it.
+
+First list instances that are active, authorized by current creator policy,
+eligible for telemetry, and do not already have a live Uplink:
+
+```bash
+scripts/bootstrap-jetstream-uplink.sh list
+```
+
+Before an instance can appear in this list, its authoritative Nova `user_id`
+must have an approved `[[creators]]` rule and a distinct creator token in the
+Hub. Adding a creator remains a separate, reviewed Hub configuration change.
+Inventory-only instances are never SSH targets.
+
+Resolve the selected UUID's public address through the OpenStack inventory,
+obtain the matching Linux release binary and published checksum, and run the
+installer without `--apply` first:
+
+```bash
+scripts/bootstrap-jetstream-uplink.sh install \
+  --instance-uuid 11111111-1111-4111-8111-111111111111 \
+  --creator-username owner-a@example.test \
+  --host 192.0.2.10 \
+  --ssh-user exouser \
+  --identity-file /path/to/approved-private-key \
+  --binary /path/to/leviathan_linux_amd64/leviathan \
+  --binary-sha256 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+  --binary-arch amd64 \
+  --token-keychain-service org.example.yggdrasill.uplink.owner-a \
+  --uplink-hub-url https://uplink.example.test:8443
+```
+
+The dry run requires passwordless `sudo` but makes no Leviathan file or service
+change. Normal SSH, metadata-service, sudo-policy, and host-key audit records
+may still be produced. The preflight independently verifies:
+
+- the exact UUID, creator, active state, managed state, and telemetry policy in
+  a fresh Hub snapshot;
+- the SSH account and remote Linux architecture;
+- the same UUID from the target's fixed OpenStack metadata endpoint; and
+- the local binary's ELF architecture and caller-supplied SHA-256.
+
+Only after reviewing that output, repeat the identical command with `--apply`.
+The apply path copies the binary and checked-in systemd template to a bounded
+remote temporary directory, verifies the transferred checksum, and installs
+them root-owned. It reads the creator token from macOS Keychain only at the
+last responsible moment and streams the environment file through encrypted
+SSH stdin directly to `/etc/leviathan/uplink-<user>.env` with mode `0600`.
+The token is not placed in argv, an exported environment variable, a local
+temporary file, or output.
+
+Success requires all three confirmations: the systemd unit is enabled, it is
+active, and the Hub reports the exact UUID as `available` from
+`leviathan_uplink`. A recycled IP, creator-policy change, inactive instance,
+metadata UUID mismatch, architecture mismatch, transfer checksum mismatch, or
+missing Hub acknowledgement fails closed. Running `list` again must then omit
+the installed instance.
+
 For future instances, place the binary installation, creator-specific token
 environment file, and `leviathan uplink` systemd unit in the user's Exosphere
 cloud-init boot script. That automates installation once per creator/template;

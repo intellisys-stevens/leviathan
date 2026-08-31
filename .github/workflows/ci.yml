@@ -152,6 +152,8 @@ jobs:
           scripts/verify-release-metadata.sh 0.3.0
       - name: Test installer
         run: scripts/install_test.sh
+      - name: Test Jetstream SSH bootstrap
+        run: scripts/bootstrap-jetstream-uplink_test.sh
       - name: Dry-run Helm chart package
         id: chart
         run: |
