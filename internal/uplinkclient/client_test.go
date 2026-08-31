@@ -21,7 +21,7 @@ import (
 
 const (
 	testInstanceUUID = "11111111-1111-4111-8111-111111111111"
-	testToken        = "0123456789abcdef0123456789abcdef"
+	testToken        = "test-test-test-test-test-test-test-test"
 	secretCanary     = "UPLINK_SECRET_CANARY"
 )
 

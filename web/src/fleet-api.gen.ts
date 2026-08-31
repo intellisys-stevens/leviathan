@@ -4,534 +4,509 @@
  */
 
 export interface paths {
-  '/api/fleet/v1/state': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/api/fleet/v1/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Return the latest complete fleet observation. */
+        get: operations["getFleetState"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Return the latest complete fleet observation. */
-    get: operations['getFleetState'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/fleet/v1/events': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/api/fleet/v1/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stream complete fleet observations as fleet server-sent events. */
+        get: operations["getFleetEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Stream complete fleet observations as fleet server-sent events. */
-    get: operations['getFleetEvents'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/fleet/v1/version': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/api/fleet/v1/version": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Return build metadata for the fleet controller. */
+        get: operations["getFleetBuildInfo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Return build metadata for the fleet controller. */
-    get: operations['getFleetBuildInfo'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/fleet/v1/uplink/{instanceUUID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/api/fleet/v1/uplink/{instanceUUID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit a creator-authenticated snapshot claimed for one instance when the optional uplink is enabled.
+         * @description The bearer credential authenticates a Nova creator trust domain, not the individual VM. The instance UUID is a claim that is authorized against current inventory. This operation is served only by the dedicated uplink listener; dashboard and fleet-read routes are absent from that listener.
+         */
+        post: operations["putFleetUplinkSnapshot"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    /**
-     * Submit a creator-authenticated snapshot claimed for one instance when the optional uplink is enabled.
-     * @description The bearer credential authenticates a Nova creator trust domain, not the individual VM. The instance UUID is a claim that is authorized against current inventory. This operation is served only by the dedicated uplink listener; dashboard and fleet-read routes are absent from that listener.
-     */
-    post: operations['putFleetUplinkSnapshot'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/healthz': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/healthz": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Report controller readiness and inventory freshness. */
+        get: operations["fleetHealthz"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Report controller readiness and inventory freshness. */
-    get: operations['fleetHealthz'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
-  schemas: {
-    FleetSnapshot: {
-      /** @constant */
-      schemaVersion: 'fleet-v1';
-      /** Format: uint64 */
-      sequence: number;
-      /** Format: date-time */
-      observedAt: string;
-      platforms: components['schemas']['PlatformObservation'][];
+    schemas: {
+        FleetSnapshot: {
+            /** @constant */
+            schemaVersion: "fleet-v1";
+            /** Format: uint64 */
+            sequence: number;
+            /** Format: date-time */
+            observedAt: string;
+            platforms: components["schemas"]["PlatformObservation"][];
+        };
+        PlatformObservation: {
+            platform: components["schemas"]["Platform"];
+            inventory: components["schemas"]["InventoryHealth"];
+            instances: components["schemas"]["InstanceObservation"][];
+        };
+        Platform: {
+            id: string;
+            displayName: string;
+            /** @enum {string} */
+            kind: "host" | "openstack";
+            /** @description An HTTPS URL or same-origin absolute path without credentials, query, or fragment. */
+            dashboardUrl?: string;
+        };
+        InventoryHealth: {
+            /** @enum {string} */
+            status: "available" | "stale" | "unavailable";
+            /** Format: date-time */
+            observedAt?: string;
+            /** Format: date-time */
+            lastAttemptAt: string;
+            /** Format: date-time */
+            lastSuccessAt?: string;
+            message?: string;
+        };
+        /** @description Static Nova flavor allocation. These values are provisioned capacity, not live utilization. */
+        InstanceCapacity: {
+            /** Format: int64 */
+            vcpus: number;
+            /** Format: int64 */
+            ramMiB: number;
+            /** Format: int64 */
+            rootDiskGiB: number;
+        };
+        /** @description Sanitized OpenStack inventory; metadata, tags, passwords, tokens, keypairs, and endpoints are never included. */
+        Instance: {
+            /** Format: uuid */
+            uuid: string;
+            name: string;
+            creatorUsername: string;
+            /** @enum {string} */
+            cloudState: "active" | "shelved" | "shelved_offloaded" | "shutoff" | "building" | "paused" | "suspended" | "error" | "unknown";
+            rawCloudState?: string;
+            flavor?: string;
+            capacity?: components["schemas"]["InstanceCapacity"];
+        };
+        InstanceObservation: {
+            instance: components["schemas"]["Instance"];
+            /** @description An explicit UUID rule or exact authoritative Nova creator-ID rule manages this instance. */
+            managed: boolean;
+            /** @description Authorization matched, the cloud state is active, and at least one explicitly configured telemetry path is enabled. */
+            agentProbeEligible: boolean;
+            /** @enum {string} */
+            policyReason: "allowed" | "not_allowlisted" | "creator_mismatch" | "cloud_not_active" | "agent_not_configured";
+            agent: components["schemas"]["AgentObservation"];
+        };
+        AgentObservation: {
+            /** @enum {string} */
+            status: "not_managed" | "not_configured" | "available" | "unreachable" | "stale" | "incompatible";
+            /**
+             * @description Transport and fidelity tier that produced the retained snapshot.
+             * @enum {string}
+             */
+            source?: "leviathan_agent" | "exosphere_console" | "leviathan_uplink";
+            /** Format: date-time */
+            lastAttemptAt?: string;
+            /** Format: date-time */
+            lastSuccessAt?: string;
+            /** Format: date-time */
+            observedAt?: string;
+            buildInfo?: components["schemas"]["BuildInfo"];
+            /** @description A schema-v1 single-host snapshot with command lines and raw provider error details removed by the fleet controller. */
+            snapshot?: components["schemas"]["Snapshot"];
+            message?: string;
+        };
+        BuildInfo: {
+            version: string;
+            commit: string;
+            buildDate: string;
+        };
+        UplinkEnvelope: {
+            snapshot: components["schemas"]["Snapshot"];
+            buildInfo?: components["schemas"]["BuildInfo"];
+        };
+        UplinkAccepted: {
+            /** @constant */
+            status: "accepted";
+        };
+        Health: {
+            /** @enum {string} */
+            status: "starting" | "ok" | "degraded";
+            /** Format: uint64 */
+            sequence?: number;
+        };
+        Error: {
+            error: string;
+        };
+        Host: {
+            hostname: string;
+            os: string;
+            arch: string;
+        };
+        /** @enum {string} */
+        MetricSource: "nvml" | "nvml_gpm" | "dcgm" | "proc" | "synthetic";
+        /** @enum {string} */
+        MetricScope: "host" | "physical_gpu" | "gpu_instance" | "compute_instance";
+        /** @enum {string} */
+        MetricStatus: "available" | "unsupported" | "permission_denied" | "stale" | "error";
+        Memory: {
+            /** Format: uint64 */
+            totalBytes: number | null;
+            /** Format: uint64 */
+            usedBytes: number | null;
+            /** Format: uint64 */
+            freeBytes: number | null;
+            source: components["schemas"]["MetricSource"];
+            scope: components["schemas"]["MetricScope"];
+            /** Format: date-time */
+            sampledAt: string;
+            status: components["schemas"]["MetricStatus"];
+            message?: string;
+        };
+        Metric: {
+            value: number | null;
+            unit: string;
+            source: components["schemas"]["MetricSource"];
+            scope: components["schemas"]["MetricScope"];
+            /** Format: date-time */
+            sampledAt: string;
+            status: components["schemas"]["MetricStatus"];
+            message?: string;
+        };
+        /** @description Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts. */
+        MetricSet: {
+            [key: string]: components["schemas"]["Metric"];
+        };
+        Diagnostic: {
+            code: string;
+            /** @enum {string} */
+            severity: "info" | "warning" | "error";
+            component: string;
+            summary: string;
+            detail?: string;
+            remedy?: string;
+            status: components["schemas"]["MetricStatus"];
+        };
+        ComputeInstance: {
+            uuid: string;
+            /** Format: uint32 */
+            id: number;
+            profile: string;
+            memory: components["schemas"]["Memory"];
+            metrics: components["schemas"]["MetricSet"];
+            generation: string;
+            diagnostics?: components["schemas"]["Diagnostic"][];
+        };
+        GpuInstance: {
+            uuid: string;
+            /** Format: uint32 */
+            id: number;
+            profile: string;
+            generation: string;
+            memory: components["schemas"]["Memory"];
+            metrics: components["schemas"]["MetricSet"];
+            computeInstances: components["schemas"]["ComputeInstance"][];
+        };
+        GPU: {
+            uuid: string;
+            index: number;
+            name: string;
+            pciBusId?: string;
+            migEnabled: boolean;
+            maxMigDevices: number;
+            memory: components["schemas"]["Memory"];
+            metrics: components["schemas"]["MetricSet"];
+            gpuInstances: components["schemas"]["GpuInstance"][];
+        };
+        /** @description A GPU-connected process visible in Leviathan's current PID namespace. An open NVIDIA UVM handle includes idle CUDA contexts and does not imply active kernels, GPU memory use, or GI/CI ownership. */
+        Process: {
+            /** Format: uint32 */
+            pid: number;
+            user?: string;
+            /** @description Resolved executable path */
+            executable?: string;
+            /** @description Present only when explicitly enabled. */
+            commandLine?: string;
+            /** Format: date-time */
+            startTime?: string;
+            /** @description Opaque reference to a workload in this snapshot when optional attribution can resolve the process scope. */
+            workloadRef?: string;
+            status: components["schemas"]["MetricStatus"];
+            message?: string;
+        };
+        /** @enum {string} */
+        AttributionStatus: "available" | "stale" | "unavailable";
+        /** @enum {string} */
+        WorkloadPlatform: "coder";
+        /** @enum {string} */
+        WorkloadKind: "workspace";
+        /** @description Sanitized workload display identity from an optional attribution source. The reference is opaque and source-scoped. */
+        WorkloadAttribution: {
+            ref: string;
+            platform: components["schemas"]["WorkloadPlatform"];
+            kind: components["schemas"]["WorkloadKind"];
+            name: string;
+            ownerName: string;
+        };
+        /** @enum {string} */
+        AllocationEntityType: "physical_gpu" | "compute_instance";
+        /** @enum {string} */
+        AllocationState: "allocated" | "reserved";
+        /** @description A scheduler assignment; it does not prove active device use by a process. */
+        ResourceAssignment: {
+            workloadRef: string;
+            entityType: components["schemas"]["AllocationEntityType"];
+            entityUuid: string;
+            state: components["schemas"]["AllocationState"];
+        };
+        Attribution: {
+            provider: string;
+            status: components["schemas"]["AttributionStatus"];
+            /** Format: date-time */
+            observedAt?: string;
+            workloads: components["schemas"]["WorkloadAttribution"][];
+            assignments: components["schemas"]["ResourceAssignment"][];
+        };
+        ProviderState: {
+            name: string;
+            available: boolean;
+            status: components["schemas"]["MetricStatus"];
+            message?: string;
+        };
+        Capabilities: {
+            nvml: components["schemas"]["ProviderState"];
+            gpm: components["schemas"]["ProviderState"];
+            dcgm: components["schemas"]["ProviderState"];
+            proc: components["schemas"]["ProviderState"];
+            profileMetrics: boolean;
+        };
+        Snapshot: {
+            /** @constant */
+            schemaVersion: "v1";
+            /** Format: uint64 */
+            sequence: number;
+            /** Format: date-time */
+            sampledAt: string;
+            host: components["schemas"]["Host"];
+            gpus: components["schemas"]["GPU"][];
+            /** @description GPU-connected processes detected through open NVIDIA UVM device handles in the current PID namespace. Leviathan itself is excluded. */
+            processes: components["schemas"]["Process"][];
+            attribution?: components["schemas"]["Attribution"];
+            capabilities: components["schemas"]["Capabilities"];
+            diagnostics: components["schemas"]["Diagnostic"][];
+        };
     };
-    PlatformObservation: {
-      platform: components['schemas']['Platform'];
-      inventory: components['schemas']['InventoryHealth'];
-      instances: components['schemas']['InstanceObservation'][];
+    responses: {
+        /** @description No complete fleet state has been published yet. */
+        Unavailable: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The uplink request was rejected without disclosing token, creator, instance, or payload details. */
+        UplinkRejected: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
     };
-    Platform: {
-      id: string;
-      displayName: string;
-      /** @enum {string} */
-      kind: 'host' | 'openstack';
-      /** @description An HTTPS URL or same-origin absolute path without credentials, query, or fragment. */
-      dashboardUrl?: string;
-    };
-    InventoryHealth: {
-      /** @enum {string} */
-      status: 'available' | 'stale' | 'unavailable';
-      /** Format: date-time */
-      observedAt?: string;
-      /** Format: date-time */
-      lastAttemptAt: string;
-      /** Format: date-time */
-      lastSuccessAt?: string;
-      message?: string;
-    };
-    /** @description Static Nova flavor allocation. These values are provisioned capacity, not live utilization. */
-    InstanceCapacity: {
-      /** Format: int64 */
-      vcpus: number;
-      /** Format: int64 */
-      ramMiB: number;
-      /** Format: int64 */
-      rootDiskGiB: number;
-    };
-    /** @description Sanitized OpenStack inventory; metadata, tags, passwords, tokens, keypairs, and endpoints are never included. */
-    Instance: {
-      /** Format: uuid */
-      uuid: string;
-      name: string;
-      creatorUsername: string;
-      /** @enum {string} */
-      cloudState:
-        | 'active'
-        | 'shelved'
-        | 'shelved_offloaded'
-        | 'shutoff'
-        | 'building'
-        | 'paused'
-        | 'suspended'
-        | 'error'
-        | 'unknown';
-      rawCloudState?: string;
-      flavor?: string;
-      capacity?: components['schemas']['InstanceCapacity'];
-    };
-    InstanceObservation: {
-      instance: components['schemas']['Instance'];
-      /** @description An explicit UUID rule or exact authoritative Nova creator-ID rule manages this instance. */
-      managed: boolean;
-      /** @description Authorization matched, the cloud state is active, and at least one explicitly configured telemetry path is enabled. */
-      agentProbeEligible: boolean;
-      /** @enum {string} */
-      policyReason:
-        | 'allowed'
-        | 'not_allowlisted'
-        | 'creator_mismatch'
-        | 'cloud_not_active'
-        | 'agent_not_configured';
-      agent: components['schemas']['AgentObservation'];
-    };
-    AgentObservation: {
-      /** @enum {string} */
-      status:
-        | 'not_managed'
-        | 'not_configured'
-        | 'available'
-        | 'unreachable'
-        | 'stale'
-        | 'incompatible';
-      /**
-       * @description Transport and fidelity tier that produced the retained snapshot.
-       * @enum {string}
-       */
-      source?: 'leviathan_agent' | 'exosphere_console' | 'leviathan_uplink';
-      /** Format: date-time */
-      lastAttemptAt?: string;
-      /** Format: date-time */
-      lastSuccessAt?: string;
-      /** Format: date-time */
-      observedAt?: string;
-      buildInfo?: components['schemas']['BuildInfo'];
-      /** @description A schema-v1 single-host snapshot with command lines and raw provider error details removed by the fleet controller. */
-      snapshot?: components['schemas']['Snapshot'];
-      message?: string;
-    };
-    BuildInfo: {
-      version: string;
-      commit: string;
-      buildDate: string;
-    };
-    UplinkEnvelope: {
-      snapshot: components['schemas']['Snapshot'];
-      buildInfo?: components['schemas']['BuildInfo'];
-    };
-    UplinkAccepted: {
-      /** @constant */
-      status: 'accepted';
-    };
-    Health: {
-      /** @enum {string} */
-      status: 'starting' | 'ok' | 'degraded';
-      /** Format: uint64 */
-      sequence?: number;
-    };
-    Error: {
-      error: string;
-    };
-    Host: {
-      hostname: string;
-      os: string;
-      arch: string;
-    };
-    /** @enum {string} */
-    MetricSource: 'nvml' | 'nvml_gpm' | 'dcgm' | 'proc' | 'synthetic';
-    /** @enum {string} */
-    MetricScope: 'host' | 'physical_gpu' | 'gpu_instance' | 'compute_instance';
-    /** @enum {string} */
-    MetricStatus:
-      | 'available'
-      | 'unsupported'
-      | 'permission_denied'
-      | 'stale'
-      | 'error';
-    Memory: {
-      /** Format: uint64 */
-      totalBytes: number | null;
-      /** Format: uint64 */
-      usedBytes: number | null;
-      /** Format: uint64 */
-      freeBytes: number | null;
-      source: components['schemas']['MetricSource'];
-      scope: components['schemas']['MetricScope'];
-      /** Format: date-time */
-      sampledAt: string;
-      status: components['schemas']['MetricStatus'];
-      message?: string;
-    };
-    Metric: {
-      value: number | null;
-      unit: string;
-      source: components['schemas']['MetricSource'];
-      scope: components['schemas']['MetricScope'];
-      /** Format: date-time */
-      sampledAt: string;
-      status: components['schemas']['MetricStatus'];
-      message?: string;
-    };
-    /** @description Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts. */
-    MetricSet: {
-      [key: string]: components['schemas']['Metric'];
-    };
-    Diagnostic: {
-      code: string;
-      /** @enum {string} */
-      severity: 'info' | 'warning' | 'error';
-      component: string;
-      summary: string;
-      detail?: string;
-      remedy?: string;
-      status: components['schemas']['MetricStatus'];
-    };
-    ComputeInstance: {
-      uuid: string;
-      /** Format: uint32 */
-      id: number;
-      profile: string;
-      memory: components['schemas']['Memory'];
-      metrics: components['schemas']['MetricSet'];
-      generation: string;
-      diagnostics?: components['schemas']['Diagnostic'][];
-    };
-    GpuInstance: {
-      uuid: string;
-      /** Format: uint32 */
-      id: number;
-      profile: string;
-      generation: string;
-      memory: components['schemas']['Memory'];
-      metrics: components['schemas']['MetricSet'];
-      computeInstances: components['schemas']['ComputeInstance'][];
-    };
-    GPU: {
-      uuid: string;
-      index: number;
-      name: string;
-      pciBusId?: string;
-      migEnabled: boolean;
-      maxMigDevices: number;
-      memory: components['schemas']['Memory'];
-      metrics: components['schemas']['MetricSet'];
-      gpuInstances: components['schemas']['GpuInstance'][];
-    };
-    /** @description A GPU-connected process visible in Leviathan's current PID namespace. An open NVIDIA UVM handle includes idle CUDA contexts and does not imply active kernels, GPU memory use, or GI/CI ownership. */
-    Process: {
-      /** Format: uint32 */
-      pid: number;
-      user?: string;
-      /** @description Resolved executable path */
-      executable?: string;
-      /** @description Present only when explicitly enabled. */
-      commandLine?: string;
-      /** Format: date-time */
-      startTime?: string;
-      /** @description Opaque reference to a workload in this snapshot when optional attribution can resolve the process scope. */
-      workloadRef?: string;
-      status: components['schemas']['MetricStatus'];
-      message?: string;
-    };
-    /** @enum {string} */
-    AttributionStatus: 'available' | 'stale' | 'unavailable';
-    /** @enum {string} */
-    WorkloadPlatform: 'coder';
-    /** @enum {string} */
-    WorkloadKind: 'workspace';
-    /** @description Sanitized workload display identity from an optional attribution source. The reference is opaque and source-scoped. */
-    WorkloadAttribution: {
-      ref: string;
-      platform: components['schemas']['WorkloadPlatform'];
-      kind: components['schemas']['WorkloadKind'];
-      name: string;
-      ownerName: string;
-    };
-    /** @enum {string} */
-    AllocationEntityType: 'physical_gpu' | 'compute_instance';
-    /** @enum {string} */
-    AllocationState: 'allocated' | 'reserved';
-    /** @description A scheduler assignment; it does not prove active device use by a process. */
-    ResourceAssignment: {
-      workloadRef: string;
-      entityType: components['schemas']['AllocationEntityType'];
-      entityUuid: string;
-      state: components['schemas']['AllocationState'];
-    };
-    Attribution: {
-      provider: string;
-      status: components['schemas']['AttributionStatus'];
-      /** Format: date-time */
-      observedAt?: string;
-      workloads: components['schemas']['WorkloadAttribution'][];
-      assignments: components['schemas']['ResourceAssignment'][];
-    };
-    ProviderState: {
-      name: string;
-      available: boolean;
-      status: components['schemas']['MetricStatus'];
-      message?: string;
-    };
-    Capabilities: {
-      nvml: components['schemas']['ProviderState'];
-      gpm: components['schemas']['ProviderState'];
-      dcgm: components['schemas']['ProviderState'];
-      proc: components['schemas']['ProviderState'];
-      profileMetrics: boolean;
-    };
-    Snapshot: {
-      /** @constant */
-      schemaVersion: 'v1';
-      /** Format: uint64 */
-      sequence: number;
-      /** Format: date-time */
-      sampledAt: string;
-      host: components['schemas']['Host'];
-      gpus: components['schemas']['GPU'][];
-      /** @description GPU-connected processes detected through open NVIDIA UVM device handles in the current PID namespace. Leviathan itself is excluded. */
-      processes: components['schemas']['Process'][];
-      attribution?: components['schemas']['Attribution'];
-      capabilities: components['schemas']['Capabilities'];
-      diagnostics: components['schemas']['Diagnostic'][];
-    };
-  };
-  responses: {
-    /** @description No complete fleet state has been published yet. */
-    Unavailable: {
-      headers: {
-        [name: string]: unknown;
-      };
-      content: {
-        'application/json': components['schemas']['Error'];
-      };
-    };
-    /** @description The uplink request was rejected without disclosing token, creator, instance, or payload details. */
-    UplinkRejected: {
-      headers: {
-        [name: string]: unknown;
-      };
-      content: {
-        'application/json': components['schemas']['Error'];
-      };
-    };
-  };
-  parameters: never;
-  requestBodies: never;
-  headers: never;
-  pathItems: never;
+    parameters: never;
+    requestBodies: never;
+    headers: never;
+    pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
-  getFleetState: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    getFleetState: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current fleet state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FleetSnapshot"];
+                };
+            };
+            503: components["responses"]["Unavailable"];
+        };
     };
-    requestBody?: never;
-    responses: {
-      /** @description Current fleet state. */
-      200: {
-        headers: {
-          [name: string]: unknown;
+    getFleetEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
         };
-        content: {
-          'application/json': components['schemas']['FleetSnapshot'];
+        requestBody?: never;
+        responses: {
+            /** @description A latest-state stream. Slow consumers may skip superseded observations. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
         };
-      };
-      503: components['responses']['Unavailable'];
     };
-  };
-  getFleetEvents: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    getFleetBuildInfo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Immutable build metadata. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuildInfo"];
+                };
+            };
+        };
     };
-    requestBody?: never;
-    responses: {
-      /** @description A latest-state stream. Slow consumers may skip superseded observations. */
-      200: {
-        headers: {
-          [name: string]: unknown;
+    putFleetUplinkSnapshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instanceUUID: string;
+            };
+            cookie?: never;
         };
-        content: {
-          'text/event-stream': string;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UplinkEnvelope"];
+            };
         };
-      };
+        responses: {
+            /** @description The newest valid sample was accepted into the bounded in-memory registry. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UplinkAccepted"];
+                };
+            };
+            400: components["responses"]["UplinkRejected"];
+            401: components["responses"]["UplinkRejected"];
+            404: components["responses"]["UplinkRejected"];
+            409: components["responses"]["UplinkRejected"];
+            413: components["responses"]["UplinkRejected"];
+            429: components["responses"]["UplinkRejected"];
+            500: components["responses"]["UplinkRejected"];
+        };
     };
-  };
-  getFleetBuildInfo: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    fleetHealthz: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A current or cached fleet state is available. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Health"];
+                };
+            };
+            /** @description No fleet state has been published yet. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
     };
-    requestBody?: never;
-    responses: {
-      /** @description Immutable build metadata. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['BuildInfo'];
-        };
-      };
-    };
-  };
-  putFleetUplinkSnapshot: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        instanceUUID: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['UplinkEnvelope'];
-      };
-    };
-    responses: {
-      /** @description The newest valid sample was accepted into the bounded in-memory registry. */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['UplinkAccepted'];
-        };
-      };
-      400: components['responses']['UplinkRejected'];
-      401: components['responses']['UplinkRejected'];
-      404: components['responses']['UplinkRejected'];
-      409: components['responses']['UplinkRejected'];
-      413: components['responses']['UplinkRejected'];
-      429: components['responses']['UplinkRejected'];
-      500: components['responses']['UplinkRejected'];
-    };
-  };
-  fleetHealthz: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description A current or cached fleet state is available. */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Health'];
-        };
-      };
-      /** @description No fleet state has been published yet. */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Health'];
-        };
-      };
-    };
-  };
 }
