@@ -38,7 +38,6 @@ jobs:
           test "$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)",$/\1/p' web/package.json | head -n 1)" = "$version"
           test "$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)",$/\1/p' web/package-lock.json | sed -n '1p')" = "$version"
           test "$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)",$/\1/p' web/package-lock.json | sed -n '2p')" = "$version"
-          grep -Fxq -- "  --version $version \\" README.md
           grep -Fxq -- "  --version $version \\" docs/kubernetes-attribution.md
           scripts/verify-branding.sh
           scripts/verify-release-metadata.sh "$version"

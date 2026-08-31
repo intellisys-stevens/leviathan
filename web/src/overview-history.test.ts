@@ -140,10 +140,12 @@ function fixture(): Snapshot {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return { promise, reject, resolve };
 }
 
 describe('overview history', () => {
@@ -154,6 +156,7 @@ describe('overview history', () => {
       { label: 'GPU 0', scope: 'physical_gpu' },
       { label: 'GPU 0 · GI 3', scope: 'gpu_instance' },
     ]);
+    expect(entities.map(({ colorIndex }) => colorIndex)).toEqual([0, 1]);
     const key = overviewTopologyKey(snapshot);
     snapshot.gpus[0].gpuInstances[0].generation = 'GPU-a/gi/3@g3';
     expect(overviewTopologyKey(snapshot)).not.toBe(key);
@@ -413,6 +416,173 @@ describe('overview history', () => {
         (point) => point.values.sm_activity,
       ),
     ).toEqual([20, 65, 88]);
+  });
+
+  it('records only the current resolved window and preserves loaded points on failure', async () => {
+    const current = fixture();
+    const entity = buildOverviewEntities(current)[1];
+    const descriptor = {
+      key: entity.key,
+      entity: entity.uuid,
+      metrics: ['sm_activity'],
+    };
+    const entities = [entity];
+    const descriptors = [descriptor];
+    const first = deferred<AlignedHistory>();
+    const stale = deferred<AlignedHistory>();
+    const failed = deferred<AlignedHistory>();
+    const retry = deferred<AlignedHistory>();
+    const loadHistory = vi
+      .fn()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(stale.promise)
+      .mockReturnValueOnce(failed.promise)
+      .mockReturnValueOnce(retry.promise);
+    const hook = renderHook(
+      ({ windowMilliseconds }) =>
+        useOverviewHistory(
+          current,
+          'utilization-chart',
+          entities,
+          descriptors,
+          loadHistory,
+          windowMilliseconds,
+          60 * 60 * 1000,
+        ),
+      { initialProps: { windowMilliseconds: 30 * 60 * 1000 } },
+    );
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(1));
+    expect(hook.result.current.loading).toBe(true);
+    expect(hook.result.current.loadedWindowMilliseconds).toBeNull();
+
+    await act(async () => {
+      first.resolve({
+        window: '30m0s',
+        series: descriptors,
+        points: [
+          {
+            sampledAt: '2026-08-29T11:59:58Z',
+            values: { [entity.key]: { sm_activity: 33 } },
+          },
+        ],
+      });
+      await first.promise;
+    });
+    await waitFor(() => expect(hook.result.current.loading).toBe(false));
+    expect(hook.result.current.loadedWindowMilliseconds).toBe(30 * 60 * 1000);
+    const retainedValues = hook.result.current.points[entity.key]?.map(
+      (point) => point.values.sm_activity,
+    );
+    expect(retainedValues).toEqual([33, 65]);
+
+    hook.rerender({ windowMilliseconds: 5 * 60 * 1000 });
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(2));
+    expect(hook.result.current.loading).toBe(true);
+    expect(hook.result.current.loadedWindowMilliseconds).toBe(30 * 60 * 1000);
+    expect(
+      hook.result.current.points[entity.key]?.map(
+        (point) => point.values.sm_activity,
+      ),
+    ).toEqual(retainedValues);
+
+    hook.rerender({ windowMilliseconds: 15 * 60 * 1000 });
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(3));
+    await act(async () => {
+      stale.resolve({
+        window: '5m0s',
+        series: descriptors,
+        points: [
+          {
+            sampledAt: '2026-08-29T11:59:59Z',
+            values: { [entity.key]: { sm_activity: 999 } },
+          },
+        ],
+      });
+      await stale.promise;
+    });
+    expect(hook.result.current.loadedWindowMilliseconds).toBe(30 * 60 * 1000);
+    expect(
+      hook.result.current.points[entity.key]?.map(
+        (point) => point.values.sm_activity,
+      ),
+    ).toEqual(retainedValues);
+
+    await act(async () => {
+      failed.reject(new Error('offline'));
+      await failed.promise.catch(() => undefined);
+    });
+    await waitFor(() =>
+      expect(hook.result.current.error).toBe('History request failed.'),
+    );
+    expect(hook.result.current.loadedWindowMilliseconds).toBe(30 * 60 * 1000);
+    expect(
+      hook.result.current.points[entity.key]?.map(
+        (point) => point.values.sm_activity,
+      ),
+    ).toEqual(retainedValues);
+
+    act(() => hook.result.current.retry());
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(4));
+    await act(async () => {
+      retry.resolve({
+        window: '15m0s',
+        series: descriptors,
+        points: [
+          {
+            sampledAt: '2026-08-29T11:59:58Z',
+            values: { [entity.key]: { sm_activity: 55 } },
+          },
+        ],
+      });
+      await retry.promise;
+    });
+    await waitFor(() => expect(hook.result.current.loading).toBe(false));
+    expect(hook.result.current.loadedWindowMilliseconds).toBe(15 * 60 * 1000);
+    expect(
+      hook.result.current.points[entity.key]?.map(
+        (point) => point.values.sm_activity,
+      ),
+    ).toEqual([55, 65]);
+  });
+
+  it('clears the request latch and retries failed aligned history locally', async () => {
+    const current = fixture();
+    const entity = buildOverviewEntities(current)[1];
+    const descriptor = {
+      key: entity.key,
+      entity: entity.uuid,
+      metrics: ['sm_activity'],
+    };
+    const entities = [entity];
+    const descriptors = [descriptor];
+    const loadHistory = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({
+        window: '30m0s',
+        series: [descriptor],
+        points: [],
+      });
+    const hook = renderHook(() =>
+      useOverviewHistory(
+        current,
+        'utilization-chart',
+        entities,
+        descriptors,
+        loadHistory,
+        30 * 60 * 1000,
+        60 * 60 * 1000,
+      ),
+    );
+
+    await waitFor(() =>
+      expect(hook.result.current.error).toBe('History request failed.'),
+    );
+    expect(loadHistory).toHaveBeenCalledTimes(1);
+
+    act(() => hook.result.current.retry());
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(hook.result.current.error).toBeNull());
   });
 
   it('preserves every series minimum and maximum in each downsample bucket', () => {

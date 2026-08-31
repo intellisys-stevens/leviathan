@@ -1,6 +1,19 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { GPU, HistorySeries, Metric, Selection } from '../types';
+import type {
+  GPU,
+  GpuInstance,
+  HistorySeries,
+  Metric,
+  Selection,
+} from '../types';
 import DetailSheet from './detail-sheet';
 
 const sampledAt = '2026-08-29T12:00:00Z';
@@ -55,6 +68,48 @@ function physicalSelection(): Selection {
   return { kind: 'physical_gpu', gpu };
 }
 
+function computeSelection(): Selection {
+  const selection = physicalSelection();
+  if (selection.kind !== 'physical_gpu') throw new Error('Expected GPU');
+  const gpu = selection.gpu;
+  const gi = {
+    uuid: 'GPU-synthetic-0/gi/3',
+    id: 3,
+    profile: '1g.24gb',
+    generation: 'GPU-synthetic-0/gi/3@g1',
+    memory: {
+      ...gpu.memory,
+      scope: 'gpu_instance',
+      status: 'available',
+      message: undefined,
+    },
+    metrics: {},
+    computeInstances: [
+      {
+        uuid: 'MIG-synthetic-0',
+        id: 0,
+        profile: '1c.1g.24gb',
+        generation: 'MIG-synthetic-0@g1',
+        memory: {
+          ...gpu.memory,
+          scope: 'gpu_instance',
+          status: 'available',
+          message: undefined,
+        },
+        metrics: {},
+      },
+    ],
+  } satisfies GpuInstance;
+  gpu.migEnabled = true;
+  gpu.gpuInstances = [gi];
+  return {
+    kind: 'compute_instance',
+    gpu,
+    gi,
+    ci: gi.computeInstances[0],
+  };
+}
+
 function history(): HistorySeries {
   return {
     entity: 'GPU-synthetic-0',
@@ -91,7 +146,84 @@ function history(): HistorySeries {
   };
 }
 
+function replacementHistory(): HistorySeries {
+  return {
+    ...history(),
+    window: '5m0s',
+    points: [
+      {
+        sampledAt: '2026-08-29T11:59:00Z',
+        values: {
+          gpu_activity: 80,
+          sm_activity: 70,
+          memory_activity: 60,
+          pcie_rx_bytes_per_second: 3_000,
+          pcie_tx_bytes_per_second: 4_000,
+        },
+      },
+      {
+        sampledAt: '2026-08-29T11:59:01Z',
+        values: {
+          gpu_activity: 90,
+          sm_activity: 80,
+          memory_activity: 70,
+          pcie_rx_bytes_per_second: 5_000,
+          pcie_tx_bytes_per_second: 6_000,
+        },
+      },
+    ],
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
+
 describe('detail sheet presentation', () => {
+  it('uses one resource heading and concise profile metadata', async () => {
+    const loadHistory = vi.fn().mockResolvedValue(history());
+    render(
+      <DetailSheet
+        selection={computeSelection()}
+        open
+        onOpenChange={() => undefined}
+        loadHistory={loadHistory}
+        chartWindowMs={30 * 60 * 1000}
+        retentionMs={60 * 60 * 1000}
+        onChartWindowChange={() => undefined}
+      />,
+    );
+
+    const dialog = await screen.findByRole('dialog', {
+      name: 'GPU 0 · GI 3 · CI 0',
+    });
+    expect(dialog).toHaveClass(
+      'mobile-detail-sheet',
+      'w-full',
+      'max-w-none',
+      'md:max-w-[640px]',
+    );
+    const header = dialog.querySelector('[data-slot="sheet-header"]');
+    expect(header).not.toBeNull();
+    expect(header).toHaveClass('mobile-detail-sheet-header');
+    const headerQueries = within(header as HTMLElement);
+
+    expect(headerQueries.getAllByText('GPU 0 · GI 3 · CI 0')).toHaveLength(1);
+    expect(headerQueries.getByText('1g.24gb')).toBeInTheDocument();
+    expect(headerQueries.getByText('1c.1g.24gb')).toBeInTheDocument();
+    expect(headerQueries.getByText('GI')).toBeInTheDocument();
+    expect(headerQueries.getByText('CI')).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: 'Close' }),
+    ).toBeInTheDocument();
+  });
+
   it('omits metric provenance footers and the PCIe explanatory sentence', async () => {
     const loadHistory = vi.fn().mockResolvedValue(history());
     render(
@@ -133,5 +265,151 @@ describe('detail sheet presentation', () => {
       expect(within(dialog).getByText(tick)).toBeInTheDocument();
     }
     expect(dialog).not.toHaveTextContent(/(?:-0(?:\.0)?%|99964%)/u);
+  });
+
+  it('retains the complete plot while loading and crossfades replacement history for 140ms', async () => {
+    const selection = physicalSelection();
+    const next = deferred<HistorySeries>();
+    const loadHistory = vi
+      .fn()
+      .mockResolvedValueOnce(history())
+      .mockReturnValueOnce(next.promise);
+    const props = {
+      selection,
+      open: true,
+      onOpenChange: () => undefined,
+      loadHistory,
+      retentionMs: 60 * 60 * 1000,
+      onChartWindowChange: () => undefined,
+    };
+    const view = render(
+      <DetailSheet {...props} chartWindowMs={30 * 60 * 1000} />,
+    );
+
+    const dialog = await screen.findByRole('dialog');
+    const activityChart = within(dialog).getByTestId('detail-history-chart');
+    const pcieChart = within(dialog).getByTestId('detail-pcie-chart');
+    await waitFor(() =>
+      expect(activityChart.querySelectorAll('.chart-plot-layer')).toHaveLength(
+        1,
+      ),
+    );
+    const activitySummary = within(dialog).getByRole('table', {
+      name: 'Activity history data summary',
+    });
+    const oldSummary = within(activitySummary).getByRole('row', {
+      name: /GPU activity/u,
+    }).textContent;
+
+    view.rerender(<DetailSheet {...props} chartWindowMs={5 * 60 * 1000} />);
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(2));
+    expect(activityChart).toHaveAttribute('aria-busy', 'true');
+    expect(activityChart.querySelectorAll('.chart-plot-layer')).toHaveLength(1);
+    expect(pcieChart.querySelectorAll('.chart-plot-layer')).toHaveLength(1);
+    expect(within(dialog).queryByText('Collecting history…')).toBeNull();
+    expect(
+      within(activitySummary).getByRole('row', { name: /GPU activity/u }),
+    ).toHaveTextContent(oldSummary ?? '');
+
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        next.resolve(replacementHistory());
+        await next.promise;
+      });
+
+      for (const chart of [activityChart, pcieChart]) {
+        expect(chart).toHaveAttribute('aria-busy', 'false');
+        expect(chart.querySelectorAll('.chart-plot-layer')).toHaveLength(2);
+        expect(chart.querySelector('.chart-plot-incoming')).not.toBeNull();
+        expect(chart.querySelector('.chart-plot-outgoing')).not.toBeNull();
+      }
+      expect(
+        within(activitySummary).getByRole('row', { name: /GPU activity/u }),
+      ).not.toHaveTextContent(oldSummary ?? '');
+
+      await act(() => vi.advanceTimersByTime(139));
+      expect(activityChart.querySelectorAll('.chart-plot-layer')).toHaveLength(
+        2,
+      );
+      expect(pcieChart.querySelectorAll('.chart-plot-layer')).toHaveLength(2);
+
+      await act(() => vi.advanceTimersByTime(1));
+      for (const chart of [activityChart, pcieChart]) {
+        expect(chart.querySelectorAll('.chart-plot-layer')).toHaveLength(1);
+        expect(chart.querySelector('.chart-plot-incoming')).toBeNull();
+        expect(chart.querySelector('.chart-plot-outgoing')).toBeNull();
+      }
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
+  });
+
+  it('retains the complete plot and exposes a scoped retry after history failure', async () => {
+    const selection = physicalSelection();
+    const failed = deferred<HistorySeries>();
+    const retry = deferred<HistorySeries>();
+    const loadHistory = vi
+      .fn()
+      .mockResolvedValueOnce(history())
+      .mockReturnValueOnce(failed.promise)
+      .mockReturnValueOnce(retry.promise);
+    const props = {
+      selection,
+      open: true,
+      onOpenChange: () => undefined,
+      loadHistory,
+      retentionMs: 60 * 60 * 1000,
+      onChartWindowChange: () => undefined,
+    };
+    const view = render(
+      <DetailSheet {...props} chartWindowMs={30 * 60 * 1000} />,
+    );
+
+    const dialog = await screen.findByRole('dialog');
+    const activityChart = within(dialog).getByTestId('detail-history-chart');
+    await waitFor(() =>
+      expect(activityChart.querySelectorAll('.chart-plot-layer')).toHaveLength(
+        1,
+      ),
+    );
+    const activitySummary = within(dialog).getByRole('table', {
+      name: 'Activity history data summary',
+    });
+    const retainedSummary = within(activitySummary).getByRole('row', {
+      name: /GPU activity/u,
+    }).textContent;
+
+    view.rerender(<DetailSheet {...props} chartWindowMs={5 * 60 * 1000} />);
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      failed.reject(new Error('range unavailable'));
+      await failed.promise.catch(() => undefined);
+    });
+
+    expect(activityChart).toHaveAttribute('aria-busy', 'false');
+    expect(activityChart.querySelectorAll('.chart-plot-layer')).toHaveLength(1);
+    expect(
+      within(activitySummary).getByRole('row', { name: /GPU activity/u }),
+    ).toHaveTextContent(retainedSummary ?? '');
+    expect(
+      within(dialog).getByText(
+        'range unavailable. Last complete history retained.',
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(3));
+    expect(loadHistory).toHaveBeenLastCalledWith(
+      selection.gpu.uuid,
+      expect.any(Array),
+      '5m',
+    );
+    expect(activityChart).toHaveAttribute('aria-busy', 'true');
+    expect(activityChart.querySelectorAll('.chart-plot-layer')).toHaveLength(1);
+    expect(
+      within(dialog).queryByText(/Last complete history retained/u),
+    ).toBeNull();
   });
 });

@@ -48,12 +48,13 @@ function DiagnosticsPanelComponent({
       aria-labelledby="diagnostics-heading"
     >
       <div className="border-b border-border/70 p-4">
-        <h2 id="diagnostics-heading" className="text-sm font-semibold">
+        <h2
+          id="diagnostics-heading"
+          tabIndex={-1}
+          className="scroll-mt-36 text-xl font-semibold tracking-[-0.018em] outline-none"
+        >
           Diagnostics
         </h2>
-        <p className="text-xs text-muted-foreground">
-          Unavailable metrics and provider issues.
-        </p>
       </div>
       {groups.length === 0 ? (
         <div className="flex items-center gap-2 p-4 text-sm text-primary">
@@ -74,18 +75,18 @@ function DiagnosticsPanelComponent({
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="text-sm font-medium">{diagnostic.summary}</p>
-                  <span className="font-mono text-[10px] uppercase text-amber-700 dark:text-amber-300">
+                  <span className="font-mono text-[13px] uppercase text-amber-700 dark:text-amber-300">
                     {diagnostic.status}
                   </span>
                 </div>
-                <p className="mt-0.5 text-xs text-muted-foreground">
+                <p className="mt-0.5 text-sm text-muted-foreground">
                   {components.length > 1
                     ? `${components.length} affected entities · ${components.map(shortUUID).join(', ')}`
                     : components[0]}
                   {details.length > 0 ? ` · ${details.join('; ')}` : ''}
                 </p>
                 {diagnostic.remedy ? (
-                  <p className="mt-2 text-xs text-foreground/80">
+                  <p className="mt-2 text-sm text-foreground/80">
                     Remedy: {diagnostic.remedy}
                   </p>
                 ) : null}

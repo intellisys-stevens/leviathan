@@ -1,11 +1,13 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
   waitFor,
   within,
 } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { useState } from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Attribution, Process, Snapshot } from '../types';
 import { ProcessTable } from './process-table';
 
@@ -41,17 +43,77 @@ function processes(count: number): Process[] {
   }));
 }
 
+function ControlledProcessTable({
+  initialQuery = '',
+  onQueryChange,
+  ...props
+}: Omit<
+  React.ComponentProps<typeof ProcessTable>,
+  'query' | 'onQueryChange'
+> & {
+  initialQuery?: string;
+  onQueryChange?: (query: string) => void;
+}) {
+  const [query, setQuery] = useState(initialQuery);
+  return (
+    <ProcessTable
+      {...props}
+      query={query}
+      onQueryChange={(nextQuery) => {
+        setQuery(nextQuery);
+        onQueryChange?.(nextQuery);
+      }}
+    />
+  );
+}
+
+function installMatchMedia(initialMatches: boolean) {
+  let matches = initialMatches;
+  const listeners = new Set<(event: MediaQueryListEvent) => void>();
+  const media = {
+    get matches() {
+      return matches;
+    },
+    media: '(min-width: 768px)',
+    onchange: null,
+    addEventListener: (
+      _type: string,
+      listener: EventListenerOrEventListenerObject,
+    ) => listeners.add(listener as (event: MediaQueryListEvent) => void),
+    removeEventListener: (
+      _type: string,
+      listener: EventListenerOrEventListenerObject,
+    ) => listeners.delete(listener as (event: MediaQueryListEvent) => void),
+    dispatchEvent: () => true,
+  } as unknown as MediaQueryList;
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => media),
+  );
+  return {
+    setMatches(nextMatches: boolean) {
+      matches = nextMatches;
+      const event = { matches, media: media.media } as MediaQueryListEvent;
+      for (const listener of listeners) listener(event);
+    },
+  };
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe('ProcessTable viewport', () => {
   it('labels host-wide data and keeps search outside its scroll region', () => {
     render(
-      <ProcessTable
+      <ControlledProcessTable
         processes={processes(12)}
         procCapability={procCapability}
       />,
     );
 
     expect(
-      screen.getByRole('heading', { name: 'Host-wide GPU processes' }),
+      screen.getByRole('heading', { name: 'Processes' }),
     ).toBeInTheDocument();
     expect(screen.queryByText(/CUDA clients/)).toBeNull();
     expect(screen.queryByText(/current PID namespace/)).toBeNull();
@@ -59,9 +121,13 @@ describe('ProcessTable viewport', () => {
     expect(
       screen.queryByRole('columnheader', { name: 'Workspace' }),
     ).toBeNull();
+    expect(screen.getByLabelText('Filter GPU processes')).toHaveAttribute(
+      'placeholder',
+      'Filter processes',
+    );
 
     const viewport = screen.getByRole('region', {
-      name: 'Host-wide GPU processes table',
+      name: 'GPU processes table',
     });
     expect(viewport).toHaveClass(
       'max-h-[22rem]',
@@ -83,17 +149,23 @@ describe('ProcessTable viewport', () => {
   it('preserves scroll through live updates and resets only vertical scroll on filtering', async () => {
     const initial = processes(12);
     const view = render(
-      <ProcessTable processes={initial} procCapability={procCapability} />,
+      <ControlledProcessTable
+        processes={initial}
+        procCapability={procCapability}
+      />,
     );
     const viewport = screen.getByRole('region', {
-      name: 'Host-wide GPU processes table',
+      name: 'GPU processes table',
     });
     viewport.scrollTop = 180;
     viewport.scrollLeft = 72;
 
     const refreshed = initial.map((process) => ({ ...process }));
     view.rerender(
-      <ProcessTable processes={refreshed} procCapability={procCapability} />,
+      <ControlledProcessTable
+        processes={refreshed}
+        procCapability={procCapability}
+      />,
     );
     expect(viewport.scrollTop).toBe(180);
     expect(viewport.scrollLeft).toBe(72);
@@ -115,7 +187,7 @@ describe('ProcessTable viewport', () => {
         : process,
     );
     const view = render(
-      <ProcessTable
+      <ControlledProcessTable
         processes={attributed}
         procCapability={procCapability}
         attribution={attribution}
@@ -135,5 +207,73 @@ describe('ProcessTable viewport', () => {
       expect(screen.getByRole('cell', { name: '4000' })).toBeInTheDocument(),
     );
     expect(screen.queryByRole('cell', { name: '4001' })).toBeNull();
+  });
+
+  it('reports a controlled result count and clears through its callback', async () => {
+    const onQueryChange = vi.fn();
+    render(
+      <ControlledProcessTable
+        processes={processes(12)}
+        procCapability={procCapability}
+        initialQuery="alice"
+        onQueryChange={onQueryChange}
+      />,
+    );
+
+    expect(screen.getByLabelText('Filter GPU processes')).toHaveValue('alice');
+    await waitFor(() =>
+      expect(screen.getByText('4 of 12 processes')).toBeInTheDocument(),
+    );
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Clear process filter' }),
+    );
+    expect(onQueryChange).toHaveBeenLastCalledWith('');
+    expect(screen.getByLabelText('Filter GPU processes')).toHaveValue('');
+    await waitFor(() =>
+      expect(screen.getByText('12 processes')).toBeInTheDocument(),
+    );
+  });
+
+  it('renders one compact mobile card representation and switches at the breakpoint', () => {
+    const media = installMatchMedia(false);
+    const attributed = processes(2).map((process, index) =>
+      index === 0
+        ? ({
+            ...process,
+            workloadRef: 'opaque-workspace-ref',
+            executable: `/very/long/path/${'worker/'.repeat(12)}worker-0`,
+            commandLine: `worker-0 ${'--very-long-argument '.repeat(12)}`,
+          } as Process)
+        : process,
+    );
+    render(
+      <ControlledProcessTable
+        processes={attributed}
+        procCapability={procCapability}
+        attribution={attribution}
+      />,
+    );
+
+    expect(screen.queryByRole('table')).toBeNull();
+    expect(screen.getAllByTestId('process-card')).toHaveLength(2);
+    expect(screen.getByText('PID 4000')).toBeInTheDocument();
+    expect(screen.getByText('alice / training-lab')).toBeInTheDocument();
+    expect(screen.getAllByText('available')).toHaveLength(2);
+    const viewport = screen.getByRole('region', {
+      name: 'Host-wide GPU process cards',
+    });
+    expect(viewport).toHaveClass('max-w-full', 'overflow-x-hidden');
+
+    const summary = screen.getByLabelText(
+      'Show executable and command for PID 4000',
+    );
+    fireEvent.click(summary);
+    expect(summary.closest('details')).toHaveAttribute('open');
+    expect(screen.getByText(/very-long-argument/)).toHaveClass('break-all');
+
+    act(() => media.setMatches(true));
+    expect(screen.getByRole('table')).toBeInTheDocument();
+    expect(screen.queryByTestId('process-card')).toBeNull();
   });
 });

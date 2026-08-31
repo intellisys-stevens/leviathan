@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { defaultHistoryWindowMs, durationQuery } from './chart-window';
 import type {
   AlignedHistory,
@@ -28,8 +34,16 @@ export type OverviewPoint = {
 export type OverviewHistoryState = {
   entities: OverviewEntity[];
   points: Record<string, OverviewPoint[]>;
+  outgoingPoints: Record<string, OverviewPoint[]> | null;
+  outgoingWindowMilliseconds: number | null;
   loading: boolean;
+  loadedWindowMilliseconds: number | null;
   failedEntities: string[];
+  error: string | null;
+};
+
+export type OverviewHistoryResult = OverviewHistoryState & {
+  retry: () => void;
 };
 
 export type { AlignedHistorySeriesDescriptor } from './types';
@@ -51,7 +65,7 @@ export function overviewTopologyKey(snapshot: Snapshot): string {
 
 export function buildOverviewEntities(snapshot: Snapshot): OverviewEntity[] {
   const entities: OverviewEntity[] = [];
-  let giColor = 0;
+  let colorIndex = 0;
   for (const gpu of snapshot.gpus) {
     entities.push({
       key: `gpu:${gpu.uuid}`,
@@ -59,8 +73,9 @@ export function buildOverviewEntities(snapshot: Snapshot): OverviewEntity[] {
       label: `GPU ${gpu.index}`,
       scope: 'physical_gpu',
       gpuUUID: gpu.uuid,
-      colorIndex: gpu.index,
+      colorIndex,
     });
+    colorIndex += 1;
     for (const gi of gpu.gpuInstances) {
       entities.push({
         key: `gi:${gi.generation || gi.uuid}`,
@@ -69,9 +84,9 @@ export function buildOverviewEntities(snapshot: Snapshot): OverviewEntity[] {
         scope: 'gpu_instance',
         gpuUUID: gpu.uuid,
         giUUID: gi.uuid,
-        colorIndex: giColor,
+        colorIndex,
       });
-      giColor += 1;
+      colorIndex += 1;
     }
   }
   return entities;
@@ -220,8 +235,12 @@ function initialHistoryState(
     latestSampledAt: snapshot.sampledAt,
     entities,
     points,
+    outgoingPoints: null,
+    outgoingWindowMilliseconds: null,
     loading: true,
+    loadedWindowMilliseconds: null,
     failedEntities: [],
+    error: null,
   };
 }
 
@@ -230,6 +249,7 @@ class OverviewHistoryStore {
   private listeners = new Set<() => void>();
   private requestedKey = '';
   private requestToken = 0;
+  private transitionTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(snapshot: Snapshot, entities: OverviewEntity[]) {
     this.state = initialHistoryState(snapshot, entities);
@@ -249,6 +269,7 @@ class OverviewHistoryStore {
   ) {
     const topologyKey = overviewTopologyKey(snapshot);
     if (this.state.topologyKey !== topologyKey) {
+      this.clearTransition();
       this.requestedKey = '';
       this.requestToken += 1;
       this.publish(initialHistoryState(snapshot, entities));
@@ -280,6 +301,7 @@ class OverviewHistoryStore {
     loadHistory: LoadAlignedHistory,
     windowMilliseconds: number,
     retentionMilliseconds: number,
+    requestGeneration = 0,
   ) {
     const topologyKey = overviewTopologyKey(snapshot);
     const requestWindow = durationQuery(windowMilliseconds);
@@ -289,22 +311,35 @@ class OverviewHistoryStore {
           `${key}\u0001${entity}\u0001${metrics.join('\u0002')}`,
       )
       .join('\u0003');
-    const requestKey = `${topologyKey}\u0000${panelID}\u0000${requestWindow}\u0000${descriptorKey}`;
+    const requestKey = `${topologyKey}\u0000${panelID}\u0000${requestWindow}\u0000${descriptorKey}\u0000${requestGeneration}`;
     if (this.requestedKey === requestKey) return;
     this.requestedKey = requestKey;
     if (descriptors.length === 0) {
+      this.clearTransition();
       this.publish({
         ...this.state,
         entities,
         points: {},
+        outgoingPoints: null,
+        outgoingWindowMilliseconds: null,
         loading: false,
+        loadedWindowMilliseconds: windowMilliseconds,
         failedEntities: [],
+        error: null,
       });
       return;
     }
     const requestToken = ++this.requestToken;
     const requestStartedAt = new Date(this.state.latestSampledAt).getTime();
-    this.publish({ ...this.state, loading: true, failedEntities: [] });
+    this.clearTransition();
+    this.publish({
+      ...this.state,
+      outgoingPoints: null,
+      outgoingWindowMilliseconds: null,
+      loading: true,
+      failedEntities: [],
+      error: null,
+    });
     void loadHistory({
       window: requestWindow,
       maxPoints: 720,
@@ -344,13 +379,36 @@ class OverviewHistoryStore {
             retentionMilliseconds,
           );
         }
+        const outgoingPoints =
+          this.state.loadedWindowMilliseconds != null &&
+          this.state.loadedWindowMilliseconds !== windowMilliseconds
+            ? this.state.points
+            : null;
+        const outgoingWindowMilliseconds = outgoingPoints
+          ? this.state.loadedWindowMilliseconds
+          : null;
         this.publish({
           ...this.state,
           entities,
           points,
+          outgoingPoints,
+          outgoingWindowMilliseconds,
           loading: false,
+          loadedWindowMilliseconds: windowMilliseconds,
           failedEntities: [],
+          error: null,
         });
+        if (outgoingPoints) {
+          this.transitionTimer = setTimeout(() => {
+            this.transitionTimer = null;
+            if (this.state.outgoingPoints !== outgoingPoints) return;
+            this.publish({
+              ...this.state,
+              outgoingPoints: null,
+              outgoingWindowMilliseconds: null,
+            });
+          }, 140);
+        }
       })
       .catch(() => {
         if (
@@ -362,6 +420,7 @@ class OverviewHistoryStore {
           ...this.state,
           loading: false,
           failedEntities: entities.map((entity) => entity.key),
+          error: 'History request failed.',
         });
       });
   }
@@ -369,6 +428,12 @@ class OverviewHistoryStore {
   private publish(next: InternalHistoryState) {
     this.state = next;
     for (const listener of this.listeners) listener();
+  }
+
+  private clearTransition() {
+    if (this.transitionTimer == null) return;
+    clearTimeout(this.transitionTimer);
+    this.transitionTimer = null;
   }
 }
 
@@ -380,8 +445,9 @@ export function useOverviewHistory(
   loadHistory: LoadAlignedHistory,
   windowMilliseconds: number,
   retentionMilliseconds: number,
-): OverviewHistoryState {
+): OverviewHistoryResult {
   const [store] = useState(() => new OverviewHistoryStore(snapshot, entities));
+  const [requestGeneration, setRequestGeneration] = useState(0);
 
   useEffect(() => {
     store.mergeSnapshot(snapshot, entities, retentionMilliseconds);
@@ -396,6 +462,7 @@ export function useOverviewHistory(
       loadHistory,
       windowMilliseconds,
       retentionMilliseconds,
+      requestGeneration,
     );
   }, [
     descriptors,
@@ -403,6 +470,7 @@ export function useOverviewHistory(
     loadHistory,
     panelID,
     retentionMilliseconds,
+    requestGeneration,
     snapshot,
     store,
     windowMilliseconds,
@@ -413,17 +481,39 @@ export function useOverviewHistory(
     store.getSnapshot,
     store.getSnapshot,
   );
+  const visibleWindowMilliseconds =
+    state.loadedWindowMilliseconds ?? windowMilliseconds;
   const points = useMemo(() => {
     const cutoff =
-      new Date(state.latestSampledAt).getTime() - windowMilliseconds;
+      new Date(state.latestSampledAt).getTime() - visibleWindowMilliseconds;
     const visible: Record<string, OverviewPoint[]> = {};
     for (const [entity, series] of Object.entries(state.points)) {
       const start = firstPointAtOrAfter(series, cutoff);
       visible[entity] = start === 0 ? series : series.slice(start);
     }
     return visible;
-  }, [state.latestSampledAt, state.points, windowMilliseconds]);
-  return { ...state, points };
+  }, [state.latestSampledAt, state.points, visibleWindowMilliseconds]);
+  const outgoingPoints = useMemo(() => {
+    if (!state.outgoingPoints || state.outgoingWindowMilliseconds == null)
+      return null;
+    const cutoff =
+      new Date(state.latestSampledAt).getTime() -
+      state.outgoingWindowMilliseconds;
+    const visible: Record<string, OverviewPoint[]> = {};
+    for (const [entity, series] of Object.entries(state.outgoingPoints)) {
+      const start = firstPointAtOrAfter(series, cutoff);
+      visible[entity] = start === 0 ? series : series.slice(start);
+    }
+    return visible;
+  }, [
+    state.latestSampledAt,
+    state.outgoingPoints,
+    state.outgoingWindowMilliseconds,
+  ]);
+  const retry = useCallback(() => {
+    setRequestGeneration((generation) => generation + 1);
+  }, []);
+  return { ...state, points, outgoingPoints, retry };
 }
 
 export type ChartRow = { time: number } & Record<string, number | null>;

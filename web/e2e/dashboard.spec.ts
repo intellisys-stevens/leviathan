@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 const sampledAt = '2026-08-30T16:00:00.000Z';
 const gpuUUID = 'GPU-synthetic-00000000';
@@ -270,6 +271,10 @@ async function installSyntheticBackend(
       constructor(url: string | URL) {
         super();
         this.url = String(url);
+        Object.defineProperty(window, '__leviathanEventSource', {
+          configurable: true,
+          value: this,
+        });
         queueMicrotask(() => this.onopen?.(new Event('open')));
       }
 
@@ -387,8 +392,15 @@ test.beforeEach(async ({ page }, testInfo) => {
   await installSyntheticBackend(page, {
     injectAlignedGap: testInfo.title.includes('explicit missing sample'),
   });
-  await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+  const directOperations = testInfo.title.includes('direct Operations');
+  await page.goto(directOperations ? '/#operations' : '/#overview');
+  await expect(
+    page.getByRole('heading', {
+      name: directOperations ? 'Operations' : 'Overview',
+      exact: true,
+      level: 1,
+    }),
+  ).toBeVisible();
 });
 
 const overviewChartIDs = [
@@ -407,7 +419,40 @@ function moveCommands(pathData: string | null) {
   return pathData?.match(/M/gu)?.length ?? 0;
 }
 
-test('renders the Leviathan frost brand in the selected theme', async ({
+function canvasFrameSignature(canvas: Locator) {
+  return canvas.evaluate((element) => {
+    const source = element as HTMLCanvasElement;
+    const probe = document.createElement('canvas');
+    probe.width = 192;
+    probe.height = 112;
+    const context = probe.getContext('2d');
+    if (!context) throw new Error('2D canvas context unavailable');
+    context.drawImage(source, 0, 0, probe.width, probe.height);
+    return probe.toDataURL('image/png');
+  });
+}
+
+function canvasFramesAreStable(canvas: Locator) {
+  return canvas.evaluate(async (element) => {
+    const source = element as HTMLCanvasElement;
+    const signature = () => {
+      const probe = document.createElement('canvas');
+      probe.width = 192;
+      probe.height = 112;
+      const context = probe.getContext('2d');
+      if (!context) throw new Error('2D canvas context unavailable');
+      context.drawImage(source, 0, 0, probe.width, probe.height);
+      return probe.toDataURL('image/png');
+    };
+    const first = signature();
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+    return signature() === first;
+  });
+}
+
+test('renders frost-dragon branding with glass, aurora, and ambient snow layers', async ({
   page,
 }, testInfo) => {
   const light = testInfo.project.name.endsWith('-light');
@@ -417,37 +462,424 @@ test('renders the Leviathan frost brand in the selected theme', async ({
 
   await expect(page.getByText('Leviathan', { exact: true })).toBeVisible();
   await expect(page.getByText('MIGLens', { exact: true })).toHaveCount(0);
-  await expect(
-    page.getByRole('link', { name: 'Open Leviathan repository on GitHub' }),
-  ).toHaveAttribute('href', 'https://github.com/intellisys-stevens/leviathan');
+  if (page.viewportSize()!.width < 768) {
+    await page.getByRole('button', { name: 'Open app menu' }).click();
+    await expect(
+      page.getByRole('link', { name: 'Open Leviathan repository on GitHub' }),
+    ).toHaveAttribute(
+      'href',
+      'https://github.com/intellisys-stevens/leviathan',
+    );
+    await page.keyboard.press('Escape');
+  } else {
+    await expect(
+      page.getByRole('link', { name: 'Open Leviathan repository on GitHub' }),
+    ).toHaveAttribute(
+      'href',
+      'https://github.com/intellisys-stevens/leviathan',
+    );
+  }
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute(
     'href',
     '/leviathan-mark.svg',
   );
+  const markResponse = await page.request.get('/leviathan-mark.svg');
+  expect(markResponse.status()).toBe(200);
+  expect(markResponse.headers()['content-type']).toContain('image/svg+xml');
+  expect(await markResponse.text()).toContain(
+    '<title id="title">Leviathan frost-dragon mark</title>',
+  );
+  const headerMark = page.getByTestId('leviathan-header-mark');
+  await expect(headerMark).toBeVisible();
+  const expectedMarkSize = page.viewportSize()!.width < 768 ? 32 : 40;
+  expect(await headerMark.boundingBox()).toMatchObject({
+    width: expectedMarkSize,
+    height: expectedMarkSize,
+  });
+  const ambientSnow = page.getByTestId('ambient-snow');
+  await expect(ambientSnow).toHaveAttribute('aria-hidden', 'true');
+  await expect(ambientSnow).toHaveJSProperty('tagName', 'CANVAS');
 
   const visual = await page.evaluate(() => {
-    const body = getComputedStyle(document.body);
-    const cardElement = document.querySelector('.gpu-card')!;
+    const cardElement = document.querySelector('.frost-panel')!;
     const card = getComputedStyle(cardElement);
     const cardRail = getComputedStyle(cardElement, '::before');
     const header = getComputedStyle(document.querySelector('header')!);
+    const shell = document.querySelector('.app-shell')!;
+    const auroraPrimary = getComputedStyle(shell, '::before');
+    const auroraSecondary = getComputedStyle(shell, '::after');
+    const ambientSnow = document.querySelector<HTMLCanvasElement>(
+      '[data-testid="ambient-snow"]',
+    )!;
+    const snowStyle = getComputedStyle(ambientSnow);
+    const snowCap = getComputedStyle(
+      document.querySelector('.snow-capped')!,
+      '::after',
+    );
+    const root = getComputedStyle(document.documentElement);
     return {
-      bodyPattern: body.backgroundImage,
+      auroraPrimary: auroraPrimary.backgroundImage,
+      auroraSecondary: auroraSecondary.backgroundImage,
+      auroraPrimaryAnimation: auroraPrimary.animationName,
+      auroraSecondaryAnimation: auroraSecondary.animationName,
+      ambientSnowDisplay: snowStyle.display,
+      ambientSnowPointerEvents: snowStyle.pointerEvents,
+      ambientSnowPosition: snowStyle.position,
+      ambientSnowZIndex: snowStyle.zIndex,
+      ambientSnowOverflow: snowStyle.overflow,
+      ambientSnowState: ambientSnow.dataset.state,
+      snowCapBackground: snowCap.backgroundImage,
+      snowCapAnimation: snowCap.animationName,
       cardRail: cardRail.backgroundImage,
       cardRadius: Number.parseFloat(card.borderRadius),
+      cardBackdrop: card.backdropFilter,
+      headerBackdrop: header.backdropFilter,
       headerBorder: Number.parseFloat(header.borderBottomWidth),
+      glassPanelToken: root.getPropertyValue('--glass-panel').trim(),
+      auroraToken: root.getPropertyValue('--aurora').trim(),
       storedTheme: localStorage.getItem('leviathan.theme.v1'),
       legacyKeys: Object.keys(localStorage).filter((key) =>
         key.startsWith('miglens.'),
       ),
     };
   });
-  expect(visual.bodyPattern).not.toBe('none');
+  expect(visual.auroraPrimary).not.toBe('none');
+  expect(visual.auroraSecondary).not.toBe('none');
+  expect(visual.auroraPrimaryAnimation).toBe('aurora-clockwise');
+  expect(visual.auroraSecondaryAnimation).toBe('aurora-counterclockwise');
+  expect(visual.ambientSnowDisplay).toBe(light ? 'none' : 'block');
+  expect(visual.ambientSnowPointerEvents).toBe('none');
+  expect(visual.ambientSnowPosition).toBe('fixed');
+  expect(visual.ambientSnowZIndex).toBe('-1');
+  expect(visual.ambientSnowOverflow).toBe('clip');
+  expect(visual.ambientSnowState).toBe(light ? 'hidden' : 'running');
+  if (!light) {
+    expect(visual.snowCapBackground).not.toBe('none');
+  }
+  expect(visual.snowCapAnimation).toBe('none');
   expect(visual.cardRail).not.toBe('none');
   expect(visual.cardRadius).toBeLessThanOrEqual(8);
+  expect(visual.cardBackdrop).toContain('blur');
+  expect(visual.headerBackdrop).toContain('blur');
   expect(visual.headerBorder).toBeGreaterThanOrEqual(1);
+  expect(visual.glassPanelToken).not.toBe('');
+  expect(visual.auroraToken).not.toBe('');
   expect(visual.storedTheme).toBe(light ? 'light' : 'dark');
   expect(visual.legacyKeys).toEqual([]);
+});
+
+test('animates, pauses, resumes, and theme-gates the ambient snow canvas', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'chromium-desktop-dark',
+    'One dark desktop project verifies the live canvas lifecycle.',
+  );
+  const canvas = page.getByTestId('ambient-snow');
+  await expect(canvas).toBeVisible();
+  await expect(canvas).toHaveAttribute('data-state', 'running');
+
+  const firstFrame = await canvasFrameSignature(canvas);
+  await expect
+    .poll(() => canvasFrameSignature(canvas), {
+      intervals: [80, 120, 180],
+      timeout: 3_000,
+    })
+    .not.toBe(firstFrame);
+
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', {
+      configurable: true,
+      get: () => true,
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(canvas).toHaveAttribute('data-state', 'paused');
+  await expect.poll(() => canvasFramesAreStable(canvas)).toBe(true);
+
+  const pausedFrame = await canvasFrameSignature(canvas);
+  await page.evaluate(() => {
+    delete (document as unknown as Record<string, unknown>).hidden;
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(canvas).toHaveAttribute('data-state', 'running');
+  await expect
+    .poll(() => canvasFrameSignature(canvas), {
+      intervals: [80, 120, 180],
+      timeout: 3_000,
+    })
+    .not.toBe(pausedFrame);
+
+  await page
+    .getByRole('button', { name: 'Use light theme' })
+    .dispatchEvent('click');
+  await expect(canvas).toBeHidden();
+  await expect(canvas).toHaveAttribute('data-state', 'hidden');
+  await page
+    .getByRole('button', { name: 'Use dark theme' })
+    .dispatchEvent('click');
+  await expect(canvas).toBeVisible();
+  await expect(canvas).toHaveAttribute('data-state', 'running');
+});
+
+test('renders mobile snow at display cadence without per-flake path work', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'chromium-desktop-dark',
+    'One dark Chromium project measures the canvas renderer.',
+  );
+
+  await page.addInitScript(() => {
+    const probe = {
+      arcCalls: 0,
+      clearCalls: 0,
+      drawImageCalls: 0,
+      firstFrameAt: 0,
+      frameDraws: 0,
+      frameStarted: 0,
+      lastFrameAt: 0,
+      maxFrameDuration: 0,
+      measuring: false,
+      referenceFrames: 0,
+    };
+    (
+      window as unknown as {
+        __leviathanSnowProbe: typeof probe;
+      }
+    ).__leviathanSnowProbe = probe;
+
+    const countDisplayFrames = () => {
+      if (probe.measuring) probe.referenceFrames += 1;
+      requestAnimationFrame(countDisplayFrames);
+    };
+    requestAnimationFrame(countDisplayFrames);
+
+    const isAmbient = (context: CanvasRenderingContext2D) =>
+      context.canvas.dataset.testid === 'ambient-snow';
+    const originalArc = Object.getOwnPropertyDescriptor(
+      CanvasRenderingContext2D.prototype,
+      'arc',
+    )!.value as CanvasRenderingContext2D['arc'];
+    const originalClear = Object.getOwnPropertyDescriptor(
+      CanvasRenderingContext2D.prototype,
+      'clearRect',
+    )!.value as CanvasRenderingContext2D['clearRect'];
+    const originalDrawImage = Object.getOwnPropertyDescriptor(
+      CanvasRenderingContext2D.prototype,
+      'drawImage',
+    )!.value as CanvasRenderingContext2D['drawImage'];
+    CanvasRenderingContext2D.prototype.arc = function (
+      this: CanvasRenderingContext2D,
+      ...arguments_
+    ) {
+      if (isAmbient(this)) probe.arcCalls += 1;
+      Reflect.apply(originalArc, this, arguments_);
+    };
+    CanvasRenderingContext2D.prototype.clearRect = function (
+      this: CanvasRenderingContext2D,
+      ...arguments_
+    ) {
+      if (isAmbient(this)) {
+        probe.clearCalls += 1;
+        probe.frameDraws = 0;
+        probe.frameStarted = performance.now();
+        if (probe.firstFrameAt === 0) probe.firstFrameAt = probe.frameStarted;
+        probe.lastFrameAt = probe.frameStarted;
+      }
+      Reflect.apply(originalClear, this, arguments_);
+    };
+    CanvasRenderingContext2D.prototype.drawImage = function (
+      this: CanvasRenderingContext2D,
+      ...arguments_
+    ) {
+      if (isAmbient(this)) {
+        probe.drawImageCalls += 1;
+        probe.frameDraws += 1;
+        const particleCount = Number(this.canvas.dataset.particleCount);
+        if (particleCount > 0 && probe.frameDraws === particleCount) {
+          probe.maxFrameDuration = Math.max(
+            probe.maxFrameDuration,
+            performance.now() - probe.frameStarted,
+          );
+        }
+      }
+      Reflect.apply(originalDrawImage, this, arguments_);
+    } as typeof CanvasRenderingContext2D.prototype.drawImage;
+  });
+
+  const session = await page.context().newCDPSession(page);
+  await session.send('Emulation.setDeviceMetricsOverride', {
+    width: 320,
+    height: 800,
+    deviceScaleFactor: 2,
+    mobile: true,
+  });
+  await page.reload();
+  await expect(
+    page.getByRole('heading', { name: 'Overview', exact: true, level: 1 }),
+  ).toBeVisible();
+
+  const canvas = page.getByTestId('ambient-snow');
+  await expect(canvas).toHaveAttribute('data-state', 'running');
+  await expect(canvas).toHaveAttribute('data-particle-count', '36');
+  await expect(canvas).toHaveAttribute('data-effective-dpr', '1.25');
+  await expect
+    .poll(() => canvas.evaluate((node) => (node as HTMLCanvasElement).width))
+    .toBe(400);
+  await expect
+    .poll(() => canvas.evaluate((node) => (node as HTMLCanvasElement).height))
+    .toBe(1_000);
+
+  await page.evaluate(() => {
+    const probe = (
+      window as unknown as {
+        __leviathanSnowProbe: {
+          arcCalls: number;
+          clearCalls: number;
+          drawImageCalls: number;
+          firstFrameAt: number;
+          frameDraws: number;
+          frameStarted: number;
+          lastFrameAt: number;
+          maxFrameDuration: number;
+          measuring: boolean;
+          referenceFrames: number;
+        };
+      }
+    ).__leviathanSnowProbe;
+    probe.arcCalls = 0;
+    probe.clearCalls = 0;
+    probe.drawImageCalls = 0;
+    probe.firstFrameAt = 0;
+    probe.frameDraws = 0;
+    probe.frameStarted = performance.now();
+    probe.lastFrameAt = 0;
+    probe.maxFrameDuration = 0;
+    probe.referenceFrames = 0;
+    probe.measuring = true;
+  });
+  await page.waitForTimeout(1_500);
+  await page.evaluate(() => {
+    (
+      window as unknown as {
+        __leviathanSnowProbe: { measuring: boolean };
+      }
+    ).__leviathanSnowProbe.measuring = false;
+  });
+  const probe = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          __leviathanSnowProbe: {
+            arcCalls: number;
+            clearCalls: number;
+            drawImageCalls: number;
+            firstFrameAt: number;
+            frameDraws: number;
+            frameStarted: number;
+            lastFrameAt: number;
+            maxFrameDuration: number;
+            measuring: boolean;
+            referenceFrames: number;
+          };
+        }
+      ).__leviathanSnowProbe,
+  );
+  // Compare with the browser's actual display clock so a loaded CI host does
+  // not look like an intentional renderer throttle. The optimized snow loop
+  // should draw on essentially every delivered display frame.
+  expect(probe.referenceFrames).toBeGreaterThanOrEqual(20);
+  expect(probe.clearCalls / probe.referenceFrames).toBeGreaterThanOrEqual(0.85);
+  expect(probe.drawImageCalls).toBeGreaterThanOrEqual(probe.clearCalls * 36);
+  expect(probe.arcCalls).toBe(0);
+  expect(probe.maxFrameDuration).toBeLessThan(50);
+  await session.send('Emulation.clearDeviceMetricsOverride');
+});
+
+test('keeps the ambient snow backing store viewport-sized and DPR-capped', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'chromium-desktop-dark',
+    'One dark project verifies the full responsive canvas range.',
+  );
+  const canvas = page.getByTestId('ambient-snow');
+
+  for (const width of [320, 360, 768, 1280, 1440]) {
+    await page.setViewportSize({ width, height: 720 });
+    const readMetrics = () =>
+      canvas.evaluate((element) => {
+        const snow = element as HTMLCanvasElement;
+        const bounds = snow.getBoundingClientRect();
+        const cappedDPR = Number(snow.dataset.effectiveDpr);
+        return {
+          backingHeight: snow.height,
+          backingWidth: snow.width,
+          cappedDPR,
+          cssHeight: bounds.height,
+          cssWidth: bounds.width,
+          left: bounds.left,
+          top: bounds.top,
+          viewportHeight: window.innerHeight,
+          viewportWidth: window.innerWidth,
+          particleCount: Number(snow.dataset.particleCount),
+        };
+      });
+
+    await expect
+      .poll(async () => {
+        const metrics = await readMetrics();
+        return (
+          Math.abs(
+            metrics.backingWidth -
+              Math.round(metrics.cssWidth * metrics.cappedDPR),
+          ) <= 1 &&
+          Math.abs(
+            metrics.backingHeight -
+              Math.round(metrics.cssHeight * metrics.cappedDPR),
+          ) <= 1
+        );
+      })
+      .toBe(true);
+
+    const metrics = await readMetrics();
+    expect(metrics.left).toBeCloseTo(0, 1);
+    expect(metrics.top).toBeCloseTo(0, 1);
+    expect(metrics.cssWidth).toBeCloseTo(metrics.viewportWidth, 0);
+    expect(metrics.cssHeight).toBeCloseTo(metrics.viewportHeight, 0);
+    const coarse = width < 768;
+    expect(metrics.backingWidth / metrics.cssWidth).toBeLessThanOrEqual(
+      coarse ? 1.26 : 1.51,
+    );
+    expect(metrics.backingHeight / metrics.cssHeight).toBeLessThanOrEqual(
+      coarse ? 1.26 : 1.51,
+    );
+    expect(metrics.particleCount).toBeGreaterThanOrEqual(coarse ? 36 : 70);
+    expect(metrics.particleCount).toBeLessThanOrEqual(coarse ? 64 : 140);
+  }
+
+  const session = await page.context().newCDPSession(page);
+  await session.send('Emulation.setDeviceMetricsOverride', {
+    width: 800,
+    height: 600,
+    deviceScaleFactor: 2,
+    mobile: false,
+  });
+  await page.evaluate(() => window.dispatchEvent(new Event('resize')));
+  await expect
+    .poll(() =>
+      canvas.evaluate((element) => {
+        const snow = element as HTMLCanvasElement;
+        return {
+          dpr: window.devicePixelRatio,
+          height: snow.height,
+          width: snow.width,
+        };
+      }),
+    )
+    .toEqual({ dpr: 2, height: 900, width: 1_200 });
+  await session.send('Emulation.clearDeviceMetricsOverride');
 });
 
 test('renders healthy aligned history as one continuous path per series', async ({
@@ -488,7 +920,8 @@ test('renders an explicit missing sample as separated path segments', async ({
 test('lays out GPU cards responsively without rendering opaque identifiers', async ({
   page,
 }) => {
-  const topology = page.getByLabel('GPU topology');
+  await page.getByRole('link', { name: 'Resources' }).click();
+  const topology = page.getByRole('region', { name: 'GPU topology' });
   const cards = topology.locator('.gpu-card');
   await expect(cards).toHaveCount(2);
   const [first, second] = await Promise.all([
@@ -499,6 +932,7 @@ test('lays out GPU cards responsively without rendering opaque identifiers', asy
   expect(second).not.toBeNull();
   if (page.viewportSize()!.width >= 1280) {
     expect(Math.abs(first!.y - second!.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(first!.height - second!.height)).toBeLessThanOrEqual(1);
     expect(second!.x).toBeGreaterThan(first!.x + first!.width);
   } else {
     expect(second!.y).toBeGreaterThanOrEqual(first!.y + first!.height + 15);
@@ -520,14 +954,32 @@ test('keeps the live cadence control concise and visually balanced', async ({
 }) => {
   const viewport = page.viewportSize();
   expect(viewport).not.toBeNull();
+  const header = page.getByRole('banner');
   const desktop = page.getByTestId('desktop-live-sampling');
   const mobile = page.getByTestId('mobile-live-sampling');
-  let samplingButtons = desktop.locator('fieldset button');
+  let samplingGroup = desktop.getByRole('radiogroup', {
+    name: 'Sampling interval',
+  });
 
+  await expect(header.getByText('Leviathan', { exact: true })).toBeVisible();
+  if (viewport!.width >= 768) {
+    await expect(
+      header.getByText('synthetic-host', { exact: true }),
+    ).toBeVisible();
+  } else {
+    await expect(
+      header.getByText('synthetic-host', { exact: true }),
+    ).toBeHidden();
+  }
+  await expect(header).not.toContainText('local read-only');
   await expect(page.getByText(/NVML.*GPM/u)).toHaveCount(0);
   await expect(
     page.getByText('Physical GPU and MIG topology.', { exact: true }),
   ).toHaveCount(0);
+  await expect(
+    page.getByText('GPU and MIG topology.', { exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByText(/^host\s*\//u)).toHaveCount(0);
   await expect(
     page.getByText(
       'History across this host; the resource view above does not filter these charts.',
@@ -539,14 +991,20 @@ test('keeps the live cadence control concise and visually balanced', async ({
     await expect(desktop).toBeVisible();
     await expect(mobile).toBeHidden();
     await expect(desktop.getByText('Live', { exact: true })).toBeVisible();
-    await expect(desktop.locator('button[aria-pressed="true"]')).toHaveCount(1);
+    await expect(samplingGroup).toHaveClass(/\bsegmented-control\b/u);
+    await expect(
+      samplingGroup.getByRole('radio', { checked: true }),
+    ).toHaveCount(1);
+    await expect(
+      samplingGroup.locator('.segmented-item[data-active="true"]'),
+    ).toHaveCount(1);
 
     const geometry = await desktop
       .locator('[aria-label="Live status and sampling"]')
       .evaluate((element) => {
         const status = element.querySelector('output')!.getBoundingClientRect();
         const choices = element
-          .querySelector('fieldset')!
+          .querySelector('[role="radiogroup"]')!
           .getBoundingClientRect();
         const bounds = element.getBoundingClientRect();
         return {
@@ -558,7 +1016,7 @@ test('keeps the live cadence control concise and visually balanced', async ({
         };
       });
 
-    expect(geometry.width).toBeLessThanOrEqual(184);
+    expect(geometry.width).toBeLessThanOrEqual(224);
     expect(geometry.centerDelta).toBeLessThanOrEqual(1);
     expect(geometry.outerBorderWidth).toBe('0px');
   } else {
@@ -568,6 +1026,9 @@ test('keeps the live cadence control concise and visually balanced', async ({
       name: 'Live status, sampling 1s',
     });
     await expect(trigger).toHaveText('Live · 1s');
+    if (viewport!.width <= 380) {
+      await expect(trigger.locator('.mobile-status-name')).toBeHidden();
+    }
     const triggerBox = await trigger.boundingBox();
     expect(triggerBox).not.toBeNull();
     expect(triggerBox!.width).toBeLessThan(120);
@@ -575,39 +1036,47 @@ test('keeps the live cadence control concise and visually balanced', async ({
     await trigger.click();
     const popup = page.getByRole('dialog');
     await expect(popup).toBeVisible();
-    await expect(popup.locator('button[aria-pressed="true"]')).toHaveCount(1);
-    samplingButtons = popup.locator('fieldset button');
+    samplingGroup = popup.getByRole('radiogroup', {
+      name: 'Sampling interval',
+    });
+    await expect(samplingGroup).toHaveClass(/\bsegmented-control\b/u);
+    await expect(
+      samplingGroup.getByRole('radio', { checked: true }),
+    ).toHaveCount(1);
   }
 
-  await expect(samplingButtons).toHaveCount(3);
-  const buttonBoxes = await samplingButtons.evaluateAll((buttons) =>
-    buttons.map((button) => {
-      const bounds = button.getBoundingClientRect();
+  const samplingItems = samplingGroup.locator('.segmented-item');
+  await expect(samplingGroup.getByRole('radio')).toHaveCount(3);
+  await expect(samplingItems).toHaveCount(3);
+  const itemBoxes = await samplingItems.evaluateAll((items) =>
+    items.map((item) => {
+      const bounds = item.getBoundingClientRect();
       return { left: bounds.left, right: bounds.right, width: bounds.width };
     }),
   );
-  for (const box of buttonBoxes) expect(box.width).toBeGreaterThanOrEqual(40);
-  for (let index = 1; index < buttonBoxes.length; index += 1) {
+  for (const box of itemBoxes) expect(box.width).toBeGreaterThanOrEqual(40);
+  for (let index = 1; index < itemBoxes.length; index += 1) {
     expect(
-      buttonBoxes[index].left - buttonBoxes[index - 1].right,
-    ).toBeGreaterThanOrEqual(3.5);
+      itemBoxes[index].left - itemBoxes[index - 1].right,
+    ).toBeGreaterThanOrEqual(-0.01);
   }
   if (viewport!.width < 768) {
-    const widths = buttonBoxes.map(({ width }) => width);
+    const widths = itemBoxes.map(({ width }) => width);
     expect(Math.max(...widths) - Math.min(...widths)).toBeLessThanOrEqual(1);
   }
 
-  const halfSecond = samplingButtons.filter({ hasText: /^0\.5s$/u }).first();
-  const beforeUpdate = await halfSecond.evaluate((element) => ({
+  const halfSecond = samplingGroup.getByRole('radio', { name: '0.5s' });
+  const halfSecondItem = samplingItems.filter({ hasText: /^0\.5s$/u });
+  const beforeUpdate = await halfSecondItem.evaluate((element) => ({
     width: (element as HTMLElement).offsetWidth,
     height: (element as HTMLElement).offsetHeight,
   }));
-  await halfSecond.click();
-  await expect(halfSecond).toHaveText('0.5s');
-  await expect(halfSecond.locator('svg')).toHaveCount(0);
-  await expect(halfSecond.locator('.animate-spin')).toHaveCount(0);
-  await expect(halfSecond).toHaveAttribute('aria-pressed', 'true');
-  const duringUpdate = await halfSecond.evaluate((element) => ({
+  await halfSecondItem.click();
+  await expect(halfSecondItem).toHaveText('0.5s');
+  await expect(halfSecondItem.locator('svg')).toHaveCount(0);
+  await expect(halfSecondItem.locator('.animate-spin')).toHaveCount(0);
+  await expect(halfSecond).toBeChecked();
+  const duringUpdate = await halfSecondItem.evaluate((element) => ({
     width: (element as HTMLElement).offsetWidth,
     height: (element as HTMLElement).offsetHeight,
   }));
@@ -616,10 +1085,68 @@ test('keeps the live cadence control concise and visually balanced', async ({
   await expect(page.getByText('Sampling', { exact: true })).toHaveCount(0);
 });
 
+test('uses one smooth segmented-control motion contract for cadence and chart windows', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'chromium-desktop-dark',
+    'One desktop project verifies shared control geometry and independence.',
+  );
+  const sampling = page
+    .getByTestId('desktop-live-sampling')
+    .getByRole('radiogroup', { name: 'Sampling interval' });
+  const telemetryHeader = page
+    .getByRole('heading', { name: 'Telemetry', exact: true, level: 2 })
+    .locator('xpath=..');
+  const chartWindow = telemetryHeader.getByRole('radiogroup', {
+    name: 'Chart window',
+  });
+  await expect(page.getByText('All GPUs', { exact: true })).toHaveCount(0);
+
+  const motion = (group: Locator) =>
+    group.locator('.segmented-thumb').evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        duration: style.transitionDuration,
+        property: style.transitionProperty,
+        timing: style.transitionTimingFunction,
+        transform: style.transform,
+      };
+    });
+  const [samplingMotion, chartMotion] = await Promise.all([
+    motion(sampling),
+    motion(chartWindow),
+  ]);
+  expect(samplingMotion.duration).toBe('0.2s');
+  expect(chartMotion.duration).toBe(samplingMotion.duration);
+  expect(chartMotion.property).toContain('transform');
+  expect(chartMotion.timing).toBe(samplingMotion.timing);
+
+  const initialTransform = chartMotion.transform;
+  await chartWindow.locator('.segmented-item', { hasText: /^15m$/u }).click();
+  await expect(chartWindow.getByRole('radio', { name: '15m' })).toBeChecked();
+  await expect(sampling.getByRole('radio', { name: '1s' })).toBeChecked();
+  await expect
+    .poll(async () => (await motion(chartWindow)).transform)
+    .not.toBe(initialTransform);
+});
+
 test('bounds the process table with sticky headers and a scroll viewport', async ({
   page,
 }) => {
+  await page.getByRole('link', { name: 'Operations' }).click();
   const processSection = page.getByTestId('process-section');
+  if (page.viewportSize()!.width < 768) {
+    const cards = page.getByTestId('process-card');
+    await expect(cards).toHaveCount(syntheticProcessCount);
+    await cards.first().getByText('Executable and command').click();
+    await expect(cards.first().getByText('/usr/bin/python3')).toBeVisible();
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth,
+    );
+    expect(overflow).toBeLessThanOrEqual(0);
+    return;
+  }
   const viewport = page.getByTestId('process-scroll-viewport');
   const search = page.getByLabel('Filter GPU processes');
   await processSection.scrollIntoViewIfNeeded();
@@ -679,17 +1206,22 @@ test('bounds the process table with sticky headers and a scroll viewport', async
   await search.fill('');
 });
 
-test('switches GPU and People views without reloading charts or clearing process filters', async ({
+test('switches workbench views without reloading charts or clearing process filters', async ({
   page,
 }) => {
   await expect.poll(() => alignedRequestCount(page)).toBe(5);
+  await page.getByRole('link', { name: 'Operations' }).click();
   const filter = page.getByLabel('Filter GPU processes');
   await filter.fill('synthetic-user-17');
-  await expect(
-    page.getByTestId('process-scroll-viewport').locator('tbody tr'),
-  ).toHaveCount(1);
+  if (page.viewportSize()!.width >= 768) {
+    await expect(
+      page.getByTestId('process-scroll-viewport').locator('tbody tr'),
+    ).toHaveCount(1);
+  } else {
+    await expect(page.getByTestId('process-card')).toHaveCount(1);
+  }
 
-  await page.getByRole('button', { name: 'People' }).click();
+  await page.getByRole('link', { name: 'Workloads' }).click();
   await expect(page.getByTestId('people-view')).toBeVisible();
   await expect(
     page.getByText('synthetic-owner', { exact: true }),
@@ -733,12 +1265,13 @@ test('switches GPU and People views without reloading charts or clearing process
     );
   }
 
-  await expect(filter).toHaveValue('synthetic-user-17');
-  await expect(page.getByTestId('temperature-chart')).toBeVisible();
+  await expect(page.getByTestId('process-section')).toHaveCount(0);
+  await expect(page.getByTestId('temperature-chart')).toHaveCount(0);
   await expect.poll(() => alignedRequestCount(page)).toBe(5);
 
+  await page.getByRole('link', { name: 'Resources' }).click();
   await page
-    .getByRole('button', { name: 'Open GPU 0 · Full GPU details' })
+    .getByRole('button', { name: 'Open GPU 0 full GPU details' })
     .click();
   const detail = page.getByTestId('detail-sheet');
   await expect(detail).toBeVisible();
@@ -751,31 +1284,39 @@ test('switches GPU and People views without reloading charts or clearing process
   await expect(
     detail.getByText('synthetic · physical_gpu · available', { exact: true }),
   ).toHaveCount(0);
-  await expect(filter).toHaveValue('synthetic-user-17');
+  await expect(page.getByLabel('Filter GPU processes')).toHaveCount(0);
   await detail.getByRole('button', { name: 'Close' }).click();
   await expect(detail).toBeHidden();
 
-  await page
-    .getByRole('button', { name: 'Open GPU 1 · GI 0 · CI 0 details' })
-    .click();
+  await page.getByRole('button', { name: /GI 0 \/ CI 0/u }).click();
   await expect(detail).toBeVisible();
   await expect(
     detail.getByText('synthetic · gpu_instance · available', { exact: true }),
   ).toHaveCount(0);
-  await expect(filter).toHaveValue('synthetic-user-17');
+  await expect(page.getByLabel('Filter GPU processes')).toHaveCount(0);
   await detail.getByRole('button', { name: 'Close' }).click();
   await expect(detail).toBeHidden();
 
-  await page.getByRole('button', { name: 'GPUs' }).click();
-  await expect(page.getByLabel('GPU topology')).toBeVisible();
-  await expect(filter).toHaveValue('synthetic-user-17');
+  await page.getByRole('link', { name: 'Operations' }).click();
+  await expect(page.getByLabel('Filter GPU processes')).toHaveValue(
+    'synthetic-user-17',
+  );
+  if (page.viewportSize()!.width >= 768) {
+    await expect(
+      page.getByTestId('process-scroll-viewport').locator('tbody tr'),
+    ).toHaveCount(1);
+  } else {
+    await expect(page.getByTestId('process-card')).toHaveCount(1);
+  }
+  await page.getByRole('link', { name: 'Resources' }).click();
   await expect(
-    page.getByTestId('process-scroll-viewport').locator('tbody tr'),
-  ).toHaveCount(1);
+    page.getByRole('region', { name: 'GPU topology' }),
+  ).toBeVisible();
   await expect.poll(() => alignedRequestCount(page)).toBe(5);
 });
 
 test('keeps every detail percentage tick visible', async ({ page }) => {
+  await page.getByRole('link', { name: 'Resources' }).click();
   await page
     .getByRole('button', { name: 'Open GPU 0 full GPU details' })
     .click();
@@ -795,8 +1336,9 @@ test('keeps every detail percentage tick visible', async ({ page }) => {
   expect(sheetGeometry.position).toBe('fixed');
   expect(sheetGeometry.top).toBeLessThanOrEqual(1);
   expect(sheetGeometry.right).toBeGreaterThanOrEqual(
-    page.viewportSize()!.width - 1,
+    page.viewportSize()!.width - 20,
   );
+  expect(sheetGeometry.right).toBeLessThanOrEqual(page.viewportSize()!.width);
   expect(sheetGeometry.height).toBeGreaterThanOrEqual(
     page.viewportSize()!.height - 1,
   );
@@ -861,98 +1403,756 @@ test('renders canonical fixed percentage axes without negative zero', async ({
   }
 });
 
-test('keeps the Memory tooltip above the process-search stacking context', async ({
+test('direct Operations loads avoid history requests and chart initialization', async ({
   page,
 }) => {
-  const memoryChart = page.getByTestId('memory-chart');
-  await memoryChart.scrollIntoViewIfNeeded();
-  const surface = memoryChart.locator('.recharts-surface');
-  await expect(surface).toBeVisible();
-  const surfaceBox = await surface.boundingBox();
-  expect(surfaceBox).not.toBeNull();
-  await page.mouse.move(
-    surfaceBox!.x + surfaceBox!.width * 0.65,
-    surfaceBox!.y + surfaceBox!.height * 0.5,
+  await expect(
+    page.getByRole('heading', { name: 'Operations', exact: true, level: 1 }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Processes', exact: true, level: 2 }),
+  ).toBeVisible();
+  await expect(page.getByTestId('process-section')).toBeVisible();
+  const [processesBox, diagnosticsBox] = await Promise.all([
+    page
+      .getByRole('heading', { name: 'Processes', exact: true, level: 2 })
+      .boundingBox(),
+    page
+      .getByRole('heading', { name: 'Diagnostics', exact: true, level: 2 })
+      .boundingBox(),
+  ]);
+  expect(processesBox).not.toBeNull();
+  expect(diagnosticsBox).not.toBeNull();
+  expect(diagnosticsBox!.y).toBeGreaterThan(processesBox!.y);
+  await expect(page.getByTestId('temperature-chart')).toHaveCount(0);
+  await expect.poll(() => alignedRequestCount(page)).toBe(0);
+
+  const resources = await page.evaluate(() =>
+    performance
+      .getEntriesByType('resource')
+      .map((entry) => entry.name)
+      .filter((name) => /overview-charts|recharts/iu.test(name)),
+  );
+  expect(resources).toEqual([]);
+});
+
+test('navigates all four hash views with current-page and history semantics', async ({
+  page,
+}) => {
+  for (const view of ['Resources', 'Workloads', 'Operations', 'Overview']) {
+    const link = page.getByRole('link', { name: view });
+    await link.click();
+    await expect(
+      page.getByRole('heading', { name: view, level: 1 }),
+    ).toBeFocused();
+    await expect(link).toHaveAttribute('aria-current', 'page');
+    expect(new URL(page.url()).hash).toBe(`#${view.toLowerCase()}`);
+  }
+
+  await page.goBack();
+  await expect(
+    page.getByRole('heading', { name: 'Operations', level: 1 }),
+  ).toBeFocused();
+  await page.goForward();
+  await expect(
+    page.getByRole('heading', { name: 'Overview', level: 1 }),
+  ).toBeFocused();
+});
+
+test('loads all four canonical hashes as direct top-level views', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'chromium-desktop-dark',
+    'One desktop project covers canonical direct entry.',
+  );
+  for (const view of ['Overview', 'Resources', 'Workloads', 'Operations']) {
+    await page.goto(`/#${view.toLowerCase()}`);
+    await expect(
+      page.getByRole('heading', { name: view, exact: true, level: 1 }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('link', { name: view, exact: true }),
+    ).toHaveAttribute('aria-current', 'page');
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  }
+});
+
+test('canonical and fallback hashes always land at the view top', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'chromium-desktop-dark',
+    'One desktop project covers browser-native hash and history scrolling.',
   );
 
-  const tooltip = page.getByTestId('memory-chart-tooltip');
-  await expect(tooltip).toBeVisible();
-  const tooltipWrapper = tooltip.locator(
-    'xpath=ancestor::*[contains(@class, "recharts-tooltip-wrapper")]',
-  );
-  const chartStack = memoryChart.locator('xpath=parent::*');
-  const processSearch = page.getByLabel('Filter GPU processes');
-  const processStack = page
-    .getByTestId('process-section')
-    .locator('xpath=parent::*');
-  await expect(processSearch).toBeAttached();
+  const scrollOverview = async () => {
+    const offset = await page.evaluate(() => {
+      window.scrollTo(0, 700);
+      return window.scrollY;
+    });
+    expect(offset).toBeGreaterThan(100);
+  };
+  const expectViewTop = async (heading: string) => {
+    await expect(
+      page.getByRole('heading', { name: heading, exact: true, level: 1 }),
+    ).toBeFocused();
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  };
 
-  const [tooltipZ, chartZ, processZ] = await Promise.all([
-    tooltipWrapper.evaluate((element) => getComputedStyle(element).zIndex),
-    chartStack.evaluate((element) => getComputedStyle(element).zIndex),
-    processStack.evaluate((element) => getComputedStyle(element).zIndex),
+  await scrollOverview();
+  await page.getByRole('link', { name: 'Resources' }).click();
+  await expectViewTop('Resources');
+
+  await page.evaluate(() => {
+    window.location.hash = '#';
+  });
+  await expect(page).toHaveURL(/#overview$/u);
+  await expectViewTop('Overview');
+
+  await scrollOverview();
+  await page.getByRole('link', { name: 'Resources' }).click();
+  await expectViewTop('Resources');
+  await page.goBack();
+  await expect(page).toHaveURL(/#overview$/u);
+  await expectViewTop('Overview');
+
+  await scrollOverview();
+  await page.evaluate(() => {
+    window.location.hash = '#unknown';
+  });
+  await expect(page).toHaveURL(/#overview$/u);
+  await expectViewTop('Overview');
+});
+
+test('balances attribution with exactly three overview totals', async ({
+  page,
+}) => {
+  const summary = page.getByRole('region', { name: 'Host summary' });
+  const totals = summary.locator('.summary-link');
+
+  await expect(totals).toHaveCount(3);
+  const expectedLabels =
+    page.viewportSize()!.width < 768
+      ? ['GPUs', 'Instances', 'Processes']
+      : ['Physical GPUs', 'GPU instances', 'GPU processes'];
+  for (const label of expectedLabels) {
+    await expect(summary.getByText(label, { exact: true })).toBeVisible();
+  }
+  await expect(
+    summary.getByText('Compute instances', { exact: true }),
+  ).toHaveCount(0);
+
+  const widths = await totals.evaluateAll((elements) =>
+    elements.map((element) => element.getBoundingClientRect().width),
+  );
+  expect(Math.max(...widths) - Math.min(...widths)).toBeLessThanOrEqual(1);
+  const columnCount = await summary
+    .locator('.overview-kpi-grid')
+    .evaluate(
+      (element) =>
+        getComputedStyle(element).gridTemplateColumns.split(' ').length,
+    );
+  expect(columnCount).toBe(3);
+});
+
+test('redirects legacy operations hashes and preserves section focus', async ({
+  page,
+}) => {
+  await page.goto('/#processes');
+  await expect(page).toHaveURL(/#operations$/u);
+  await expect(
+    page.getByRole('heading', { name: 'Processes', exact: true, level: 2 }),
+  ).toBeFocused();
+  await expect(page.getByRole('link', { name: 'Operations' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+
+  await page.evaluate(() => {
+    window.location.hash = '#diagnostics';
+  });
+  await expect(page).toHaveURL(/#operations$/u);
+  await expect(
+    page.getByRole('heading', { name: 'Diagnostics', exact: true, level: 2 }),
+  ).toBeFocused();
+});
+
+test('keeps Workloads to Operations shell geometry stable', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const geometry = () =>
+    page.locator('.workbench-view').evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      const heading = element.querySelector('h1')!.getBoundingClientRect();
+      const main = document.querySelector('main')!.getBoundingClientRect();
+      return {
+        left: bounds.left,
+        top: bounds.top,
+        width: bounds.width,
+        headingLeft: heading.left,
+        headingTop: heading.top,
+        mainLeft: main.left,
+        mainWidth: main.width,
+        documentWidth: document.documentElement.clientWidth,
+        scrollbarGutter: getComputedStyle(document.documentElement)
+          .scrollbarGutter,
+      };
+    });
+
+  await page.getByRole('link', { name: 'Workloads' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Workloads', level: 1 }),
+  ).toBeFocused();
+  const workloads = await geometry();
+
+  await page.getByRole('link', { name: 'Operations' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Operations', level: 1 }),
+  ).toBeFocused();
+  const operations = await geometry();
+
+  for (const key of [
+    'left',
+    'top',
+    'width',
+    'headingLeft',
+    'headingTop',
+    'mainLeft',
+    'mainWidth',
+    'documentWidth',
+  ] as const) {
+    expect(Math.abs(operations[key] - workloads[key]), key).toBeLessThanOrEqual(
+      1,
+    );
+  }
+  expect(workloads.scrollbarGutter).toContain('stable');
+  expect(operations.scrollbarGutter).toContain('stable');
+});
+
+test('opens resource details from card whitespace with one full-surface button', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'chromium-desktop-dark',
+    'One pointer-capable project covers stretched resource surfaces.',
+  );
+  await page.getByRole('link', { name: 'Resources' }).click();
+
+  const gpuCards = page.locator('.gpu-card');
+  await expect(gpuCards).toHaveCount(2);
+  await expect(gpuCards.first()).toHaveClass(/snow-capped/u);
+
+  const activateWhitespace = async (buttonName: string | RegExp) => {
+    const button = page.getByRole('button', { name: buttonName }).first();
+    const surface = button.locator('xpath=..');
+    const [buttonBox, surfaceBox] = await Promise.all([
+      button.boundingBox(),
+      surface.boundingBox(),
+    ]);
+    expect(buttonBox).not.toBeNull();
+    expect(surfaceBox).not.toBeNull();
+    expect(Math.abs(buttonBox!.width - surfaceBox!.width)).toBeLessThanOrEqual(
+      2.1,
+    );
+    expect(
+      Math.abs(buttonBox!.height - surfaceBox!.height),
+    ).toBeLessThanOrEqual(2.1);
+    await button.click({
+      position: {
+        x: Math.max(2, buttonBox!.width - 12),
+        y: Math.max(2, buttonBox!.height - 12),
+      },
+    });
+    await expect(page.getByTestId('detail-sheet')).toBeVisible();
+    await page
+      .getByTestId('detail-sheet')
+      .getByRole('button', { name: 'Close' })
+      .click();
+    await expect(page.getByTestId('detail-sheet')).toBeHidden();
+  };
+
+  await activateWhitespace('Open GPU 0 full GPU details');
+  await activateWhitespace(/Open GPU 1 · GI 0 \/ CI 0 details/u);
+
+  await page.getByRole('link', { name: 'Workloads' }).click();
+  await activateWhitespace(/Open GPU 0 · Full GPU details/u);
+});
+
+test('keeps equal-size resource hover shadows and an independent focus ring', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name.includes('narrow'),
+    'Desktop light and dark projects verify the shared hover geometry.',
+  );
+  await page.getByRole('link', { name: 'Resources' }).click();
+  const button = page.getByRole('button', {
+    name: 'Open GPU 0 full GPU details',
+  });
+  const surface = button.locator('xpath=..');
+  await surface.hover();
+  await expect
+    .poll(() =>
+      surface.evaluate((element) => getComputedStyle(element).boxShadow),
+    )
+    .toContain('0px 16px 36px');
+
+  await button.focus();
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Shift+Tab');
+  await expect(button).toBeFocused();
+  await expect
+    .poll(() =>
+      surface.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return `${style.outlineWidth} ${style.outlineStyle}`;
+      }),
+    )
+    .toBe('2px solid');
+});
+
+test('has no serious or critical authored accessibility violations', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  for (const view of ['Overview', 'Resources', 'Workloads', 'Operations']) {
+    await page.getByRole('link', { name: view }).click();
+    const results = await new AxeBuilder({ page }).analyze();
+    const blocking = results.violations.filter(
+      ({ impact }) => impact === 'serious' || impact === 'critical',
+    );
+    expect(
+      blocking,
+      `${view}: ${blocking.map(({ id }) => id).join(', ')}`,
+    ).toEqual([]);
+  }
+});
+
+test('removes spatial motion when reduced motion is requested', async ({
+  page,
+}, testInfo) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const light = testInfo.project.name.endsWith('-light');
+  const ambientSnow = page.getByTestId('ambient-snow');
+  await expect(ambientSnow).toHaveAttribute(
+    'data-state',
+    light ? 'hidden' : 'static',
+  );
+  await page.getByRole('link', { name: 'Resources' }).click();
+  const resource = page.locator('.interactive-resource').first();
+  await resource.hover();
+  const motion = await page.locator('.workbench-view').evaluate((element) => {
+    const view = getComputedStyle(element);
+    const root = getComputedStyle(document.documentElement);
+    const mark = getComputedStyle(
+      document.querySelector('[data-testid="leviathan-header-mark"]')!,
+    );
+    const ambientSnow = document.querySelector<HTMLCanvasElement>(
+      '[data-testid="ambient-snow"]',
+    )!;
+    return {
+      animationName: view.animationName,
+      transform: view.transform,
+      markAnimation: mark.animationName,
+      ambientSnowDisplay: getComputedStyle(ambientSnow).display,
+      ambientSnowState: ambientSnow.dataset.state,
+      resourceTransform: getComputedStyle(
+        document.querySelector('.interactive-resource')!,
+      ).transform,
+      durationToken: root.getPropertyValue('--duration-view').trim(),
+    };
+  });
+  expect(motion.animationName).toBe('none');
+  expect(motion.transform).toBe('none');
+  expect(motion.markAnimation).toBe('none');
+  expect(motion.ambientSnowDisplay).toBe(light ? 'none' : 'block');
+  expect(motion.ambientSnowState).toBe(light ? 'hidden' : 'static');
+  expect(motion.resourceTransform).toBe('none');
+  await expect
+    .poll(() =>
+      resource.evaluate((element) => getComputedStyle(element).boxShadow),
+    )
+    .toContain('0px 16px 36px');
+  expect(motion.durationToken).toBe('240ms');
+  if (!light) {
+    await expect.poll(() => canvasFramesAreStable(ambientSnow)).toBe(true);
+  }
+});
+
+test('removes ambient glass effects for visibility-oriented media preferences', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'chromium-desktop-dark',
+    'One dark desktop project covers the ambient media fallbacks.',
+  );
+  const ambientSnow = page.getByTestId('ambient-snow');
+  const cap = page.locator('.snow-capped').first();
+
+  const visualState = () =>
+    page.evaluate(() => {
+      const snow = document.querySelector('[data-testid="ambient-snow"]')!;
+      const capped = document.querySelector('.snow-capped')!;
+      const panel = document.querySelector('.frost-panel')!;
+      return {
+        snow: getComputedStyle(snow).display,
+        snowState: (snow as HTMLElement).dataset.state,
+        cap: getComputedStyle(capped, '::after').display,
+        backdrop: getComputedStyle(panel).backdropFilter,
+      };
+    });
+
+  await expect(ambientSnow).toBeVisible();
+  await expect(cap).toBeVisible();
+  await page.emulateMedia({ contrast: 'more' });
+  await expect.poll(visualState).toMatchObject({
+    snow: 'none',
+    snowState: 'hidden',
+    cap: 'none',
+    backdrop: 'none',
+  });
+  await page.emulateMedia({ contrast: 'no-preference' });
+  await expect(ambientSnow).toHaveAttribute('data-state', 'running');
+
+  const session = await page.context().newCDPSession(page);
+  await session.send('Emulation.setEmulatedMedia', {
+    features: [{ name: 'prefers-reduced-transparency', value: 'reduce' }],
+  });
+  await expect.poll(visualState).toMatchObject({
+    snow: 'none',
+    snowState: 'hidden',
+    cap: 'none',
+    backdrop: 'none',
+  });
+  await session.send('Emulation.setEmulatedMedia', { features: [] });
+  await expect(ambientSnow).toHaveAttribute('data-state', 'running');
+});
+
+test('covers required responsive widths with a concise header', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'chromium-desktop-dark',
+    'One dark project exercises the additional layout breakpoints.',
+  );
+
+  for (const width of [320, 360, 768, 1280, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.getByRole('link', { name: 'Operations' }).click();
+    const header = page.getByRole('banner');
+    await expect(header.getByText('Leviathan', { exact: true })).toBeVisible();
+    await expect(header).not.toContainText('local read-only');
+    await expect(header).not.toContainText(/NVML|GPM|\d{1,2}:\d{2}:\d{2}/u);
+    const desktopNavigation = page.getByRole('navigation', {
+      name: 'Workbench views',
+      exact: true,
+    });
+    const mobileNavigation = page.getByRole('navigation', {
+      name: 'Mobile workbench views',
+      exact: true,
+    });
+    await expect(
+      page.getByRole('link', { name: 'Operations' }),
+    ).toHaveAttribute('aria-current', 'page');
+    const headerGeometry = await header.evaluate((element) => {
+      const bounds = element.firstElementChild!.getBoundingClientRect();
+      return { height: bounds.height, left: bounds.left, right: bounds.right };
+    });
+    expect(headerGeometry.left).toBeGreaterThanOrEqual(0);
+    expect(headerGeometry.right).toBeLessThanOrEqual(width);
+    if (width < 768) {
+      expect(headerGeometry.height).toBe(56);
+      await expect(
+        header.getByText('synthetic-host', { exact: true }),
+      ).toBeHidden();
+      await expect(desktopNavigation).toHaveCount(0);
+      await expect(mobileNavigation).toBeVisible();
+      await expect(mobileNavigation.getByRole('link')).toHaveCount(4);
+      const tabGeometry = await mobileNavigation.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        return {
+          bottom: bounds.bottom,
+          position: getComputedStyle(element).position,
+          tabHeights: [...element.querySelectorAll('a')].map(
+            (tab) => tab.getBoundingClientRect().height,
+          ),
+          tabWidths: [...element.querySelectorAll('a')].map(
+            (tab) => tab.getBoundingClientRect().width,
+          ),
+          tabsInside: [...element.querySelectorAll('a')].every((tab) => {
+            const tabBounds = tab.getBoundingClientRect();
+            return tabBounds.left >= 0 && tabBounds.right <= window.innerWidth;
+          }),
+        };
+      });
+      expect(tabGeometry.position).toBe('fixed');
+      expect(tabGeometry.bottom).toBeCloseTo(900, 0);
+      expect(Math.min(...tabGeometry.tabHeights)).toBeGreaterThanOrEqual(48);
+      expect(Math.min(...tabGeometry.tabWidths)).toBeGreaterThanOrEqual(60);
+      expect(tabGeometry.tabsInside).toBe(true);
+      await expect(page.getByTestId('desktop-live-sampling')).toBeHidden();
+      await expect(page.getByTestId('mobile-live-sampling')).toBeVisible();
+      await expect(
+        header.getByRole('button', { name: 'Open app menu' }),
+      ).toBeVisible();
+      await expect(page.getByTestId('process-card')).toHaveCount(
+        syntheticProcessCount,
+      );
+      await expect(page.getByTestId('process-scroll-viewport')).toHaveCount(0);
+      await page.evaluate(
+        (nextSettings) => {
+          const source = (
+            window as unknown as {
+              __leviathanEventSource: {
+                dispatchEvent: (event: Event) => boolean;
+                onerror: ((event: Event) => void) | null;
+              };
+            }
+          ).__leviathanEventSource;
+          source.dispatchEvent(
+            new MessageEvent('settings', {
+              data: JSON.stringify(nextSettings),
+            }),
+          );
+          source.onerror?.(new Event('error'));
+        },
+        { ...settings, samplingIntervalMs: 500 },
+      );
+      await expect(
+        page.getByRole('button', {
+          name: 'Reconnecting status, sampling 0.5s',
+        }),
+      ).toBeVisible();
+      if (width <= 380) {
+        await expect(page.locator('.mobile-status-name')).toBeHidden();
+      }
+    } else {
+      expect(headerGeometry.height).toBe(64);
+      await expect(
+        header.getByText('synthetic-host', { exact: true }),
+      ).toBeVisible();
+      await expect(desktopNavigation).toBeVisible();
+      await expect(desktopNavigation.getByRole('link')).toHaveCount(4);
+      await expect(mobileNavigation).toHaveCount(0);
+      await expect(page.getByTestId('desktop-live-sampling')).toBeVisible();
+      await expect(page.getByTestId('mobile-live-sampling')).toBeHidden();
+      await expect(page.getByTestId('process-scroll-viewport')).toBeVisible();
+      await expect(page.getByTestId('process-card')).toHaveCount(0);
+    }
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth - window.innerWidth,
+      ),
+    ).toBeLessThanOrEqual(0);
+  }
+});
+
+test('uses mobile-native tabs, compact charts, and a full-screen detail sheet', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'chromium-narrow-dark',
+    'One narrow dark project covers the mobile-native composition.',
+  );
+  await page.setViewportSize({ width: 320, height: 800 });
+
+  const mobileNavigation = page.getByRole('navigation', {
+    name: 'Mobile workbench views',
+    exact: true,
+  });
+  await expect(mobileNavigation).toBeVisible();
+  await expect(mobileNavigation.getByRole('link')).toHaveCount(4);
+  await expect(
+    page.getByRole('navigation', { name: 'Workbench views', exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByText('synthetic-host', { exact: true })).toBeHidden();
+  await expect(page.locator('.summary-link .mobile-only-label')).toHaveText([
+    'GPUs',
+    'Instances',
+    'Processes',
   ]);
 
-  expect(Number(tooltipZ)).toBeGreaterThan(Number(processZ));
-  expect(Number(chartZ)).toBeGreaterThan(Number(processZ));
+  await expect.poll(() => alignedRequestCount(page)).toBe(5);
+  for (const chartID of overviewChartIDs) {
+    const chart = page.getByTestId(chartID);
+    const legend = chart.locator('.mobile-chart-legend');
+    const legendItems = legend.locator('.mobile-chart-legend-item');
+    const seriesCount = Number(await legend.getAttribute('data-series-count'));
+    await expect(legendItems).toHaveCount(seriesCount);
+    await expect(
+      chart.locator('.overview-series path.recharts-line-curve'),
+    ).toHaveCount(seriesCount);
+    const columns = await legend.evaluate(
+      (element) =>
+        getComputedStyle(element).gridTemplateColumns.split(' ').length,
+    );
+    expect(columns).toBe(2);
+  }
 
-  const tooltipBox = await tooltip.boundingBox();
-  expect(tooltipBox).not.toBeNull();
-  const overlap = await page.evaluate(
-    ({ left, top, width }) => {
-      const input = document.querySelector<HTMLInputElement>(
-        '[aria-label="Filter GPU processes"]',
-      )!;
-      const label = input.closest('label')!;
-      const tooltip = document.querySelector<HTMLElement>(
-        '[data-testid="memory-chart-tooltip"]',
-      )!;
-      const wrapper = tooltip.closest<HTMLElement>(
-        '.recharts-tooltip-wrapper',
-      )!;
-      const original = {
-        label: label.getAttribute('style'),
-        pointerEvents: wrapper.style.pointerEvents,
-      };
+  await mobileNavigation.getByRole('link', { name: 'Resources' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Resources', level: 1 }),
+  ).toBeFocused();
+  const resourceGeometry = await page
+    .locator('.gpu-card')
+    .first()
+    .evaluate((element) => ({
+      bodyMinHeight: getComputedStyle(
+        element.querySelector('.mobile-resource-body')!,
+      ).minHeight,
+      surfaceMinHeight: getComputedStyle(
+        element.querySelector('.mobile-resource-surface')!,
+      ).minHeight,
+      width: element.getBoundingClientRect().width,
+    }));
+  expect(resourceGeometry.bodyMinHeight).toBe('0px');
+  expect(resourceGeometry.surfaceMinHeight).toBe('0px');
+  expect(resourceGeometry.width).toBeLessThanOrEqual(288.5);
 
-      label.setAttribute(
-        'style',
-        [
-          'position: fixed !important',
-          `left: ${left}px !important`,
-          `top: ${top}px !important`,
-          `width: ${Math.max(120, Math.min(width, 240))}px !important`,
-          'z-index: auto !important',
-        ].join(';'),
-      );
-      wrapper.style.setProperty('pointer-events', 'auto', 'important');
+  await page
+    .getByRole('button', { name: 'Open GPU 0 full GPU details' })
+    .click();
+  const sheet = page.getByTestId('detail-sheet');
+  await expect(sheet).toBeVisible();
+  const sheetGeometry = await sheet.evaluate((element) => {
+    const close = element.querySelector<HTMLElement>(
+      '[data-slot="sheet-close"]',
+    )!;
+    const bounds = element.getBoundingClientRect();
+    const closeBounds = close.getBoundingClientRect();
+    return {
+      left: bounds.left,
+      right: bounds.right,
+      width: bounds.width,
+      closeHeight: closeBounds.height,
+      closeWidth: closeBounds.width,
+      headerPosition: getComputedStyle(
+        element.querySelector('.mobile-detail-sheet-header')!,
+      ).position,
+    };
+  });
+  expect(sheetGeometry.left).toBeCloseTo(0, 0);
+  expect(sheetGeometry.right).toBeCloseTo(320, 0);
+  expect(sheetGeometry.width).toBeCloseTo(320, 0);
+  expect(sheetGeometry.closeHeight).toBeGreaterThanOrEqual(44);
+  expect(sheetGeometry.closeWidth).toBeGreaterThanOrEqual(44);
+  expect(sheetGeometry.headerPosition).toBe('sticky');
+  await sheet.getByRole('button', { name: 'Close' }).click();
 
-      const inputBox = input.getBoundingClientRect();
-      const currentTooltipBox = tooltip.getBoundingClientRect();
-      const overlapLeft = Math.max(inputBox.left, currentTooltipBox.left);
-      const overlapTop = Math.max(inputBox.top, currentTooltipBox.top);
-      const overlapRight = Math.min(inputBox.right, currentTooltipBox.right);
-      const overlapBottom = Math.min(inputBox.bottom, currentTooltipBox.bottom);
-      const x = (overlapLeft + overlapRight) / 2;
-      const y = (overlapTop + overlapBottom) / 2;
-      const topElement = document.elementFromPoint(x, y);
-      const result = {
-        hasArea: overlapRight > overlapLeft && overlapBottom > overlapTop,
-        tooltipOnTop: topElement != null && tooltip.contains(topElement),
-      };
+  for (const view of ['Workloads', 'Operations', 'Overview']) {
+    await mobileNavigation.getByRole('link', { name: view }).click();
+    await expect(
+      page.getByRole('heading', { name: view, exact: true, level: 1 }),
+    ).toBeFocused();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth - window.innerWidth,
+      ),
+    ).toBeLessThanOrEqual(0);
+  }
+});
 
-      if (original.label == null) label.removeAttribute('style');
-      else label.setAttribute('style', original.label);
-      wrapper.style.pointerEvents = original.pointerEvents;
-      return result;
-    },
-    {
-      left: tooltipBox!.x,
-      top: tooltipBox!.y,
-      width: tooltipBox!.width,
-    },
+test('assigns stable varied snow caps without decorating the light theme', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'chromium-desktop-dark',
+    'One dark desktop project verifies deterministic cap variety.',
   );
 
-  expect(overlap.hasArea).toBe(true);
-  expect(overlap.tooltipOnTop).toBe(true);
+  const collectCaps = () =>
+    page.locator('.snow-capped[data-snow-cap]').evaluateAll((elements) =>
+      elements.map((element) => ({
+        key:
+          element.getAttribute('data-testid') ??
+          element.querySelector('h3')?.textContent?.trim() ??
+          element.textContent?.slice(0, 24).trim() ??
+          '',
+        variant: element.getAttribute('data-snow-cap'),
+      })),
+    );
+
+  await page.getByRole('link', { name: 'Resources' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Resources', exact: true, level: 1 }),
+  ).toBeFocused();
+  const resourceCaps = await collectCaps();
+  await page.getByRole('link', { name: 'Workloads' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Workloads', exact: true, level: 1 }),
+  ).toBeFocused();
+  const workloadCaps = await collectCaps();
+  await page.getByRole('link', { name: 'Overview' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Overview', exact: true, level: 1 }),
+  ).toBeFocused();
+  const allCaps = [...resourceCaps, ...workloadCaps, ...(await collectCaps())];
+  expect(
+    new Set(allCaps.map(({ variant }) => variant)).size,
+  ).toBeGreaterThanOrEqual(3);
+  expect(
+    allCaps.every(({ variant }) =>
+      ['left', 'right', 'split', 'center', 'corner'].includes(variant ?? ''),
+    ),
+  ).toBe(true);
+
+  await page.reload();
+  await page.getByRole('link', { name: 'Resources' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Resources', exact: true, level: 1 }),
+  ).toBeFocused();
+  expect(await collectCaps()).toEqual(resourceCaps);
+
+  await page.getByRole('button', { name: 'Use light theme' }).click();
+  const capDisplay = await page
+    .locator('.snow-capped[data-snow-cap]')
+    .first()
+    .evaluate((element) => getComputedStyle(element, '::after').content);
+  expect(capDisplay).toBe('none');
+});
+
+test('matches targeted workbench and frost-dragon visual baselines', async ({
+  page,
+}, testInfo) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.evaluate(() => document.fonts.ready);
+  await expect(page.getByTestId('pcie-throughput-chart')).toBeVisible();
+  const project = testInfo.project.name;
+
+  if (project === 'chromium-desktop-dark') {
+    await expect(page).toHaveScreenshot('overview-dark.png', {
+      animations: 'disabled',
+      fullPage: true,
+    });
+    await page.getByRole('link', { name: 'Resources' }).click();
+    await page
+      .getByRole('button', { name: 'Open GPU 0 full GPU details' })
+      .locator('xpath=..')
+      .hover();
+    await expect(page).toHaveScreenshot('resources-desktop.png', {
+      animations: 'disabled',
+      fullPage: true,
+    });
+  }
+  if (project === 'chromium-desktop-light') {
+    await expect(page).toHaveScreenshot('overview-frost-light.png', {
+      animations: 'disabled',
+      fullPage: true,
+    });
+  }
+  if (project === 'chromium-narrow-dark') {
+    await page.getByRole('link', { name: 'Operations' }).click();
+    await expect(page).toHaveScreenshot('operations-narrow.png', {
+      animations: 'disabled',
+      fullPage: true,
+    });
+  }
+  if (project.endsWith('desktop-dark') || project.endsWith('desktop-light')) {
+    await expect(page.getByTestId('leviathan-header-mark')).toHaveScreenshot(
+      `frost-dragon-${project.endsWith('light') ? 'light' : 'dark'}.png`,
+      { animations: 'disabled' },
+    );
+  }
 });

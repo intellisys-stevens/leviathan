@@ -13,3 +13,11 @@ export function writeBrowserSetting(key: string, value: string): void {
     // Preferences are optional when storage is disabled or unavailable.
   }
 }
+
+export function removeBrowserSetting(key: string): void {
+  try {
+    globalThis.localStorage?.removeItem(key);
+  } catch {
+    // Preferences are optional when storage is disabled or unavailable.
+  }
+}

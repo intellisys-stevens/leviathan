@@ -1,18 +1,32 @@
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
-import { AlertTriangle, ChevronDown, Moon, Sun } from 'lucide-react';
-import { memo, useRef, useState } from 'react';
+import {
+  AlertTriangle,
+  ChevronDown,
+  Ellipsis,
+  ExternalLink,
+  Moon,
+  Sun,
+} from 'lucide-react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { formatSamplingInterval } from '../chart-window';
 import type { RuntimeSettings } from '../types';
+import { useMediaQuery } from '../use-media-query';
 import type { ConnectionState } from '../use-leviathan';
+import {
+  SegmentedControl,
+  type SegmentedControlOption,
+} from './segmented-control';
 
 type Props = {
-  hostname: string;
+  hostname?: string;
   connection: ConnectionState;
   degraded: boolean;
   settings: RuntimeSettings | null;
+  settingsError?: string | null;
   theme: 'dark' | 'light';
   onSamplingIntervalChange: (milliseconds: number) => Promise<RuntimeSettings>;
+  onRetrySettings?: () => void;
   onToggleTheme: () => void;
 };
 
@@ -56,47 +70,34 @@ function SamplingChoices({
     custom == null
       ? defaultSamplingIntervals
       : [custom, ...defaultSamplingIntervals];
+  const options: SegmentedControlOption<number>[] = choices.map(
+    (milliseconds) => {
+      const isCustom = custom === milliseconds;
+      const label = `${isCustom ? 'Custom ' : ''}${formatSamplingInterval(milliseconds)}`;
+      return {
+        value: milliseconds,
+        label,
+        ariaLabel: label,
+        disabled:
+          current == null || (!isCustom && !allowed.includes(milliseconds)),
+      };
+    },
+  );
 
   return (
-    <fieldset
-      className={`relative isolate flex gap-1 rounded-md border border-input bg-popover p-0.5 shadow-sm ${mobile ? 'w-full' : ''}`}
-      aria-busy={pending != null}
-    >
-      <legend className="sr-only">Sampling interval</legend>
-      {choices.map((milliseconds) => {
-        const selected = current === milliseconds;
-        const isCustom = custom === milliseconds;
-        const label = `${isCustom ? 'Custom ' : ''}${formatSamplingInterval(milliseconds)}`;
-        return (
-          <button
-            key={milliseconds}
-            type="button"
-            className={`relative whitespace-nowrap rounded px-2 font-mono text-[10px] focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-              mobile
-                ? 'h-8 min-w-0 flex-1'
-                : `h-6 flex-none ${isCustom ? '' : 'min-w-10'}`
-            } ${
-              selected
-                ? 'z-10 bg-accent text-accent-foreground shadow-sm ring-1 ring-input'
-                : 'text-muted-foreground hover:bg-background/70 hover:text-foreground'
-            }`}
-            disabled={
-              current == null ||
-              pending != null ||
-              (!isCustom && !allowed.includes(milliseconds))
-            }
-            aria-label={label}
-            aria-pressed={selected}
-            onClick={() => onSelect(milliseconds)}
-          >
-            {label}
-          </button>
-        );
-      })}
+    <>
+      <SegmentedControl
+        ariaLabel="Sampling interval"
+        ariaBusy={pending != null}
+        className={mobile ? 'w-full' : ''}
+        options={options}
+        value={current}
+        onValueChange={onSelect}
+      />
       <output className="sr-only" aria-live="polite">
         {pending == null ? '' : `Applying ${formatSamplingInterval(pending)}`}
       </output>
-    </fieldset>
+    </>
   );
 }
 
@@ -105,13 +106,31 @@ function StatusHeaderComponent({
   connection,
   degraded,
   settings,
+  settingsError = null,
   theme,
   onSamplingIntervalChange,
+  onRetrySettings,
   onToggleTheme,
 }: Props) {
   const [pendingSampling, setPendingSampling] = useState<number | null>(null);
+  const [samplingBusy, setSamplingBusy] = useState(false);
   const [samplingError, setSamplingError] = useState<string | null>(null);
-  const pendingSamplingRef = useRef<number | null>(null);
+  const settingsSampling = settings?.samplingIntervalMs ?? null;
+  const [confirmedOverride, setConfirmedOverride] = useState<{
+    source: number | null;
+    value: number;
+  } | null>(null);
+  const confirmedSampling =
+    confirmedOverride?.source === settingsSampling
+      ? confirmedOverride.value
+      : settingsSampling;
+  const confirmedSamplingRef = useRef<number | null>(confirmedSampling);
+  const settingsSamplingRef = useRef(settingsSampling);
+  const optimisticSamplingRef = useRef<number | null>(null);
+  const queuedSamplingRef = useRef<number | null>(null);
+  const samplingWriteInFlightRef = useRef(false);
+  const updateSamplingRef = useRef(onSamplingIntervalChange);
+  const desktop = useMediaQuery('(min-width: 768px)');
   const live = connection === 'live';
   const reconnecting =
     connection === 'reconnecting' || connection === 'connecting';
@@ -121,14 +140,13 @@ function StatusHeaderComponent({
       : 'Live'
     : titleCase(connection);
   const healthy = live && !degraded;
-  const currentSampling = settings?.samplingIntervalMs ?? null;
-  const displayedSampling = pendingSampling ?? currentSampling;
+  const displayedSampling = pendingSampling ?? confirmedSampling;
   const allowedSampling =
     settings?.allowedSamplingIntervalsMs ?? defaultSamplingIntervals;
   const customSampling =
-    currentSampling != null &&
-    !defaultSamplingIntervals.includes(currentSampling)
-      ? currentSampling
+    confirmedSampling != null &&
+    !defaultSamplingIntervals.includes(confirmedSampling)
+      ? confirmedSampling
       : null;
   const displayedSamplingText =
     displayedSampling == null ? '—' : formatSamplingInterval(displayedSampling);
@@ -144,23 +162,70 @@ function StatusHeaderComponent({
     `GPU metrics ${displayedSamplingText}`,
     ...cadenceDetails,
   ].join(' · ');
+  const cadenceError = samplingError ?? settingsError;
 
-  async function applySampling(milliseconds: number) {
-    if (milliseconds === currentSampling || pendingSamplingRef.current != null)
+  useEffect(() => {
+    confirmedSamplingRef.current = confirmedSampling;
+    settingsSamplingRef.current = settingsSampling;
+    updateSamplingRef.current = onSamplingIntervalChange;
+  }, [confirmedSampling, onSamplingIntervalChange, settingsSampling]);
+
+  async function drainSamplingQueue() {
+    if (samplingWriteInFlightRef.current) return;
+    samplingWriteInFlightRef.current = true;
+    setSamplingBusy(true);
+    let lastFailure: string | null = null;
+
+    try {
+      while (queuedSamplingRef.current != null) {
+        const milliseconds = queuedSamplingRef.current;
+        queuedSamplingRef.current = null;
+
+        if (milliseconds === confirmedSamplingRef.current) {
+          lastFailure = null;
+          continue;
+        }
+
+        try {
+          const settingsAtRequest = settingsSamplingRef.current;
+          const next = await updateSamplingRef.current(milliseconds);
+          if (settingsSamplingRef.current !== settingsAtRequest) {
+            confirmedSamplingRef.current = settingsSamplingRef.current;
+            setConfirmedOverride(null);
+          } else {
+            confirmedSamplingRef.current = next.samplingIntervalMs;
+            setConfirmedOverride({
+              source: settingsSamplingRef.current,
+              value: next.samplingIntervalMs,
+            });
+          }
+          lastFailure = null;
+        } catch (reason) {
+          lastFailure =
+            reason instanceof Error
+              ? reason.message
+              : 'Sampling update failed.';
+        }
+      }
+    } finally {
+      samplingWriteInFlightRef.current = false;
+      optimisticSamplingRef.current = null;
+      setPendingSampling(null);
+      setSamplingBusy(false);
+      setSamplingError(lastFailure);
+    }
+  }
+
+  function applySampling(milliseconds: number) {
+    const displayed =
+      optimisticSamplingRef.current ?? confirmedSamplingRef.current;
+    if (confirmedSamplingRef.current == null || milliseconds === displayed)
       return;
-    pendingSamplingRef.current = milliseconds;
+    queuedSamplingRef.current = milliseconds;
+    optimisticSamplingRef.current = milliseconds;
     setPendingSampling(milliseconds);
     setSamplingError(null);
-    try {
-      await onSamplingIntervalChange(milliseconds);
-    } catch (reason) {
-      setSamplingError(
-        reason instanceof Error ? reason.message : 'Sampling update failed.',
-      );
-    } finally {
-      pendingSamplingRef.current = null;
-      setPendingSampling(null);
-    }
+    void drainSamplingQueue();
   }
 
   const indicator = (
@@ -171,28 +236,31 @@ function StatusHeaderComponent({
           : live || reconnecting
             ? 'bg-amber-500'
             : 'bg-muted-foreground'
-      } ${reconnecting ? 'animate-pulse' : ''}`}
+      } ${reconnecting ? 'motion-safe:animate-pulse' : ''}`}
       aria-hidden="true"
     />
   );
 
   return (
     <header className="leviathan-header sticky top-0 z-30 border-b border-input bg-background/95 backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-[1680px] items-center justify-between gap-3 px-4 sm:px-6">
-        <div className="flex min-w-0 items-center gap-3">
+      <div className="mx-auto flex h-16 max-w-[1680px] items-center justify-between gap-2 px-3 sm:gap-3 sm:px-6">
+        <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
           <span
-            className="size-10 shrink-0 bg-primary"
+            className="leviathan-mark size-8 shrink-0 bg-primary md:size-10"
             style={{
               WebkitMask:
                 "url('/leviathan-mark.svg') center / contain no-repeat",
               mask: "url('/leviathan-mark.svg') center / contain no-repeat",
             }}
             aria-hidden="true"
+            data-testid="leviathan-header-mark"
           />
           <div className="min-w-0">
-            <p className="text-sm font-semibold tracking-tight">Leviathan</p>
-            <p className="truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-              {hostname} · local read-only
+            <p className="text-[15px] font-semibold tracking-tight">
+              Leviathan
+            </p>
+            <p className="hidden truncate font-mono text-[13px] uppercase tracking-[0.12em] text-muted-foreground md:block">
+              {hostname || 'Connecting to local host'}
             </p>
           </div>
         </div>
@@ -205,10 +273,10 @@ function StatusHeaderComponent({
             <fieldset
               className="flex h-8 items-center gap-2 border-0 p-0"
               aria-label="Live status and sampling"
-              aria-busy={pendingSampling != null}
+              aria-busy={samplingBusy}
             >
               <output
-                className={`flex h-full items-center gap-1.5 font-mono text-[10px] font-semibold ${healthy ? 'text-foreground' : 'text-amber-700 dark:text-amber-300'}`}
+                className={`flex h-full items-center gap-1.5 font-mono text-[13px] font-semibold ${healthy ? 'text-foreground' : 'text-amber-700 dark:text-amber-300'}`}
                 aria-live="polite"
                 aria-label={`Connection status: ${statusName}`}
               >
@@ -221,34 +289,44 @@ function StatusHeaderComponent({
                   custom={customSampling}
                   current={displayedSampling}
                   pending={pendingSampling}
-                  onSelect={(milliseconds) => void applySampling(milliseconds)}
+                  onSelect={applySampling}
                 />
               </div>
             </fieldset>
-            {samplingError ? (
+            {cadenceError ? (
               <output
                 role="alert"
-                className="absolute right-0 top-[calc(100%+0.5rem)] z-50 flex w-max max-w-72 items-center gap-1.5 rounded-md border border-amber-500/30 bg-popover px-3 py-2 font-mono text-[10px] text-amber-700 shadow-xl dark:text-amber-300"
+                className="sampling-error-popover absolute right-0 top-[calc(100%+0.5rem)] z-50 flex w-max max-w-80 items-center gap-2 rounded-md border border-amber-500/30 bg-popover px-3 py-2 font-mono text-[13px] text-amber-700 shadow-xl dark:text-amber-300"
               >
                 <AlertTriangle
                   className="size-3.5 shrink-0"
                   aria-hidden="true"
                 />
-                <span>{samplingError}</span>
+                <span>{cadenceError}</span>
+                {!samplingError && onRetrySettings ? (
+                  <button
+                    type="button"
+                    className="rounded border border-current/35 px-2 py-1 font-semibold outline-none hover:bg-amber-500/10 focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={onRetrySettings}
+                  >
+                    Retry
+                  </button>
+                ) : null}
               </output>
             ) : null}
           </div>
 
           <div className="md:hidden" data-testid="mobile-live-sampling">
-            <PopoverPrimitive.Root>
+            <PopoverPrimitive.Root key={desktop ? 'desktop' : 'mobile'}>
               <PopoverPrimitive.Trigger
-                className="flex h-8 items-center gap-1.5 rounded-md border border-input bg-popover px-2.5 font-mono text-[10px] font-semibold text-foreground shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex h-8 items-center gap-1.5 rounded-md border border-input bg-popover px-2.5 font-mono text-[13px] font-semibold text-foreground shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={`${statusName} status, sampling ${displayedSamplingText}`}
-                aria-busy={pendingSampling != null}
+                aria-busy={samplingBusy}
               >
                 {indicator}
                 <span className="whitespace-nowrap">
-                  {statusName} · {displayedSamplingText}
+                  <span className="mobile-status-name">{statusName} · </span>
+                  {displayedSamplingText}
                 </span>
                 <ChevronDown className="size-3" aria-hidden="true" />
               </PopoverPrimitive.Trigger>
@@ -259,20 +337,20 @@ function StatusHeaderComponent({
                   sideOffset={8}
                   className="z-50"
                 >
-                  <PopoverPrimitive.Popup className="w-[min(18rem,calc(100vw-2rem))] origin-[var(--transform-origin)] rounded-lg border border-input bg-popover p-3 text-popover-foreground shadow-2xl outline-none transition duration-150 data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0">
+                  <PopoverPrimitive.Popup className="motion-popover w-[min(18rem,calc(100vw-2rem))] origin-[var(--transform-origin)] rounded-lg border border-input bg-popover p-3 text-popover-foreground shadow-2xl outline-none data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0">
                     <div className="mb-3 flex items-start justify-between gap-3">
                       <div>
-                        <PopoverPrimitive.Title className="text-xs font-semibold">
+                        <PopoverPrimitive.Title className="text-sm font-semibold">
                           Live cadence
                         </PopoverPrimitive.Title>
-                        <PopoverPrimitive.Description className="mt-0.5 text-[10px] text-muted-foreground">
+                        <PopoverPrimitive.Description className="mt-0.5 text-[13px] text-muted-foreground">
                           {cadenceDetails.length > 0
                             ? cadenceTitle
                             : 'Shared live update cadence.'}
                         </PopoverPrimitive.Description>
                       </div>
                       <span
-                        className={`flex items-center gap-1 font-mono text-[9px] ${healthy ? 'text-foreground' : 'text-amber-700 dark:text-amber-300'}`}
+                        className={`flex items-center gap-1 font-mono text-[13px] ${healthy ? 'text-foreground' : 'text-amber-700 dark:text-amber-300'}`}
                       >
                         {indicator}
                         {statusName}
@@ -285,20 +363,27 @@ function StatusHeaderComponent({
                         current={displayedSampling}
                         pending={pendingSampling}
                         mobile
-                        onSelect={(milliseconds) =>
-                          void applySampling(milliseconds)
-                        }
+                        onSelect={applySampling}
                       />
-                      {samplingError ? (
+                      {cadenceError ? (
                         <output
                           role="alert"
-                          className="absolute right-0 top-[calc(100%+0.5rem)] z-50 flex w-max max-w-full items-center gap-1.5 rounded-md border border-amber-500/30 bg-popover px-3 py-2 font-mono text-[9px] text-amber-700 shadow-xl dark:text-amber-300"
+                          className="sampling-error-popover absolute right-0 top-[calc(100%+0.5rem)] z-50 flex w-max max-w-full items-center gap-2 rounded-md border border-amber-500/30 bg-popover px-3 py-2 font-mono text-[13px] text-amber-700 shadow-xl dark:text-amber-300"
                         >
                           <AlertTriangle
                             className="size-3.5 shrink-0"
                             aria-hidden="true"
                           />
-                          <span>{samplingError}</span>
+                          <span>{cadenceError}</span>
+                          {!samplingError && onRetrySettings ? (
+                            <button
+                              type="button"
+                              className="rounded border border-current/35 px-2 py-1 font-semibold outline-none hover:bg-amber-500/10 focus-visible:ring-2 focus-visible:ring-ring"
+                              onClick={onRetrySettings}
+                            >
+                              Retry
+                            </button>
+                          ) : null}
                         </output>
                       ) : null}
                     </div>
@@ -308,26 +393,85 @@ function StatusHeaderComponent({
             </PopoverPrimitive.Root>
           </div>
 
-          <a
-            href="https://github.com/intellisys-stevens/leviathan"
-            target="_blank"
-            rel="noreferrer"
-            className={buttonVariants({ variant: 'ghost', size: 'icon' })}
-            aria-label="Open Leviathan repository on GitHub"
-            title="Leviathan on GitHub"
-          >
-            <GitHubMark />
-          </a>
+          <div className="hidden items-center gap-1 md:flex">
+            <a
+              href="https://github.com/intellisys-stevens/leviathan"
+              target="_blank"
+              rel="noreferrer"
+              className={buttonVariants({ variant: 'ghost', size: 'icon' })}
+              aria-label="Open Leviathan repository on GitHub"
+              title="Leviathan on GitHub"
+            >
+              <GitHubMark />
+            </a>
 
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={onToggleTheme}
-            aria-label={`Use ${theme === 'dark' ? 'light' : 'dark'} theme`}
-          >
-            {theme === 'dark' ? <Sun /> : <Moon />}
-          </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={onToggleTheme}
+              aria-label={`Use ${theme === 'dark' ? 'light' : 'dark'} theme`}
+            >
+              <span className="theme-icon-stack" aria-hidden="true">
+                <Sun data-active={theme === 'dark'} />
+                <Moon data-active={theme === 'light'} />
+              </span>
+            </Button>
+          </div>
+
+          <div className="mobile-header-more md:hidden">
+            <PopoverPrimitive.Root key={desktop ? 'desktop' : 'mobile'}>
+              <PopoverPrimitive.Trigger
+                className={buttonVariants({ variant: 'ghost', size: 'icon' })}
+                aria-label="Open app menu"
+              >
+                <Ellipsis className="size-5" aria-hidden="true" />
+              </PopoverPrimitive.Trigger>
+              <PopoverPrimitive.Portal>
+                <PopoverPrimitive.Positioner
+                  side="bottom"
+                  align="end"
+                  sideOffset={8}
+                  className="z-50"
+                >
+                  <PopoverPrimitive.Popup className="motion-popover w-[min(15rem,calc(100vw-1.5rem))] origin-[var(--transform-origin)] rounded-xl border border-input bg-popover p-2 text-popover-foreground shadow-2xl outline-none data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0">
+                    <PopoverPrimitive.Title className="sr-only">
+                      App menu
+                    </PopoverPrimitive.Title>
+                    <div className="grid gap-1">
+                      <a
+                        href="https://github.com/intellisys-stevens/leviathan"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label="Open Leviathan repository on GitHub"
+                      >
+                        <GitHubMark />
+                        <span className="flex-1">GitHub repository</span>
+                        <ExternalLink
+                          className="size-3.5 text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                      </a>
+                      <button
+                        type="button"
+                        className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-left text-sm font-medium outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+                        onClick={onToggleTheme}
+                        aria-label={`Use ${theme === 'dark' ? 'light' : 'dark'} theme`}
+                      >
+                        {theme === 'dark' ? (
+                          <Sun className="size-4" aria-hidden="true" />
+                        ) : (
+                          <Moon className="size-4" aria-hidden="true" />
+                        )}
+                        Use {theme === 'dark' ? 'light' : 'dark'} theme
+                      </button>
+                    </div>
+                  </PopoverPrimitive.Popup>
+                </PopoverPrimitive.Positioner>
+              </PopoverPrimitive.Portal>
+            </PopoverPrimitive.Root>
+          </div>
         </div>
       </div>
     </header>

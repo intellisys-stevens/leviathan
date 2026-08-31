@@ -184,33 +184,77 @@ export function useLeviathan() {
     undefined,
   );
   const [connection, setConnection] = useState<ConnectionState>('connecting');
-  const [error, setError] = useState<string | null>(null);
+  const [snapshotError, setSnapshotError] = useState<string | null>(null);
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [snapshotRetry, setSnapshotRetry] = useState(0);
+  const [settingsRetry, setSettingsRetry] = useState(0);
   const failures = useRef(0);
+  const snapshotEventGeneration = useRef(0);
+  const settingsEventGeneration = useRef(0);
 
   useEffect(() => {
     let active = true;
-    const snapshotRequest = fetch('/api/v1/snapshot', { cache: 'no-store' })
+    const eventGeneration = snapshotEventGeneration.current;
+    void fetch('/api/v1/snapshot', { cache: 'no-store' })
       .then(async (response) => {
         if (!response.ok)
           throw new Error(`Snapshot request failed (${response.status})`);
         return response.json() as Promise<SnapshotPayload>;
       })
       .then((data) => {
-        if (!active) return;
+        if (!active || eventGeneration !== snapshotEventGeneration.current)
+          return;
         const next = normalizeSnapshot(data);
-        setSnapshot((current) => shareStableSnapshot(current, next));
-        setError(null);
+        setSnapshot((current) =>
+          current && next.sequence <= current.sequence
+            ? current
+            : shareStableSnapshot(current, next),
+        );
+        setSnapshotError(null);
+      })
+      .catch((reason: unknown) => {
+        if (!active || eventGeneration !== snapshotEventGeneration.current)
+          return;
+        setSnapshotError(
+          reason instanceof Error ? reason.message : 'Snapshot unavailable',
+        );
       });
-    const settingsRequest = fetch('/api/v1/settings', { cache: 'no-store' })
+    return () => {
+      active = false;
+    };
+  }, [snapshotRetry]);
+
+  useEffect(() => {
+    let active = true;
+    const eventGeneration = settingsEventGeneration.current;
+    void fetch('/api/v1/settings', { cache: 'no-store' })
       .then(async (response) => {
         if (!response.ok)
           throw new Error(`Settings request failed (${response.status})`);
         return response.json() as Promise<RuntimeSettings>;
       })
       .then((data) => {
-        if (active) setSettings(data);
+        if (!active || eventGeneration !== settingsEventGeneration.current)
+          return;
+        setSettings(data);
+        setSettingsError(null);
+      })
+      .catch((reason: unknown) => {
+        if (!active || eventGeneration !== settingsEventGeneration.current)
+          return;
+        setSettingsError(
+          reason instanceof Error ? reason.message : 'Settings unavailable',
+        );
       });
-    const buildInfoRequest = fetch('/api/v1/version', { cache: 'no-store' })
+    return () => {
+      active = false;
+    };
+  }, [settingsRetry]);
+
+  useEffect(() => {
+    let active = true;
+    void fetch('/api/v1/version', { cache: 'no-store' })
       .then(async (response) => {
         if (!response.ok)
           throw new Error(`Version request failed (${response.status})`);
@@ -222,23 +266,17 @@ export function useLeviathan() {
       .catch(() => {
         if (active) setBuildInfo(null);
       });
-    void Promise.allSettled([
-      snapshotRequest,
-      settingsRequest,
-      buildInfoRequest,
-    ]).then((results) => {
-      if (!active || results[0].status !== 'rejected') return;
-      const reason: unknown = results[0].reason;
-      setError(
-        reason instanceof Error ? reason.message : 'Snapshot unavailable',
-      );
-    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
+  useEffect(() => {
     const events = new EventSource('/api/v1/events');
     events.onopen = () => {
       failures.current = 0;
       setConnection('live');
-      setError(null);
+      setStreamError(null);
     };
     events.addEventListener('snapshot', (event) => {
       try {
@@ -246,11 +284,17 @@ export function useLeviathan() {
           (event as MessageEvent<string>).data,
         ) as SnapshotPayload;
         const next = normalizeSnapshot(payload);
-        setSnapshot((current) => shareStableSnapshot(current, next));
+        snapshotEventGeneration.current += 1;
+        setSnapshot((current) =>
+          current && next.sequence <= current.sequence
+            ? current
+            : shareStableSnapshot(current, next),
+        );
         setConnection('live');
-        setError(null);
+        setSnapshotError(null);
+        setStreamError(null);
       } catch {
-        setError('A malformed snapshot event was ignored');
+        setStreamError('A malformed snapshot event was ignored.');
       }
     });
     events.addEventListener('settings', (event) => {
@@ -258,19 +302,32 @@ export function useLeviathan() {
         const next = JSON.parse(
           (event as MessageEvent<string>).data,
         ) as RuntimeSettings;
+        settingsEventGeneration.current += 1;
         setSettings(next);
+        setSettingsError(null);
+        setStreamError(null);
       } catch {
-        setError('A malformed settings event was ignored');
+        setStreamError('A malformed settings event was ignored.');
       }
     });
     events.onerror = () => {
       failures.current += 1;
       setConnection(failures.current > 4 ? 'disconnected' : 'reconnecting');
+      setStreamError('The live stream was interrupted. Reconnecting…');
     };
     return () => {
-      active = false;
       events.close();
     };
+  }, []);
+
+  const retrySnapshot = useCallback(() => {
+    setSnapshotError(null);
+    setSnapshotRetry((value) => value + 1);
+  }, []);
+
+  const retrySettings = useCallback(() => {
+    setSettingsError(null);
+    setSettingsRetry((value) => value + 1);
   }, []);
 
   const history = useCallback(
@@ -312,6 +369,7 @@ export function useLeviathan() {
 
   const updateSamplingInterval = useCallback(
     async (samplingIntervalMs: number): Promise<RuntimeSettings> => {
+      const eventGeneration = settingsEventGeneration.current;
       const response = await fetch('/api/v1/settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -328,7 +386,8 @@ export function useLeviathan() {
         throw new Error(message);
       }
       const next = (await response.json()) as RuntimeSettings;
-      setSettings(next);
+      if (eventGeneration === settingsEventGeneration.current)
+        setSettings(next);
       return next;
     },
     [],
@@ -337,7 +396,13 @@ export function useLeviathan() {
   return {
     snapshot,
     connection,
-    error,
+    // Keep the compatibility alias while callers move to scoped errors.
+    error: snapshot ? streamError : (snapshotError ?? streamError),
+    snapshotError,
+    streamError,
+    settingsError,
+    retrySnapshot,
+    retrySettings,
     history,
     alignedHistory,
     settings,

@@ -40,6 +40,10 @@ if grep -Ei -- "${legacy_name}" <<<"${archive_entries}" >/dev/null; then
   echo "archive contains a legacy-named path" >&2
   exit 1
 fi
+if grep -F -- "/web/e2e/fixtures/" <<<"${archive_entries}" >/dev/null; then
+  echo "release archive must not contain branding reference fixtures" >&2
+  exit 1
+fi
 if ! awk -v root="${archive_root}/" 'index($0, root) != 1 { exit 1 }' <<<"${archive_entries}"; then
   echo "archive contains an entry outside ${archive_root}" >&2
   exit 1
@@ -68,10 +72,12 @@ for required_path in \
   "${archive_root}/docs/architecture.md" \
   "${archive_root}/docs/assets/architecture.svg" \
   "${archive_root}/docs/config.example.toml" \
+  "${archive_root}/docs/deployment.md" \
   "${archive_root}/docs/kubernetes-attribution.md" \
   "${archive_root}/docs/migration-v0.3.md" \
   "${archive_root}/docs/permissions.md" \
   "${archive_root}/docs/releasing.md" \
+  "${archive_root}/docs/security-and-privacy.md" \
   "${archive_root}/api/openapi.yaml" \
   "${archive_root}/web/public/leviathan-mark.svg" \
   "${archive_root}/openapi.yaml" \
@@ -124,13 +130,26 @@ fi
 grep -Fx 'MIT License' "${root}/LICENSE" >/dev/null
 grep -F 'Leviathan (formerly MIGLens)' "${root}/NOTICE" >/dev/null
 grep -F 'Copyright (c) 2026 MIGLens contributors' "${root}/LICENSE" >/dev/null
-grep -F 'frost rune-tech world-serpent mark' "${root}/NOTICE" >/dev/null
+grep -F 'Leviathan frost-dragon mark traces a project-owner-supplied source image' "${root}/NOTICE" >/dev/null
+mark="${root}/web/public/leviathan-mark.svg"
+[[ "$(wc -c <"${mark}")" -lt 8192 ]] || {
+  echo "frost-dragon mark exceeds 8 KiB" >&2
+  exit 1
+}
+grep -F '<title id="title">Leviathan frost-dragon mark</title>' "${mark}" >/dev/null
+grep -F 'viewBox="0 0 64 64"' "${mark}" >/dev/null
+grep -F '.mark{fill:#15364b}' "${mark}" >/dev/null
+grep -F '.mark{fill:#8be4ff}' "${mark}" >/dev/null
+grep -F 'data-source-sha256="1556d8fe7da4af39b968f84d56afe5d8531a152cba3338e268a8ece8a3ddbe4b"' "${mark}" >/dev/null
+if grep -Ei '<(script|foreignobject|iframe|object|embed|image|text|animate(motion|transform)?|set|lineargradient|radialgradient|pattern|filter)([[:space:]/>])|on[a-z]+[[:space:]]*=|javascript:|(href|xlink:href)[[:space:]]*=' "${mark}" >/dev/null; then
+  echo "frost-dragon mark contains active or external content" >&2
+  exit 1
+fi
 cmp "${root}/openapi.yaml" "${root}/api/openapi.yaml" >/dev/null
 
 version_output="$("${root}/leviathan" version --format json)"
 grep -F "\"version\":\"${version}\"" <<<"${version_output}" >/dev/null
 grep -Fx "  version: ${version}" "${root}/openapi.yaml" >/dev/null
-grep -Fx -- "  --version ${version} \\" "${root}/README.md" >/dev/null
 grep -Fx -- "  --version ${version} \\" "${root}/docs/kubernetes-attribution.md" >/dev/null
 
 chart="${root}/charts/leviathan-attribution/Chart.yaml"

@@ -4,22 +4,40 @@ import { Progress as ProgressPrimitive } from '@base-ui/react/progress';
 
 import { cn } from '../../lib/utils';
 
+type ProgressProps = Omit<ProgressPrimitive.Root.Props, 'value'> & {
+  value?: number | null;
+};
+
 function Progress({
   className,
   children,
   value,
+  'aria-valuetext': ariaValueText,
   ...props
-}: ProgressPrimitive.Root.Props) {
+}: ProgressProps) {
+  const clampedValue =
+    typeof value === 'number' && Number.isFinite(value)
+      ? Math.min(100, Math.max(0, value))
+      : null;
+  const unavailable = clampedValue == null;
+
   return (
     <ProgressPrimitive.Root
-      value={value}
+      {...props}
+      value={clampedValue}
+      aria-valuetext={
+        ariaValueText ?? (unavailable ? 'Unavailable' : undefined)
+      }
+      data-unavailable={unavailable ? '' : undefined}
       data-slot="progress"
       className={cn('flex flex-wrap gap-3', className)}
-      {...props}
     >
       {children}
-      <ProgressTrack>
-        <ProgressIndicator />
+      <ProgressTrack
+        data-unavailable={unavailable ? '' : undefined}
+        className={unavailable ? 'bg-muted/60' : undefined}
+      >
+        {unavailable ? null : <ProgressIndicator />}
       </ProgressTrack>
     </ProgressPrimitive.Root>
   );
@@ -45,7 +63,7 @@ function ProgressIndicator({
   return (
     <ProgressPrimitive.Indicator
       data-slot="progress-indicator"
-      className={cn('bg-primary h-full transition-all', className)}
+      className={cn('bg-primary h-full', className)}
       {...props}
     />
   );
