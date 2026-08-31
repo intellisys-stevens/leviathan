@@ -214,6 +214,9 @@ telemetry_enabled = false`, `creator_username = "owner-b@example.test"
 telemetry_enabled = true
 uplink_token_env = "LEVIATHAN_TEST_OWNER_B_TOKEN"`, 1)
 	config := loadText(t, text)
+	if config.Uplink.Listen != DefaultUplinkListen {
+		t.Fatalf("uplink listen = %q, want compatibility default %q", config.Uplink.Listen, DefaultUplinkListen)
+	}
 	ttl, maxAge, futureSkew, err := config.UplinkDurations()
 	if err != nil || ttl != 90*time.Second || maxAge != 90*time.Second || futureSkew != 20*time.Second {
 		t.Fatalf("UplinkDurations() = %v %v %v, %v", ttl, maxAge, futureSkew, err)
@@ -241,6 +244,11 @@ uplink_token_env = "LEVIATHAN_TEST_OWNER_B_TOKEN"`, 1)
 	if _, err := Load(writeConfig(t, overBudget)); err == nil {
 		t.Fatal("Load() accepted an in-flight raw-body budget above 256 MiB")
 	}
+
+	customListen := strings.Replace(text, "enabled = true", "enabled = true\nlisten = \"localhost:1400\"", 1)
+	if got := loadText(t, customListen).Uplink.Listen; got != "localhost:1400" {
+		t.Fatalf("explicit uplink listen = %q", got)
+	}
 }
 
 func TestUplinkConfigurationFailsClosed(t *testing.T) {
@@ -266,6 +274,13 @@ uplink_token_env = "LEVIATHAN_TEST_OWNER_C_TOKEN"
 		{name: "one creator token does not authorize another creator route", text: crossCreator},
 		{name: "token reference while disabled", text: strings.Replace(validConfig, `telemetry_enabled = false`, `telemetry_enabled = true
 uplink_token_env = "LEVIATHAN_TEST_TOKEN"`, 1)},
+		{name: "listen while disabled", text: strings.Replace(validConfig, `[[instances]]`, `[uplink]
+listen = "127.0.0.1:1399"
+
+[[instances]]`, 1)},
+		{name: "non-loopback uplink listener", text: strings.Replace(base, "enabled = true", "enabled = true\nlisten = \"0.0.0.0:1399\"", 1)},
+		{name: "same uplink and dashboard port", text: strings.Replace(base, "enabled = true", "enabled = true\nlisten = \"[::1]:1398\"", 1)},
+		{name: "malformed uplink listener", text: strings.Replace(base, "enabled = true", "enabled = true\nlisten = \"127.0.0.1\"", 1)},
 		{name: "invalid token environment", text: strings.Replace(base, `telemetry_enabled = false`, `telemetry_enabled = true
 uplink_token_env = "bad-token-env"`, 1)},
 		{name: "legacy token environment", text: strings.Replace(base, `telemetry_enabled = false`, `telemetry_enabled = true

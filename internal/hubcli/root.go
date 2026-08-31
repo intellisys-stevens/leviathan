@@ -202,14 +202,10 @@ func (app *application) serveCommand() *cobra.Command {
 			controller.Refresh(command.Context())
 			go refreshLoop(command.Context(), controller, config.RefreshInterval)
 
-			listener, err := net.Listen("tcp", config.Listen)
-			if err != nil {
-				return err
-			}
-			defer listener.Close()
-			var handler http.Handler = fleetapi.NewServer(peers, webui.FS(), buildInfo())
+			dashboardHandler := http.Handler(fleetapi.NewServer(peers, webui.FS(), buildInfo()))
+			var uplinkHandler http.Handler
 			if config.Uplink.Enabled {
-				handler, err = fleetapi.NewServerWithUplink(peers, webui.FS(), buildInfo(), fleetapi.UplinkConfig{
+				uplinkHandler, err = fleetapi.NewUplinkServer(peers, fleetapi.UplinkConfig{
 					Registry:              uplinkRegistry,
 					Authorizer:            uplinkAuthorizer,
 					ProjectID:             projectID,
@@ -227,34 +223,121 @@ func (app *application) serveCommand() *cobra.Command {
 					return err
 				}
 			}
-			server := &http.Server{
-				Handler:           handler,
-				ReadHeaderTimeout: 5 * time.Second,
-				ReadTimeout:       30 * time.Second,
-				IdleTimeout:       2 * time.Minute,
-				MaxHeaderBytes:    16 << 10,
-				BaseContext:       func(net.Listener) context.Context { return command.Context() },
-			}
-			fmt.Fprintf(app.stderr, "Yggdrasill (Leviathan platform): http://%s/platforms\n", listener.Addr())
-			fmt.Fprintln(app.stderr, "OpenStack inventory is project-scoped; telemetry sources are explicitly authorized and source-qualified.")
-			if config.Uplink.Enabled {
-				fmt.Fprintln(app.stderr, "Authenticated outbound agent uplink is enabled; bearer tokens are loaded only from named environment variables.")
-			}
-			done := make(chan error, 1)
-			go func() { done <- server.Serve(listener) }()
-			select {
-			case <-command.Context().Done():
-				shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				return server.Shutdown(shutdown)
-			case err := <-done:
-				if errors.Is(err, http.ErrServerClosed) {
-					return nil
-				}
+			services, err := listenHubHTTPServices(
+				command.Context(),
+				config.Listen,
+				dashboardHandler,
+				config.Uplink.Listen,
+				uplinkHandler,
+			)
+			if err != nil {
 				return err
 			}
+			fmt.Fprintf(app.stderr, "Yggdrasill private dashboard: http://%s/platforms\n", services[0].listener.Addr())
+			fmt.Fprintln(app.stderr, "OpenStack inventory is project-scoped; telemetry sources are explicitly authorized and source-qualified.")
+			if config.Uplink.Enabled {
+				fmt.Fprintf(app.stderr, "Leviathan uplink-only ingress: http://%s/api/fleet/v1/uplink/{instanceUUID}\n", services[1].listener.Addr())
+				fmt.Fprintln(app.stderr, "Publish only the uplink listener through HTTPS; keep the dashboard listener Tailnet-private.")
+			}
+			return serveHubHTTPServices(command.Context(), services)
 		},
 	}
+}
+
+type hubHTTPService struct {
+	name     string
+	listener net.Listener
+	server   *http.Server
+}
+
+func listenHubHTTPServices(ctx context.Context, dashboardAddress string, dashboardHandler http.Handler, uplinkAddress string, uplinkHandler http.Handler) ([]hubHTTPService, error) {
+	if ctx == nil || dashboardHandler == nil || (uplinkHandler == nil) != (uplinkAddress == "") {
+		return nil, errors.New("invalid Hub HTTP service configuration")
+	}
+	specs := []struct {
+		name    string
+		address string
+		handler http.Handler
+	}{{name: "dashboard", address: dashboardAddress, handler: dashboardHandler}}
+	if uplinkHandler != nil {
+		specs = append(specs, struct {
+			name    string
+			address string
+			handler http.Handler
+		}{name: "uplink", address: uplinkAddress, handler: uplinkHandler})
+	}
+
+	services := make([]hubHTTPService, 0, len(specs))
+	for _, spec := range specs {
+		listener, err := net.Listen("tcp", spec.address)
+		if err != nil {
+			for _, service := range services {
+				_ = service.listener.Close()
+			}
+			return nil, fmt.Errorf("listen on %s %s: %w", spec.name, spec.address, err)
+		}
+		services = append(services, hubHTTPService{
+			name:     spec.name,
+			listener: listener,
+			server:   newHubHTTPServer(ctx, spec.handler),
+		})
+	}
+	return services, nil
+}
+
+func newHubHTTPServer(ctx context.Context, handler http.Handler) *http.Server {
+	return &http.Server{
+		Handler:                      handler,
+		ReadHeaderTimeout:            5 * time.Second,
+		ReadTimeout:                  30 * time.Second,
+		IdleTimeout:                  2 * time.Minute,
+		MaxHeaderBytes:               16 << 10,
+		DisableGeneralOptionsHandler: true,
+		BaseContext:                  func(net.Listener) context.Context { return ctx },
+	}
+}
+
+func serveHubHTTPServices(ctx context.Context, services []hubHTTPService) error {
+	if ctx == nil || len(services) == 0 {
+		return errors.New("no Hub HTTP services configured")
+	}
+	done := make(chan error, len(services))
+	for index := range services {
+		service := &services[index]
+		go func() { done <- service.server.Serve(service.listener) }()
+	}
+
+	var serveErr error
+	select {
+	case <-ctx.Done():
+	case serveErr = <-done:
+		if errors.Is(serveErr, http.ErrServerClosed) {
+			serveErr = nil
+		}
+	}
+
+	shutdownErr := shutdownHubHTTPServices(services, 5*time.Second)
+	if serveErr != nil {
+		return serveErr
+	}
+	return shutdownErr
+}
+
+func shutdownHubHTTPServices(services []hubHTTPService, timeout time.Duration) error {
+	shutdown, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	errorsByService := make(chan error, len(services))
+	for index := range services {
+		service := &services[index]
+		go func() { errorsByService <- service.server.Shutdown(shutdown) }()
+	}
+	var firstErr error
+	for range services {
+		if err := <-errorsByService; err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 func loadCreatorTokens(config hubconfig.Config) (map[string]string, error) {

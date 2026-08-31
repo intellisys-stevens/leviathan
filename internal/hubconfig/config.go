@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"regexp"
@@ -21,7 +22,10 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-const DefaultListen = "127.0.0.1:1398"
+const (
+	DefaultListen       = "127.0.0.1:1398"
+	DefaultUplinkListen = "127.0.0.1:1399"
+)
 
 type OpenStack struct {
 	AllowedProjectIDs       []string `toml:"allowed_project_ids"`
@@ -52,6 +56,7 @@ type Creator struct {
 
 type Uplink struct {
 	Enabled                 bool   `toml:"enabled"`
+	Listen                  string `toml:"listen"`
 	TTL                     string `toml:"ttl"`
 	MaxSampleAge            string `toml:"max_sample_age"`
 	MaxFutureSkew           string `toml:"max_future_skew"`
@@ -115,6 +120,9 @@ func Load(path string) (Config, error) {
 		Uplink:              file.Uplink,
 		Instances:           append([]Instance(nil), file.Instances...),
 		Creators:            append([]Creator(nil), file.Creators...),
+	}
+	if config.Uplink.Enabled && config.Uplink.Listen == "" {
+		config.Uplink.Listen = DefaultUplinkListen
 	}
 	if config.RefreshInterval, err = parseDuration("refresh_interval", file.RefreshInterval, 5*time.Second, 5*time.Minute); err != nil {
 		return Config{}, err
@@ -216,7 +224,7 @@ func validateDashboardURL(raw string) error {
 var environmentVariableName = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,127}$`)
 
 func validateUplink(config Config) error {
-	configured := config.Uplink.TTL != "" || config.Uplink.MaxSampleAge != "" || config.Uplink.MaxFutureSkew != "" || config.Uplink.MaxBodyBytes != 0 ||
+	configured := config.Uplink.Listen != "" || config.Uplink.TTL != "" || config.Uplink.MaxSampleAge != "" || config.Uplink.MaxFutureSkew != "" || config.Uplink.MaxBodyBytes != 0 ||
 		config.Uplink.MaxEntries != 0 || config.Uplink.MaxRetainedBytes != 0 || config.Uplink.MaxCreatorRetainedBytes != 0 || config.Uplink.MaxConcurrentRequests != 0
 	for _, creator := range config.Creators {
 		configured = configured || creator.UplinkTokenEnv != ""
@@ -226,6 +234,20 @@ func validateUplink(config Config) error {
 			return errors.New("uplink settings and token references require uplink.enabled")
 		}
 		return nil
+	}
+	if err := localconfig.ValidateLoopback(config.Uplink.Listen); err != nil {
+		return fmt.Errorf("invalid uplink listen address: %w", err)
+	}
+	dashboardPort, err := listenPort(config.Listen)
+	if err != nil {
+		return fmt.Errorf("invalid dashboard listen address: %w", err)
+	}
+	uplinkPort, err := listenPort(config.Uplink.Listen)
+	if err != nil {
+		return fmt.Errorf("invalid uplink listen address: %w", err)
+	}
+	if dashboardPort == uplinkPort {
+		return errors.New("uplink.listen must use a different port from listen")
 	}
 	ttl := fleetuplink.DefaultTTL
 	maxSampleAge := fleetuplink.DefaultMaxSampleAge
@@ -315,6 +337,14 @@ func validateUplink(config Config) error {
 		return errors.New("uplink.enabled requires at least one creator uplink_token_env")
 	}
 	return nil
+}
+
+func listenPort(address string) (int, error) {
+	_, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return 0, err
+	}
+	return net.LookupPort("tcp", port)
 }
 
 func (config Config) Policy() (fleet.Policy, error) {

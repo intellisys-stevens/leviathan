@@ -151,6 +151,13 @@ Hub, so they do not each need a Tailnet address or inbound agent port. A
 strictly bounded Exosphere console record provides coarse GPU-utilization
 fallback when no full snapshot is available.
 
+The Hub keeps those surfaces on separate loopback listeners: the dashboard and
+read APIs use the private `listen` address, while an enabled uplink uses
+`uplink.listen` and exposes only the authenticated snapshot POST. Publish the
+dashboard only inside the operator Tailnet. If instances need a public HTTPS
+ingress, point that ingress exclusively at the uplink listener; never publish
+the dashboard listener through it.
+
 The Yggdrasill fleet dashboard presents Nidhogg and Jetstream as peers. The
 configured Nidhogg entry is a credential-free HTTPS link to the existing
 dashboard; the hub does not proxy, replace, or modify the Nidhogg entry or API.

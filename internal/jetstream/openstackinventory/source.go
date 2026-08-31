@@ -203,7 +203,8 @@ func NewFromEnv(ctx context.Context, config Config) (*Source, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := validateProjectComputeEndpoint(rawComputeURL, environment.projectID); err != nil {
+	projectComputeURL, err := projectScopedComputeEndpoint(rawComputeURL, environment.projectID)
+	if err != nil {
 		return nil, err
 	}
 	compute, err := openstack.NewComputeV2(provider, endpointOptions)
@@ -214,13 +215,21 @@ func NewFromEnv(ctx context.Context, config Config) (*Source, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := validateProjectComputeEndpoint(computeURL, environment.projectID); err != nil {
-		return nil, err
-	}
-	if rawComputeURL.String() != computeURL.String() {
+	if !sameSelectedComputeEndpoint(rawComputeURL, computeURL) {
 		return nil, errors.New("OpenStack compute endpoint changed during selection")
 	}
-	if err := securedTransport.configureComputeEndpoint(computeURL); err != nil {
+	selectedProjectComputeURL, err := projectScopedComputeEndpoint(computeURL, environment.projectID)
+	if err != nil {
+		return nil, err
+	}
+	if projectComputeURL.String() != selectedProjectComputeURL.String() {
+		return nil, errors.New("OpenStack compute endpoint changed during selection")
+	}
+	// Some modern Nova catalogs publish only the version root. Scope that exact,
+	// allowlisted endpoint to the authenticated project before any inventory URL
+	// is constructed, preserving the transport's project-path pin.
+	compute.Endpoint = projectComputeURL.String()
+	if err := securedTransport.configureComputeEndpoint(projectComputeURL); err != nil {
 		return nil, err
 	}
 	return newSource(compute, environment.projectID, config), nil
@@ -457,16 +466,50 @@ func sanitizedName(value string) string {
 	return result
 }
 
-func validateProjectComputeEndpoint(endpoint *url.URL, projectID string) error {
-	if endpoint == nil || !validOpaqueIdentifier(projectID) {
-		return errors.New("OpenStack compute endpoint project is invalid")
+func projectScopedComputeEndpoint(endpoint *url.URL, projectID string) (*url.URL, error) {
+	if endpoint == nil || !validURLPathSegment(projectID) {
+		return nil, errors.New("OpenStack compute endpoint project is invalid")
 	}
 	basePath := strings.TrimSuffix(endpoint.Path, "/")
 	separator := strings.LastIndexByte(basePath, '/')
-	if separator < 0 || basePath[separator+1:] != projectID {
-		return errors.New("OpenStack compute endpoint does not match OS_PROJECT_ID")
+	if separator < 0 {
+		return nil, errors.New("OpenStack compute endpoint does not match OS_PROJECT_ID")
 	}
-	return nil
+	lastSegment := basePath[separator+1:]
+	if isComputeV2Segment(lastSegment) {
+		basePath += "/" + projectID
+	} else if lastSegment == projectID {
+		versionPath := basePath[:separator]
+		versionSeparator := strings.LastIndexByte(versionPath, '/')
+		if versionSeparator < 0 || !isComputeV2Segment(versionPath[versionSeparator+1:]) {
+			return nil, errors.New("OpenStack compute endpoint does not match OS_PROJECT_ID")
+		}
+	} else {
+		return nil, errors.New("OpenStack compute endpoint does not match OS_PROJECT_ID")
+	}
+	scoped := *endpoint
+	scoped.Path = basePath + "/"
+	return &scoped, nil
+}
+
+func isComputeV2Segment(value string) bool {
+	return value == "v2" || value == "v2.1"
+}
+
+func validURLPathSegment(value string) bool {
+	return validOpaqueIdentifier(value) && value != "." && value != ".." && url.PathEscape(value) == value
+}
+
+// Gophercloud normalizes a selected service endpoint by adding a trailing
+// slash. Treat only that representation change (plus URL case-insensitive
+// scheme and host casing) as equal before project scoping is applied.
+func sameSelectedComputeEndpoint(first, second *url.URL) bool {
+	if first == nil || second == nil {
+		return false
+	}
+	return strings.EqualFold(first.Scheme, second.Scheme) &&
+		strings.EqualFold(first.Host, second.Host) &&
+		strings.TrimSuffix(first.Path, "/") == strings.TrimSuffix(second.Path, "/")
 }
 
 func exactAuthTokenPaths(authURL, authBaseURL *url.URL) map[string]struct{} {
@@ -536,14 +579,15 @@ func (transport *readOnlyTransport) configureComputeEndpoint(endpoint *url.URL) 
 	if transport == nil || endpoint == nil {
 		return errors.New("OpenStack compute endpoint is invalid")
 	}
-	if err := validateProjectComputeEndpoint(endpoint, transport.projectID); err != nil {
+	scopedEndpoint, err := projectScopedComputeEndpoint(endpoint, transport.projectID)
+	if err != nil {
 		return err
 	}
-	host := strings.ToLower(endpoint.Host)
+	host := strings.ToLower(scopedEndpoint.Host)
 	if _, allowed := transport.allowedComputeHosts[host]; !allowed {
 		return errors.New("OpenStack compute endpoint host is not allowlisted")
 	}
-	basePath := strings.TrimSuffix(endpoint.Path, "/")
+	basePath := strings.TrimSuffix(scopedEndpoint.Path, "/")
 	if transport.computeHost != "" && (transport.computeHost != host || transport.computeBasePath != basePath) {
 		return errors.New("OpenStack compute endpoint changed after authentication")
 	}

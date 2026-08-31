@@ -57,7 +57,7 @@ jobs:
         working-directory: web
       - run: npm run generate:api
         working-directory: web
-      - run: git diff --exit-code -- web/src/api.gen.ts
+      - run: git diff --exit-code -- web/src/api.gen.ts web/src/fleet-api.gen.ts
       - run: npm run build
         working-directory: web
       - run: git diff --exit-code -- internal/webui/dist

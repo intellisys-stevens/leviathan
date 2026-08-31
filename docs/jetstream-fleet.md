@@ -15,8 +15,9 @@ path is one project-scoped Hub plus outbound HTTPS telemetry from instances:
 4. Nova console output supplies a coarse fallback when no full snapshot is
    available.
 
-Only the Hub or its HTTPS reverse proxy needs a stable reachable address.
+Only the Hub's dedicated uplink HTTPS ingress needs a stable reachable address.
 Instances initiate outbound requests and do not expose an inbound agent port.
+The dashboard remains a separate Tailnet-only service.
 
 ## Processes and trust boundaries
 
@@ -115,6 +116,7 @@ console_max_response_bytes = 262144
 
 [uplink]
 enabled = true
+listen = "127.0.0.1:1399"
 ttl = "2m"
 max_sample_age = "2m"
 max_future_skew = "30s"
@@ -217,14 +219,30 @@ go build -o ./bin/leviathan-hub ./cmd/leviathan-hub
 ./bin/leviathan-hub --config ./hub.toml serve
 ```
 
-Open Yggdrasill locally at `http://127.0.0.1:1398/platforms`.
+Open Yggdrasill locally at `http://127.0.0.1:1398/platforms`. The top-level
+`listen` address serves only the dashboard, fleet read API, events, version, and
+health. When uplink is enabled, `uplink.listen` serves only
+`POST /api/fleet/v1/uplink/{instanceUUID}`. Both addresses must be distinct
+loopback ports; the uplink default is `127.0.0.1:1399`.
 
-The Hub deliberately stays on loopback. To receive VM uplinks, publish that
-loopback service through one authenticated HTTPS reverse proxy on a central
-host. Preserve the original `Authorization` header, disable request-body
-logging, cap bodies consistently with `max_body_bytes`, and do not expose the
-Hub directly over plaintext HTTP. This is one central network integration, not
-one Tailnet enrollment per instance.
+To receive VM uplinks, publish only `uplink.listen` through one HTTPS ingress on
+the central host. Preserve the original `Authorization` header, disable
+request-body logging, cap bodies consistently with `max_body_bytes`, and do not
+expose either loopback listener directly over plaintext HTTP. This is one
+central network integration, not one Tailnet enrollment per instance.
+
+For a temporary Hub on a developer machine, Tailscale Serve can keep the
+dashboard private while Funnel publishes the separate uplink-only port:
+
+```bash
+tailscale serve --bg --https=443 http://127.0.0.1:1398
+tailscale funnel --bg --https=8443 http://127.0.0.1:1399
+```
+
+The instance Hub origin is then the Funnel HTTPS origin including `:8443`.
+Never point Funnel at port `1398`: that port contains sensitive fleet inventory
+and the Yggdrasill dashboard. Funnel is public ingress; the creator bearer token
+and current Nova inventory checks remain the uplink authentication boundary.
 
 ## Run an instance uplink
 

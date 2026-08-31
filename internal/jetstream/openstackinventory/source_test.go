@@ -373,6 +373,147 @@ func TestNewFromEnvRejectsComputeEndpointForAnotherAllowlistedProject(t *testing
 	}
 }
 
+func TestNewFromEnvScopesVersionRootComputeEndpointToProject(t *testing.T) {
+	computeRequests := 0
+	var server *httptest.Server
+	server = httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v3/auth/tokens":
+			writer.Header().Set("Content-Type", "application/json")
+			writer.Header().Set("X-Subject-Token", "test-token")
+			writer.WriteHeader(http.StatusCreated)
+			writeTokenResponseWithComputeEndpoint(t, writer, server.URL+"/v2.1")
+		case "/v2.1/" + testProjectID + "/servers/detail":
+			computeRequests++
+			if request.Method != http.MethodGet {
+				t.Errorf("compute method = %q, want GET", request.Method)
+			}
+			if request.URL.RawQuery != "limit=10" {
+				t.Errorf("compute query = %q, want exact project-scoped list query", request.URL.RawQuery)
+			}
+			writePage(t, writer, []map[string]any{}, "")
+		default:
+			t.Errorf("unexpected request path = %q", request.URL.Path)
+			http.NotFound(writer, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+	parsed, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	setAuthEnvironment(t, server.URL+"/v3")
+	source, err := NewFromEnv(context.Background(), Config{
+		AllowedProjectIDs:   []string{testProjectID},
+		AllowedAuthHosts:    []string{parsed.Host},
+		AllowedComputeHosts: []string{parsed.Host},
+		MaxInstances:        10,
+		RequestTimeout:      2 * time.Second,
+		HTTPClient:          server.Client(),
+	})
+	if err != nil {
+		t.Fatalf("NewFromEnv() error = %v", err)
+	}
+	want := server.URL + "/v2.1/" + testProjectID + "/"
+	if source.compute.Endpoint != want {
+		t.Fatalf("project-scoped compute endpoint = %q, want %q", source.compute.Endpoint, want)
+	}
+	observation, err := source.List(context.Background())
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(observation.Instances) != 0 || computeRequests != 1 {
+		t.Fatalf("empty project inventory = %+v, requests = %d", observation, computeRequests)
+	}
+}
+
+func TestProjectScopedComputeEndpointRejectsUnrecognizedPaths(t *testing.T) {
+	for _, raw := range []string{
+		"https://compute.example.test/",
+		"https://compute.example.test/v3",
+		"https://compute.example.test/nova/" + testProjectID,
+		"https://compute.example.test/v2.1/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	} {
+		parsed, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if scoped, err := projectScopedComputeEndpoint(parsed, testProjectID); err == nil || scoped != nil {
+			t.Fatalf("projectScopedComputeEndpoint(%q) = %v, %v", raw, scoped, err)
+		}
+	}
+}
+
+func TestProjectScopedComputeEndpointSupportsVersionRootsAndExistingProject(t *testing.T) {
+	tests := []struct {
+		raw      string
+		wantPath string
+	}{
+		{"https://compute.example.test/v2", "/v2/" + testProjectID + "/"},
+		{"https://compute.example.test/v2/", "/v2/" + testProjectID + "/"},
+		{"https://compute.example.test/v2.1", "/v2.1/" + testProjectID + "/"},
+		{"https://compute.example.test/nova/v2.1/", "/nova/v2.1/" + testProjectID + "/"},
+		{"https://compute.example.test/v2.1/" + testProjectID, "/v2.1/" + testProjectID + "/"},
+		{"https://compute.example.test/nova/v2/" + testProjectID + "/", "/nova/v2/" + testProjectID + "/"},
+	}
+	for _, test := range tests {
+		t.Run(test.raw, func(t *testing.T) {
+			endpoint, err := url.Parse(test.raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			original := endpoint.String()
+			scoped, err := projectScopedComputeEndpoint(endpoint, testProjectID)
+			if err != nil {
+				t.Fatalf("projectScopedComputeEndpoint() error = %v", err)
+			}
+			if scoped.Path != test.wantPath {
+				t.Fatalf("scoped path = %q, want %q", scoped.Path, test.wantPath)
+			}
+			if endpoint.String() != original {
+				t.Fatalf("input endpoint mutated from %q to %q", original, endpoint)
+			}
+		})
+	}
+}
+
+func TestProjectScopedComputeEndpointRejectsNonCanonicalProjectSegments(t *testing.T) {
+	endpoint, err := url.Parse("https://compute.example.test/v2.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, projectID := range []string{"a/b", ".", "..", `a\\b`, "a b", "a?b"} {
+		if scoped, err := projectScopedComputeEndpoint(endpoint, projectID); err == nil || scoped != nil {
+			t.Fatalf("projectScopedComputeEndpoint(project=%q) = %v, %v", projectID, scoped, err)
+		}
+	}
+}
+
+func TestSameSelectedComputeEndpointAllowsOnlyRepresentationNormalization(t *testing.T) {
+	parse := func(raw string) *url.URL {
+		t.Helper()
+		parsed, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return parsed
+	}
+	root := parse("https://compute.example.test/proxy/v2.1")
+	if !sameSelectedComputeEndpoint(root, parse("https://COMPUTE.example.test/proxy/v2.1/")) {
+		t.Fatal("trailing slash and host casing normalization were rejected")
+	}
+	for _, changed := range []*url.URL{
+		parse("https://compute.example.test/proxy/v2.1/" + testProjectID + "/"),
+		parse("https://other.example.test/proxy/v2.1/"),
+		parse("https://compute.example.test/other/v2.1/"),
+	} {
+		if sameSelectedComputeEndpoint(root, changed) {
+			t.Fatalf("changed endpoint %q was accepted", changed)
+		}
+	}
+}
+
 func sourceForTestServer(t *testing.T, server *httptest.Server, maxInstances int, resolver CreatorResolver) *Source {
 	return sourceForTestServerOptions(t, server, maxInstances, resolver, false, defaultMaxConsoleResponseSize)
 }

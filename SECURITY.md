@@ -75,9 +75,12 @@ specific environment-variable names referenced by creator rules. The hub TOML
 is non-secret and rejects unknown fields; do not put application-credential
 secrets, passwords, tokens, OpenRC contents, or SSH keys in it. Exact project
 IDs, identity hosts, and compute hosts must be allowlisted independently of the
-credential's own cloud role. Keep the hub on loopback. If VM uplinks are
-enabled, put one HTTPS reverse proxy in front of that listener, preserve
-`Authorization`, and disable request-body logging.
+credential's own cloud role. Both Hub listeners remain on loopback. The private
+listener contains Yggdrasill, inventory state, events, build information, and
+health. The optional uplink listener contains only the authenticated snapshot
+POST. If VM uplinks are enabled, put one HTTPS ingress in front of the uplink
+listener only, preserve `Authorization`, and disable request-body logging. Never
+point a public ingress or Tailscale Funnel at the private dashboard listener.
 
 The fleet controller does not retrieve instance passwords, open SSH sessions,
 bootstrap agents, start, stop, shelve, or unshelve instances. Its OpenStack

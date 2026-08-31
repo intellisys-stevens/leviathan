@@ -325,13 +325,13 @@ func TestUplinkMapsRegistryErrorsToGenericResponses(t *testing.T) {
 	}
 }
 
-func TestUplinkIsExplicitlyEnabledAndRejectsPreflightAndSlashRedirects(t *testing.T) {
+func TestDashboardNeverExposesUplinkAndUplinkRejectsPreflightAndSlashRedirects(t *testing.T) {
 	plain := NewServer(newStubSource(), nil, model.BuildInfo{})
 	request := newUplinkRequest(uplinkUUIDA, uplinkTokenA, []byte(`{}`))
 	response := httptest.NewRecorder()
 	plain.ServeHTTP(response, request)
-	if response.Code != http.StatusNotFound {
-		t.Fatalf("NewServer unexpectedly enabled uplink: status %d", response.Code)
+	if response.Code != http.StatusNotFound || response.Header().Get("Location") != "" {
+		t.Fatalf("NewServer unexpectedly enabled uplink: status %d location %q", response.Code, response.Header().Get("Location"))
 	}
 
 	now := time.Date(2026, time.August, 30, 22, 0, 0, 0, time.UTC)
@@ -341,8 +341,11 @@ func TestUplinkIsExplicitlyEnabledAndRejectsPreflightAndSlashRedirects(t *testin
 		"/api/fleet/v1/uplink",
 		"/api/fleet/v1/uplink//" + uplinkUUIDA,
 		"/api/fleet/v1/uplink/./" + uplinkUUIDA,
+		"/./api/fleet/v1/uplink/" + uplinkUUIDA,
 		"/api/fleet/v1/uplink/" + uplinkUUIDA + "?source=agent",
+		"/api/fleet/v1/uplink/" + uplinkUUIDA + "?",
 		"/api/fleet/v1/uplink/%61aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+		"/%61pi/fleet/v1/uplink/" + uplinkUUIDA,
 	} {
 		request := httptest.NewRequest(http.MethodPost, target, strings.NewReader(`{}`))
 		response := httptest.NewRecorder()
@@ -350,13 +353,93 @@ func TestUplinkIsExplicitlyEnabledAndRejectsPreflightAndSlashRedirects(t *testin
 		if response.Code != http.StatusNotFound || response.Header().Get("Location") != "" {
 			t.Fatalf("POST %s = status %d location %q", target, response.Code, response.Header().Get("Location"))
 		}
+		assertUplinkResponseHeaders(t, response)
 	}
 	preflight := httptest.NewRequest(http.MethodOptions, "/api/fleet/v1/uplink/"+uplinkUUIDA, nil)
 	preflight.Header.Set("Origin", "https://untrusted.example")
 	response = httptest.NewRecorder()
 	enabled.ServeHTTP(response, preflight)
-	if response.Code != http.StatusNotFound || response.Header().Get("Access-Control-Allow-Origin") != "" {
+	if response.Code != http.StatusMethodNotAllowed || response.Header().Get("Allow") != http.MethodPost || response.Header().Get("Access-Control-Allow-Origin") != "" {
 		t.Fatalf("preflight = status %d CORS %q", response.Code, response.Header().Get("Access-Control-Allow-Origin"))
+	}
+	assertUplinkResponseHeaders(t, response)
+}
+
+func TestUplinkServerExposesOnlyPostIngress(t *testing.T) {
+	now := time.Date(2026, time.August, 30, 22, 30, 0, 0, time.UTC)
+	server := newUplinkTestServer(t, uplinkAuthorizedState(), &stubUplinkRegistry{}, now, 0)
+
+	accepted := httptest.NewRecorder()
+	server.ServeHTTP(accepted, newUplinkRequest(uplinkUUIDA, uplinkTokenA, validUplinkBody(t, now)))
+	if accepted.Code != http.StatusAccepted {
+		t.Fatalf("valid POST status = %d body %s", accepted.Code, accepted.Body.String())
+	}
+	assertUplinkResponseHeaders(t, accepted)
+
+	for _, target := range []string{
+		"/",
+		"/healthz",
+		"/platforms",
+		"/platforms/jetstream",
+		"/fleet",
+		"/fleet/jetstream",
+		"/assets/app.js",
+		"/api/fleet/v1/state",
+		"/api/fleet/v1/events",
+		"/api/fleet/v1/version",
+		"/api/fleet/v1/missing",
+		"/api/v1/snapshot",
+	} {
+		t.Run("hidden_"+strings.ReplaceAll(strings.TrimPrefix(target, "/"), "/", "_"), func(t *testing.T) {
+			response := httptest.NewRecorder()
+			server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, target, nil))
+			if response.Code != http.StatusNotFound || response.Header().Get("Location") != "" {
+				t.Fatalf("GET %s = status %d location %q", target, response.Code, response.Header().Get("Location"))
+			}
+			for _, forbidden := range []string{"schemaVersion", "fleet-v1", "agent-host", "<html", "<main"} {
+				if strings.Contains(response.Body.String(), forbidden) {
+					t.Fatalf("GET %s disclosed %q: %s", target, forbidden, response.Body.String())
+				}
+			}
+			assertUplinkResponseHeaders(t, response)
+		})
+	}
+
+	target := "/api/fleet/v1/uplink/" + uplinkUUIDA
+	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions, http.MethodTrace} {
+		t.Run("method_"+method, func(t *testing.T) {
+			request := httptest.NewRequest(method, target, nil)
+			request.Header.Set("Origin", "https://untrusted.example")
+			response := httptest.NewRecorder()
+			server.ServeHTTP(response, request)
+			if response.Code != http.StatusMethodNotAllowed || response.Header().Get("Allow") != http.MethodPost {
+				t.Fatalf("%s %s = status %d Allow %q", method, target, response.Code, response.Header().Get("Allow"))
+			}
+			assertUplinkResponseHeaders(t, response)
+		})
+	}
+}
+
+func assertUplinkResponseHeaders(t *testing.T, response *httptest.ResponseRecorder) {
+	t.Helper()
+	for name, want := range map[string]string{
+		"Cache-Control":          "no-store",
+		"X-Content-Type-Options": "nosniff",
+		"Referrer-Policy":        "no-referrer",
+		"X-Frame-Options":        "DENY",
+	} {
+		if got := response.Header().Get(name); got != want {
+			t.Fatalf("%s = %q, want %q", name, got, want)
+		}
+	}
+	if response.Header().Get("Content-Security-Policy") == "" {
+		t.Fatal("Content-Security-Policy is empty")
+	}
+	if response.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("unexpected CORS origin %q", response.Header().Get("Access-Control-Allow-Origin"))
+	}
+	if response.Header().Get("Location") != "" {
+		t.Fatalf("unexpected redirect location %q", response.Header().Get("Location"))
 	}
 }
 
@@ -377,17 +460,17 @@ func TestUplinkConfigurationRejectsWeakAmbiguousCredentials(t *testing.T) {
 		{Registry: registry, Authorizer: authorizer, ProjectID: uplinkProjectID, CreatorTokens: map[string]string{uplinkCreatorA: uplinkTokenA}, MaxBodyBytes: MaximumUplinkInflightBytes/MaximumUplinkConcurrentRequests + 1, MaxConcurrentRequests: MaximumUplinkConcurrentRequests},
 	}
 	for index, config := range tests {
-		if _, err := NewServerWithUplink(source, nil, model.BuildInfo{}, config); !errors.Is(err, ErrInvalidUplinkConfig) {
+		if _, err := NewUplinkServer(source, config); !errors.Is(err, ErrInvalidUplinkConfig) {
 			t.Fatalf("config %d error = %v, want ErrInvalidUplinkConfig", index, err)
 		}
 	}
 
 	credentials := map[string]string{uplinkCreatorA: uplinkTokenA}
-	server, err := NewServerWithUplink(source, nil, model.BuildInfo{}, UplinkConfig{
+	server, err := NewUplinkServer(source, UplinkConfig{
 		Registry: registry, Authorizer: authorizer, ProjectID: uplinkProjectID, CreatorTokens: credentials,
 	})
 	if err != nil {
-		t.Fatalf("NewServerWithUplink() error = %v", err)
+		t.Fatalf("NewUplinkServer() error = %v", err)
 	}
 	credentials[uplinkCreatorA] = uplinkTokenB
 	if _, found := server.uplink.tokenDigests[uplinkTokenDigest(uplinkTokenA)]; !found {
@@ -397,7 +480,7 @@ func TestUplinkConfigurationRejectsWeakAmbiguousCredentials(t *testing.T) {
 		t.Fatal("handler credential changed after caller mutated config map")
 	}
 
-	if _, err := NewServerWithUplink(source, nil, model.BuildInfo{}, UplinkConfig{
+	if _, err := NewUplinkServer(source, UplinkConfig{
 		Registry: registry, Authorizer: authorizer, ProjectID: uplinkProjectID,
 		CreatorTokens:         map[string]string{uplinkCreatorA: uplinkTokenA},
 		MaxBodyBytes:          MaximumUplinkInflightBytes / MaximumUplinkConcurrentRequests,
@@ -450,7 +533,7 @@ func TestUplinkConcurrentRequestGateBoundsIngress(t *testing.T) {
 	registry := &blockingUplinkRegistry{started: make(chan struct{}), release: make(chan struct{})}
 	source := newStubSource()
 	authorizer := newTestUplinkAuthorizer(t, uplinkAuthorizedState())
-	server, err := NewServerWithUplink(source, nil, model.BuildInfo{}, UplinkConfig{
+	server, err := NewUplinkServer(source, UplinkConfig{
 		Registry: registry, Authorizer: authorizer, ProjectID: uplinkProjectID,
 		CreatorTokens:         map[string]string{uplinkCreatorA: uplinkTokenA},
 		MaxConcurrentRequests: 1, Now: func() time.Time { return now },
@@ -485,7 +568,7 @@ func newUplinkTestServer(t *testing.T, state fleet.Snapshot, registry UplinkRegi
 	source := newStubSource()
 	source.publish(state)
 	authorizer := newTestUplinkAuthorizer(t, state)
-	server, err := NewServerWithUplink(source, nil, model.BuildInfo{}, UplinkConfig{
+	server, err := NewUplinkServer(source, UplinkConfig{
 		Registry:   registry,
 		Authorizer: authorizer,
 		ProjectID:  uplinkProjectID,
@@ -497,7 +580,7 @@ func newUplinkTestServer(t *testing.T, state fleet.Snapshot, registry UplinkRegi
 		Now:          func() time.Time { return now },
 	})
 	if err != nil {
-		t.Fatalf("NewServerWithUplink() error = %v", err)
+		t.Fatalf("NewUplinkServer() error = %v", err)
 	}
 	return server
 }

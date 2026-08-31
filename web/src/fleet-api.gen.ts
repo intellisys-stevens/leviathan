@@ -66,7 +66,7 @@ export interface paths {
     put?: never;
     /**
      * Submit a creator-authenticated snapshot claimed for one instance when the optional uplink is enabled.
-     * @description The bearer credential authenticates a Nova creator trust domain, not the individual VM. The instance UUID is a claim that is authorized against current inventory.
+     * @description The bearer credential authenticates a Nova creator trust domain, not the individual VM. The instance UUID is a claim that is authorized against current inventory. This operation is served only by the dedicated uplink listener; dashboard and fleet-read routes are absent from that listener.
      */
     post: operations['putFleetUplinkSnapshot'];
     delete?: never;
