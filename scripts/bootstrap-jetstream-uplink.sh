@@ -18,6 +18,8 @@ binary_path=
 binary_sha256=
 binary_architecture=
 token_keychain_service=
+token_from_stdin=false
+uplink_token=
 verify_timeout=90
 apply_changes=false
 
@@ -46,8 +48,11 @@ Required install options:
   --binary PATH                 Local Linux Leviathan binary
   --binary-sha256 SHA256        Expected SHA-256 of that binary
   --binary-arch amd64|arm64     Architecture of that binary
-  --token-keychain-service NAME macOS Keychain service holding the creator token
   --uplink-hub-url HTTPS_ORIGIN Public HTTPS origin of the uplink-only listener
+
+Required token source (choose exactly one):
+  --token-keychain-service NAME macOS Keychain service holding the creator token
+  --token-stdin                 Read the creator token from stdin during --apply
 
 Optional install options:
   --ssh-user USER               SSH and collector account (default: exouser)
@@ -61,8 +66,9 @@ Environment defaults:
   LEVIATHAN_BOOTSTRAP_STATE_URL
   LEVIATHAN_BOOTSTRAP_UPLINK_URL
 
-The token is read only during --apply and is streamed over SSH through stdin.
-It is never placed in a command argument, environment, temporary file, or log.
+The token is used only during --apply and is streamed over SSH through stdin.
+It is never placed in a command argument, exported environment, temporary file,
+or log. Dry runs never read the selected token source.
 EOF
 }
 
@@ -211,6 +217,10 @@ while [[ $# -gt 0 ]]; do
       token_keychain_service=${1#*=}
       shift
       ;;
+    --token-stdin)
+      token_from_stdin=true
+      shift
+      ;;
     --verify-timeout)
       [[ $# -ge 2 ]] || fail "--verify-timeout requires a value"
       verify_timeout=$2
@@ -308,13 +318,33 @@ case "${binary_architecture}" in
   amd64 | arm64) ;;
   *) fail "--binary-arch must be amd64 or arm64" ;;
 esac
-[[ "${token_keychain_service}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$ ]] ||
-  fail "--token-keychain-service is invalid"
+if [[ "${token_from_stdin}" == true ]]; then
+  [[ -z "${token_keychain_service}" ]] || fail "choose only one token source"
+else
+  [[ "${token_keychain_service}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$ ]] ||
+    fail "provide a valid --token-keychain-service or use --token-stdin"
+fi
 [[ "${uplink_hub_url}" =~ ^https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]{1,5})?$ ]] ||
   fail "--uplink-hub-url must be a credential-free HTTPS origin without a path"
 [[ "${verify_timeout}" =~ ^[0-9]+$ ]] || fail "--verify-timeout must be an integer"
 ((verify_timeout >= 15 && verify_timeout <= 600)) || fail "--verify-timeout must be between 15 and 600 seconds"
 [[ -f "${service_template}" ]] || fail "systemd template not found: ${service_template}"
+
+validate_uplink_token() {
+  if ((${#uplink_token} < 32 || ${#uplink_token} > 512)) ||
+    [[ ! "${uplink_token}" =~ ^[A-Za-z0-9._~+/=-]+$ ]]; then
+    unset uplink_token
+    fail "creator token has an invalid length or character set"
+  fi
+}
+
+# Read a piped token before SSH preflight because OpenSSH may otherwise consume
+# the script's stdin. It remains an unexported shell variable and is never
+# included in a process argument.
+if [[ "${apply_changes}" == true && "${token_from_stdin}" == true ]]; then
+  IFS= read -r uplink_token || fail "could not read creator token from stdin"
+  validate_uplink_token
+fi
 
 target_count=$(jq --arg uuid "${instance_uuid}" '[
   .platforms[]
@@ -468,7 +498,9 @@ if [[ "${apply_source}" == leviathan_uplink && "${apply_status}" == available ]]
 fi
 
 require_command scp
-require_command security
+if [[ "${token_from_stdin}" == false ]]; then
+  require_command security
+fi
 
 remote_temporary=$(ssh "${ssh_options[@]}" "${ssh_target}" 'mktemp -d /tmp/leviathan-bootstrap.XXXXXX')
 [[ "${remote_temporary}" =~ ^/tmp/leviathan-bootstrap\.[A-Za-z0-9]+$ ]] ||
@@ -490,12 +522,10 @@ ssh "${ssh_options[@]}" "${ssh_target}" "
   sudo install -o root -g root -m 0644 '${remote_temporary}/leviathan-uplink@.service' /etc/systemd/system/leviathan-uplink@.service
 "
 
-uplink_token=$(security find-generic-password -w -s "${token_keychain_service}" 2>/dev/null) ||
-  fail "could not read creator token from Keychain service ${token_keychain_service}"
-if ((${#uplink_token} < 32 || ${#uplink_token} > 512)) ||
-  [[ ! "${uplink_token}" =~ ^[A-Za-z0-9._~+/=-]+$ ]]; then
-  unset uplink_token
-  fail "creator token has an invalid length or character set"
+if [[ "${token_from_stdin}" == false ]]; then
+  uplink_token=$(security find-generic-password -w -s "${token_keychain_service}" 2>/dev/null) ||
+    fail "could not read creator token from Keychain service ${token_keychain_service}"
+  validate_uplink_token
 fi
 # The client-side environment path contains only the validated Linux username.
 # shellcheck disable=SC2029

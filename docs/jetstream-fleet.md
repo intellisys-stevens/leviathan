@@ -326,6 +326,12 @@ SSH stdin directly to `/etc/leviathan/uplink-<user>.env` with mode `0600`.
 The token is not placed in argv, an exported environment variable, a local
 temporary file, or output.
 
+On a non-Keychain Hub, replace `--token-keychain-service ...` with
+`--token-stdin` and pipe the token from the local secret manager. The installer
+reads that stream only with `--apply`; a dry run does not consume stdin. Never
+type a token directly into the command line or export it into the shell
+environment.
+
 Success requires all three confirmations: the systemd unit is enabled, it is
 active, and the Hub reports the exact UUID as `available` from
 `leviathan_uplink`. A recycled IP, creator-policy change, inactive instance,

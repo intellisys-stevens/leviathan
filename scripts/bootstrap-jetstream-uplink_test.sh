@@ -162,9 +162,10 @@ cat >"${fake_bin}/scp" <<'EOF'
 printf 'SCP %s\n' "$*" >>"${FAKE_COMMAND_LOG:?}"
 EOF
 
-cat >"${fake_bin}/security" <<EOF
+cat >"${fake_bin}/security" <<'EOF'
 #!/bin/sh
-printf '%s\n' '${fake_token}'
+printf 'SECURITY_READ\n' >>"${FAKE_COMMAND_LOG:?}"
+printf '%s\n' "${FAKE_TOKEN:?}"
 EOF
 
 chmod 0755 "${fake_bin}"/*
@@ -179,6 +180,7 @@ common_environment=(
   FAKE_COMMAND_LOG="${fake_log}"
   FAKE_REMOTE_UUID="${instance_uuid}"
   FAKE_BINARY_SHA256="${binary_sha256}"
+  FAKE_TOKEN="${fake_token}"
 )
 common_arguments=(
   install
@@ -190,6 +192,18 @@ common_arguments=(
   --binary-sha256 "${binary_sha256}"
   --binary-arch amd64
   --token-keychain-service org.example.leviathan.owner-a
+  --uplink-hub-url https://uplink.example.test:8443
+)
+stdin_arguments=(
+  install
+  --instance-uuid "${instance_uuid}"
+  --creator-username "${creator_username}"
+  --host 192.0.2.10
+  --ssh-user exouser
+  --binary "${binary}"
+  --binary-sha256 "${binary_sha256}"
+  --binary-arch amd64
+  --token-stdin
   --uplink-hub-url https://uplink.example.test:8443
 )
 
@@ -228,6 +242,17 @@ assert_contains "${fake_log}" 'systemctl restart'
 assert_contains "${fake_log}" '/etc/leviathan/uplink-exouser.env'
 assert_not_contains "${fake_log}" "${fake_token}"
 assert_not_contains "${test_root}/apply-output" "${fake_token}"
+
+# A secret-manager pipe is accepted without invoking the generic Keychain CLI.
+: >"${curl_counter}"
+: >"${fake_log}"
+printf '%s\n' "${fake_token}" | env "${common_environment[@]}" \
+  FAKE_CURL_AFTER_FIRST="${state_uplink}" FAKE_CURL_SWITCH_AFTER=2 \
+  "${bootstrap}" "${stdin_arguments[@]}" --apply >"${test_root}/stdin-apply-output"
+assert_contains "${test_root}/stdin-apply-output" 'Leviathan Uplink is active and acknowledged by the Hub'
+assert_not_contains "${fake_log}" 'SECURITY_READ'
+assert_not_contains "${fake_log}" "${fake_token}"
+assert_not_contains "${test_root}/stdin-apply-output" "${fake_token}"
 
 # A live Uplink is not a bootstrap candidate and is never reinstalled.
 : >"${curl_counter}"
