@@ -1,5 +1,5 @@
 // Package uplinkclient sends one bounded telemetry snapshot at a time to an
-// explicitly configured MIGLens Hub. It deliberately contains no discovery,
+// explicitly configured Leviathan Hub. It deliberately contains no discovery,
 // retry, queue, or credential-enrollment behavior.
 package uplinkclient
 
@@ -16,7 +16,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 const (

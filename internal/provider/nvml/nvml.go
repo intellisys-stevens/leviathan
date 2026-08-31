@@ -16,8 +16,8 @@ import (
 	"time"
 
 	gonvml "github.com/NVIDIA/go-nvml/pkg/nvml"
-	"github.com/intellisys-stevens/miglens/internal/model"
-	"github.com/intellisys-stevens/miglens/internal/provider"
+	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/provider"
 )
 
 type Options struct {
@@ -929,11 +929,11 @@ func severityFor(ret gonvml.Return) string {
 func remedyFor(ret gonvml.Return) string {
 	switch ret {
 	case gonvml.ERROR_NO_PERMISSION:
-		return "run `miglens doctor` to identify which read-only NVIDIA telemetry call is permission-restricted"
+		return "run `leviathan doctor` to identify which read-only NVIDIA telemetry call is permission-restricted"
 	case gonvml.ERROR_LIBRARY_NOT_FOUND, gonvml.ERROR_DRIVER_NOT_LOADED:
 		return "install or expose the NVIDIA driver library (libnvidia-ml.so.1) to this process"
 	default:
-		return "review `miglens doctor` for the exact host capability and permission checks"
+		return "review `leviathan doctor` for the exact host capability and permission checks"
 	}
 }
 

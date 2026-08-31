@@ -45,19 +45,19 @@ mkdir -p "${release_directory}" "${fixture_root}" "${fake_bin}"
 create_archive() {
   local architecture=$1
   local marker=$2
-  local version=${3:-0.2.1}
-  local root="${fixture_root}/miglens_${version}_linux_${architecture}"
+  local version=${3:-0.3.0}
+  local root="${fixture_root}/leviathan_${version}_linux_${architecture}"
   rm -rf -- "${root}"
   mkdir -p "${root}"
-  printf '#!/bin/sh\nprintf "%%s\\n" "%s"\n' "${marker}" >"${root}/miglens"
-  chmod 0755 "${root}/miglens"
-  tar -C "${fixture_root}" -czf "${release_directory}/miglens_linux_${architecture}.tar.gz" "$(basename "${root}")"
+  printf '#!/bin/sh\nprintf "%%s\\n" "%s"\n' "${marker}" >"${root}/leviathan"
+  chmod 0755 "${root}/leviathan"
+  tar -C "${fixture_root}" -czf "${release_directory}/leviathan_linux_${architecture}.tar.gz" "$(basename "${root}")"
 }
 
 write_checksums() {
   (
     cd "${release_directory}"
-    sha256sum miglens_linux_amd64.tar.gz miglens_linux_arm64.tar.gz >checksums.txt
+    sha256sum leviathan_linux_amd64.tar.gz leviathan_linux_arm64.tar.gz >checksums.txt
   )
 }
 
@@ -111,7 +111,7 @@ run_installer() {
   local log=$3
   local release=$4
   shift 4
-  env -u MIGLENS_VERSION -u MIGLENS_INSTALL_DIR \
+  env -u LEVIATHAN_VERSION -u LEVIATHAN_INSTALL_DIR \
     PATH="${fake_bin}:/usr/bin:/bin" \
     HOME="${home}" SHELL=/bin/bash \
     FAKE_CURL_LOG="${log}" FAKE_RELEASE_DIR="${release}" \
@@ -121,12 +121,25 @@ run_installer() {
     /bin/sh "${installer}" "$@" >"${output}" 2>&1
 }
 
+# Every legacy-prefixed environment variable is rejected before option handling
+# so a stale installer configuration cannot silently select latest or $HOME.
+for legacy_variable in MIGLENS_VERSION MIGLENS_INSTALL_DIR MIGLENS_FUTURE_SETTING; do
+  case_directory="${test_root}/legacy-${legacy_variable}"
+  mkdir -p "${case_directory}/home"
+  assert_failed "${case_directory}/output" env \
+    -u LEVIATHAN_VERSION -u LEVIATHAN_INSTALL_DIR \
+    PATH="${fake_bin}:/usr/bin:/bin" HOME="${case_directory}/home" SHELL=/bin/sh \
+    "${legacy_variable}=legacy" /bin/sh "${installer}" --help
+  assert_contains "${case_directory}/output" \
+    "legacy environment variable ${legacy_variable} is no longer supported; rename it to LEVIATHAN_${legacy_variable#MIGLENS_}"
+done
+
 # Latest release, default install directory, and Bash PATH guidance.
 case_directory="${test_root}/latest"
 mkdir -p "${case_directory}/home"
 run_installer "${case_directory}/output" "${case_directory}/home" "${case_directory}/curl.log" "${release_directory}"
-assert_contains "${case_directory}/home/.local/bin/miglens" fixture-amd64
-assert_contains "${case_directory}/curl.log" '/releases/latest/download/miglens_linux_amd64.tar.gz'
+assert_contains "${case_directory}/home/.local/bin/leviathan" fixture-amd64
+assert_contains "${case_directory}/curl.log" '/releases/latest/download/leviathan_linux_amd64.tar.gz'
 assert_contains "${case_directory}/output" 'is not on PATH'
 assert_contains "${case_directory}/output" '.bashrc'
 assert_contains "${case_directory}/output" "printf '%s\\n' 'export PATH=\""
@@ -138,11 +151,11 @@ mkdir -p "${case_directory}/home"
 env PATH="${fake_bin}:/usr/bin:/bin" HOME="${case_directory}/home" SHELL=/bin/zsh \
   FAKE_CURL_LOG="${case_directory}/curl.log" FAKE_RELEASE_DIR="${release_directory}" \
   FAKE_UNAME_S=Linux FAKE_UNAME_M=aarch64 FAKE_GLIBC_INFO='glibc 2.39' \
-  MIGLENS_VERSION=9.9.9 MIGLENS_INSTALL_DIR="${case_directory}/wrong" \
-  /bin/sh "${installer}" --version 0.2.1 --install-dir "${case_directory}/install path" \
+  LEVIATHAN_VERSION=9.9.9 LEVIATHAN_INSTALL_DIR="${case_directory}/wrong" \
+  /bin/sh "${installer}" --version 0.3.0 --install-dir "${case_directory}/install path" \
   >"${case_directory}/output" 2>&1
-assert_contains "${case_directory}/install path/miglens" fixture-arm64
-assert_contains "${case_directory}/curl.log" '/releases/download/v0.2.1/miglens_linux_arm64.tar.gz'
+assert_contains "${case_directory}/install path/leviathan" fixture-arm64
+assert_contains "${case_directory}/curl.log" '/releases/download/v0.3.0/leviathan_linux_arm64.tar.gz'
 assert_contains "${case_directory}/output" '.zshrc'
 assert_contains "${case_directory}/output" "printf '%s\\n' 'export PATH=\""
 [[ ! -e "${case_directory}/home/.zshrc" ]] || fail "installer edited .zshrc"
@@ -154,16 +167,16 @@ mkdir -p "${case_directory}/home"
 env PATH="${fake_bin}:/usr/bin:/bin" HOME="${case_directory}/home" SHELL=/bin/sh \
   FAKE_CURL_LOG="${case_directory}/curl.log" FAKE_RELEASE_DIR="${release_directory}" \
   FAKE_UNAME_S=Linux FAKE_UNAME_M=x86_64 FAKE_GLIBC_INFO='glibc 2.34' \
-  MIGLENS_VERSION=v0.2.1 MIGLENS_INSTALL_DIR="${case_directory}/install" \
+  LEVIATHAN_VERSION=v0.3.0 LEVIATHAN_INSTALL_DIR="${case_directory}/install" \
   /bin/sh "${installer}" >"${case_directory}/output" 2>&1
-assert_contains "${case_directory}/install/miglens" fixture-amd64
-assert_contains "${case_directory}/curl.log" '/releases/download/v0.2.1/miglens_linux_amd64.tar.gz'
+assert_contains "${case_directory}/install/leviathan" fixture-amd64
+assert_contains "${case_directory}/curl.log" '/releases/download/v0.3.0/leviathan_linux_amd64.tar.gz'
 
 # No PATH warning when the effective install directory is already present.
 case_directory="${test_root}/on-path"
 install_directory="${case_directory}/bin"
 mkdir -p "${case_directory}/home" "${install_directory}"
-env -u MIGLENS_VERSION -u MIGLENS_INSTALL_DIR \
+env -u LEVIATHAN_VERSION -u LEVIATHAN_INSTALL_DIR \
   PATH="${fake_bin}:${install_directory}:/usr/bin:/bin" \
   HOME="${case_directory}/home" SHELL=/bin/fish \
   FAKE_CURL_LOG="${case_directory}/curl.log" FAKE_RELEASE_DIR="${release_directory}" \
@@ -175,44 +188,48 @@ assert_not_contains "${case_directory}/output" 'is not on PATH'
 case_directory="${test_root}/bad-checksum"
 mkdir -p "${case_directory}/home" "${case_directory}/release"
 cp "${release_directory}"/* "${case_directory}/release/"
-awk '$2 == "miglens_linux_amd64.tar.gz" {$1 = "0000000000000000000000000000000000000000000000000000000000000000"} {print}' \
+awk '$2 == "leviathan_linux_amd64.tar.gz" {$1 = "0000000000000000000000000000000000000000000000000000000000000000"} {print}' \
   "${case_directory}/release/checksums.txt" >"${case_directory}/release/checksums.tmp"
 mv "${case_directory}/release/checksums.tmp" "${case_directory}/release/checksums.txt"
 assert_failed "${case_directory}/output" run_installer \
   "${case_directory}/inner-output" "${case_directory}/home" "${case_directory}/curl.log" "${case_directory}/release" \
   --install-dir "${case_directory}/install"
 assert_contains "${case_directory}/inner-output" 'checksum verification failed'
-[[ ! -e "${case_directory}/install/miglens" ]] || fail "bad checksum installed a binary"
+[[ ! -e "${case_directory}/install/leviathan" ]] || fail "bad checksum installed a binary"
 
 # Platform, libc, HOME, and version failures happen before downloads.
-for failure_case in old-glibc musl unsupported-os unsupported-arch missing-home invalid-version; do
+for failure_case in old-glibc musl unsupported-os unsupported-arch missing-home invalid-version prerelease-version; do
   case_directory="${test_root}/${failure_case}"
   mkdir -p "${case_directory}/home"
   output="${case_directory}/output"
   log="${case_directory}/curl.log"
   case "${failure_case}" in
     old-glibc)
-      assert_failed "${output}" env -u MIGLENS_VERSION -u MIGLENS_INSTALL_DIR PATH="${fake_bin}:/usr/bin:/bin" HOME="${case_directory}/home" SHELL=/bin/sh FAKE_CURL_LOG="${log}" FAKE_RELEASE_DIR="${release_directory}" FAKE_UNAME_S=Linux FAKE_UNAME_M=x86_64 FAKE_GLIBC_INFO='glibc 2.33' /bin/sh "${installer}" --install-dir "${case_directory}/install"
+      assert_failed "${output}" env -u LEVIATHAN_VERSION -u LEVIATHAN_INSTALL_DIR PATH="${fake_bin}:/usr/bin:/bin" HOME="${case_directory}/home" SHELL=/bin/sh FAKE_CURL_LOG="${log}" FAKE_RELEASE_DIR="${release_directory}" FAKE_UNAME_S=Linux FAKE_UNAME_M=x86_64 FAKE_GLIBC_INFO='glibc 2.33' /bin/sh "${installer}" --install-dir "${case_directory}/install"
       assert_contains "${output}" 'requires glibc 2.34'
       ;;
     musl)
-      assert_failed "${output}" env -u MIGLENS_VERSION -u MIGLENS_INSTALL_DIR PATH="${fake_bin}:/usr/bin:/bin" HOME="${case_directory}/home" SHELL=/bin/sh FAKE_CURL_LOG="${log}" FAKE_RELEASE_DIR="${release_directory}" FAKE_UNAME_S=Linux FAKE_UNAME_M=x86_64 FAKE_GLIBC_INFO='musl 1.2.5' /bin/sh "${installer}" --install-dir "${case_directory}/install"
+      assert_failed "${output}" env -u LEVIATHAN_VERSION -u LEVIATHAN_INSTALL_DIR PATH="${fake_bin}:/usr/bin:/bin" HOME="${case_directory}/home" SHELL=/bin/sh FAKE_CURL_LOG="${log}" FAKE_RELEASE_DIR="${release_directory}" FAKE_UNAME_S=Linux FAKE_UNAME_M=x86_64 FAKE_GLIBC_INFO='musl 1.2.5' /bin/sh "${installer}" --install-dir "${case_directory}/install"
       assert_contains "${output}" 'musl and unknown C libraries are unsupported'
       ;;
     unsupported-os)
-      assert_failed "${output}" env -u MIGLENS_VERSION -u MIGLENS_INSTALL_DIR PATH="${fake_bin}:/usr/bin:/bin" HOME="${case_directory}/home" SHELL=/bin/sh FAKE_CURL_LOG="${log}" FAKE_RELEASE_DIR="${release_directory}" FAKE_UNAME_S=Darwin FAKE_UNAME_M=x86_64 FAKE_GLIBC_INFO='glibc 2.39' /bin/sh "${installer}" --install-dir "${case_directory}/install"
+      assert_failed "${output}" env -u LEVIATHAN_VERSION -u LEVIATHAN_INSTALL_DIR PATH="${fake_bin}:/usr/bin:/bin" HOME="${case_directory}/home" SHELL=/bin/sh FAKE_CURL_LOG="${log}" FAKE_RELEASE_DIR="${release_directory}" FAKE_UNAME_S=Darwin FAKE_UNAME_M=x86_64 FAKE_GLIBC_INFO='glibc 2.39' /bin/sh "${installer}" --install-dir "${case_directory}/install"
       assert_contains "${output}" 'Linux is required'
       ;;
     unsupported-arch)
-      assert_failed "${output}" env -u MIGLENS_VERSION -u MIGLENS_INSTALL_DIR PATH="${fake_bin}:/usr/bin:/bin" HOME="${case_directory}/home" SHELL=/bin/sh FAKE_CURL_LOG="${log}" FAKE_RELEASE_DIR="${release_directory}" FAKE_UNAME_S=Linux FAKE_UNAME_M=riscv64 FAKE_GLIBC_INFO='glibc 2.39' /bin/sh "${installer}" --install-dir "${case_directory}/install"
+      assert_failed "${output}" env -u LEVIATHAN_VERSION -u LEVIATHAN_INSTALL_DIR PATH="${fake_bin}:/usr/bin:/bin" HOME="${case_directory}/home" SHELL=/bin/sh FAKE_CURL_LOG="${log}" FAKE_RELEASE_DIR="${release_directory}" FAKE_UNAME_S=Linux FAKE_UNAME_M=riscv64 FAKE_GLIBC_INFO='glibc 2.39' /bin/sh "${installer}" --install-dir "${case_directory}/install"
       assert_contains "${output}" 'unsupported architecture'
       ;;
     missing-home)
-      assert_failed "${output}" env -u HOME -u MIGLENS_VERSION -u MIGLENS_INSTALL_DIR PATH="${fake_bin}:/usr/bin:/bin" SHELL=/bin/sh FAKE_CURL_LOG="${log}" FAKE_RELEASE_DIR="${release_directory}" FAKE_UNAME_S=Linux FAKE_UNAME_M=x86_64 FAKE_GLIBC_INFO='glibc 2.39' /bin/sh "${installer}"
+      assert_failed "${output}" env -u HOME -u LEVIATHAN_VERSION -u LEVIATHAN_INSTALL_DIR PATH="${fake_bin}:/usr/bin:/bin" SHELL=/bin/sh FAKE_CURL_LOG="${log}" FAKE_RELEASE_DIR="${release_directory}" FAKE_UNAME_S=Linux FAKE_UNAME_M=x86_64 FAKE_GLIBC_INFO='glibc 2.39' /bin/sh "${installer}"
       assert_contains "${output}" 'HOME is unset'
       ;;
     invalid-version)
-      assert_failed "${output}" env -u MIGLENS_VERSION -u MIGLENS_INSTALL_DIR PATH="${fake_bin}:/usr/bin:/bin" HOME="${case_directory}/home" SHELL=/bin/sh FAKE_CURL_LOG="${log}" FAKE_RELEASE_DIR="${release_directory}" FAKE_UNAME_S=Linux FAKE_UNAME_M=x86_64 FAKE_GLIBC_INFO='glibc 2.39' /bin/sh "${installer}" --version '../escape' --install-dir "${case_directory}/install"
+      assert_failed "${output}" env -u LEVIATHAN_VERSION -u LEVIATHAN_INSTALL_DIR PATH="${fake_bin}:/usr/bin:/bin" HOME="${case_directory}/home" SHELL=/bin/sh FAKE_CURL_LOG="${log}" FAKE_RELEASE_DIR="${release_directory}" FAKE_UNAME_S=Linux FAKE_UNAME_M=x86_64 FAKE_GLIBC_INFO='glibc 2.39' /bin/sh "${installer}" --version '../escape' --install-dir "${case_directory}/install"
+      assert_contains "${output}" 'invalid version'
+      ;;
+    prerelease-version)
+      assert_failed "${output}" env -u LEVIATHAN_VERSION -u LEVIATHAN_INSTALL_DIR PATH="${fake_bin}:/usr/bin:/bin" HOME="${case_directory}/home" SHELL=/bin/sh FAKE_CURL_LOG="${log}" FAKE_RELEASE_DIR="${release_directory}" FAKE_UNAME_S=Linux FAKE_UNAME_M=x86_64 FAKE_GLIBC_INFO='glibc 2.39' /bin/sh "${installer}" --version 'v0.3.0-rc.1' --install-dir "${case_directory}/install"
       assert_contains "${output}" 'invalid version'
       ;;
   esac
@@ -224,15 +241,15 @@ case_directory="${test_root}/upgrade"
 mkdir -p "${case_directory}/home" "${case_directory}/release"
 cp "${release_directory}"/* "${case_directory}/release/"
 run_installer "${case_directory}/first-output" "${case_directory}/home" "${case_directory}/first-curl.log" "${case_directory}/release" --install-dir "${case_directory}/install"
-assert_contains "${case_directory}/install/miglens" fixture-amd64
+assert_contains "${case_directory}/install/leviathan" fixture-amd64
 create_archive amd64 fixture-amd64-updated
-cp "${release_directory}/miglens_linux_amd64.tar.gz" "${case_directory}/release/"
+cp "${release_directory}/leviathan_linux_amd64.tar.gz" "${case_directory}/release/"
 (
   cd "${case_directory}/release"
-  sha256sum miglens_linux_amd64.tar.gz miglens_linux_arm64.tar.gz >checksums.txt
+  sha256sum leviathan_linux_amd64.tar.gz leviathan_linux_arm64.tar.gz >checksums.txt
 )
 run_installer "${case_directory}/second-output" "${case_directory}/home" "${case_directory}/second-curl.log" "${case_directory}/release" --install-dir "${case_directory}/install"
-assert_contains "${case_directory}/install/miglens" fixture-amd64-updated
-[[ "$(find "${case_directory}/install" -maxdepth 1 -name '.miglens.*' | wc -l)" -eq 0 ]] || fail "temporary install file remained"
+assert_contains "${case_directory}/install/leviathan" fixture-amd64-updated
+[[ "$(find "${case_directory}/install" -maxdepth 1 -name '.leviathan.*' | wc -l)" -eq 0 ]] || fail "temporary install file remained"
 
 echo "installer tests passed"

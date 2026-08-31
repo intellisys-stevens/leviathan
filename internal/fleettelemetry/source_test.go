@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/fleet"
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/fleet"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 const (
@@ -43,9 +43,9 @@ func (registry *stubRegistry) Get(projectID, instanceUUID string, _ time.Time) (
 
 func TestExactBindingIsAuthoritative(t *testing.T) {
 	exactErr := errors.New("exact failed")
-	exact := &stubAgent{source: fleet.TelemetrySourceMIGLensAgent, err: exactErr}
+	exact := &stubAgent{source: fleet.TelemetrySourceLeviathanAgent, err: exactErr}
 	console := &stubAgent{source: fleet.TelemetrySourceExosphereConsole}
-	registry := &stubRegistry{ok: true, sample: fleet.AgentSample{Source: fleet.TelemetrySourceMIGLensUplink}}
+	registry := &stubRegistry{ok: true, sample: fleet.AgentSample{Source: fleet.TelemetrySourceLeviathanUplink}}
 	source, err := New(Options{
 		ProjectID:          testProject,
 		Uplink:             registry,
@@ -64,13 +64,13 @@ func TestExactBindingIsAuthoritative(t *testing.T) {
 
 func TestDynamicInstanceUsesFreshUplinkThenConsole(t *testing.T) {
 	console := &stubAgent{source: fleet.TelemetrySourceExosphereConsole}
-	registry := &stubRegistry{ok: true, sample: fleet.AgentSample{InstanceUUID: testOther, Source: fleet.TelemetrySourceMIGLensUplink}}
+	registry := &stubRegistry{ok: true, sample: fleet.AgentSample{InstanceUUID: testOther, Source: fleet.TelemetrySourceLeviathanUplink}}
 	source, err := New(Options{ProjectID: testProject, Uplink: registry, Console: console})
 	if err != nil {
 		t.Fatal(err)
 	}
 	sample, err := source.Observe(context.Background(), fleet.Instance{UUID: testOther})
-	if err != nil || sample.Source != fleet.TelemetrySourceMIGLensUplink || console.calls != 0 {
+	if err != nil || sample.Source != fleet.TelemetrySourceLeviathanUplink || console.calls != 0 {
 		t.Fatalf("uplink result=%+v err=%v console calls=%d", sample, err, console.calls)
 	}
 

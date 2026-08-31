@@ -44,9 +44,9 @@ const agentLabels: Record<AgentStatus, string> = {
 };
 
 const sourceLabels: Record<NonNullable<AgentObservation['source']>, string> = {
-  miglens_agent: 'MIGLens agent',
+  leviathan_agent: 'Leviathan agent',
   exosphere_console: 'Exosphere console',
-  miglens_uplink: 'MIGLens uplink',
+  leviathan_uplink: 'Leviathan uplink',
 };
 
 export function observationSourceLabel(agent: AgentObservation): string {
@@ -269,7 +269,7 @@ export function InstanceTable({
                     <TableCell className="max-w-56 whitespace-normal">
                       {users}
                       {processInspectionState(observation) === 'incomplete' ? (
-                        <p className="mt-1 text-[9px] text-amber-600 dark:text-amber-300">
+                        <p className="mt-1 text-[9px] text-amber-700 dark:text-amber-300">
                           Partial process coverage
                         </p>
                       ) : null}

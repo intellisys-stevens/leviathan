@@ -3,8 +3,8 @@ package fleetuplink
 import (
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/fleet"
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/fleet"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 func cloneAgentSample(input fleet.AgentSample) fleet.AgentSample {

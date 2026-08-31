@@ -12,4 +12,4 @@ web/playwright-report/
 web/test-results/
 
 # The dashboard build under internal/webui/dist is intentionally committed:
-# go:embed needs it to build MIGLens without Node.
+# go:embed needs it to build Leviathan without Node.

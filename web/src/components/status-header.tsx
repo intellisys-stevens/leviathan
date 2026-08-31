@@ -4,7 +4,7 @@ import { memo, useRef, useState } from 'react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { formatSamplingInterval } from '../chart-window';
 import type { RuntimeSettings } from '../types';
-import type { ConnectionState } from '../use-miglens';
+import type { ConnectionState } from '../use-leviathan';
 
 type Props = {
   hostname: string;
@@ -59,7 +59,7 @@ function SamplingChoices({
 
   return (
     <fieldset
-      className={`relative isolate flex gap-1 rounded-md border border-border/80 bg-muted/50 p-0.5 ${mobile ? 'w-full' : ''}`}
+      className={`relative isolate flex gap-1 rounded-md border border-input bg-popover p-0.5 shadow-sm ${mobile ? 'w-full' : ''}`}
       aria-busy={pending != null}
     >
       <legend className="sr-only">Sampling interval</legend>
@@ -71,13 +71,13 @@ function SamplingChoices({
           <button
             key={milliseconds}
             type="button"
-            className={`relative whitespace-nowrap rounded px-2 font-mono text-[10px] focus-visible:z-20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+            className={`relative whitespace-nowrap rounded px-2 font-mono text-[10px] focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
               mobile
                 ? 'h-8 min-w-0 flex-1'
                 : `h-6 flex-none ${isCustom ? '' : 'min-w-10'}`
             } ${
               selected
-                ? 'z-10 bg-background text-foreground shadow-sm ring-1 ring-border/60'
+                ? 'z-10 bg-accent text-accent-foreground shadow-sm ring-1 ring-input'
                 : 'text-muted-foreground hover:bg-background/70 hover:text-foreground'
             }`}
             disabled={
@@ -177,19 +177,20 @@ function StatusHeaderComponent({
   );
 
   return (
-    <header className="sticky top-0 z-30 border-b border-border/80 bg-background/95 backdrop-blur-md">
+    <header className="leviathan-header sticky top-0 z-30 border-b border-input bg-background/95 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-[1680px] items-center justify-between gap-3 px-4 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <span
-            className="size-9 shrink-0 bg-foreground"
+            className="size-10 shrink-0 bg-primary"
             style={{
-              WebkitMask: "url('/miglens-mark.png') center / contain no-repeat",
-              mask: "url('/miglens-mark.png') center / contain no-repeat",
+              WebkitMask:
+                "url('/leviathan-mark.svg') center / contain no-repeat",
+              mask: "url('/leviathan-mark.svg') center / contain no-repeat",
             }}
             aria-hidden="true"
           />
           <div className="min-w-0">
-            <p className="text-sm font-semibold tracking-tight">MIGLens</p>
+            <p className="text-sm font-semibold tracking-tight">Leviathan</p>
             <p className="truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
               {hostname} · local read-only
             </p>
@@ -201,13 +202,13 @@ function StatusHeaderComponent({
             className="relative hidden md:block"
             data-testid="desktop-live-sampling"
           >
-            <div
-              className="flex h-8 items-center gap-2"
+            <fieldset
+              className="flex h-8 items-center gap-2 border-0 p-0"
               aria-label="Live status and sampling"
               aria-busy={pendingSampling != null}
             >
               <output
-                className={`flex h-full items-center gap-1.5 font-mono text-[10px] font-semibold ${healthy ? 'text-foreground' : 'text-amber-500'}`}
+                className={`flex h-full items-center gap-1.5 font-mono text-[10px] font-semibold ${healthy ? 'text-foreground' : 'text-amber-700 dark:text-amber-300'}`}
                 aria-live="polite"
                 aria-label={`Connection status: ${statusName}`}
               >
@@ -223,11 +224,11 @@ function StatusHeaderComponent({
                   onSelect={(milliseconds) => void applySampling(milliseconds)}
                 />
               </div>
-            </div>
+            </fieldset>
             {samplingError ? (
               <output
                 role="alert"
-                className="absolute right-0 top-[calc(100%+0.5rem)] z-50 flex w-max max-w-72 items-center gap-1.5 rounded-md border border-amber-500/30 bg-popover px-3 py-2 font-mono text-[10px] text-amber-600 shadow-xl dark:text-amber-300"
+                className="absolute right-0 top-[calc(100%+0.5rem)] z-50 flex w-max max-w-72 items-center gap-1.5 rounded-md border border-amber-500/30 bg-popover px-3 py-2 font-mono text-[10px] text-amber-700 shadow-xl dark:text-amber-300"
               >
                 <AlertTriangle
                   className="size-3.5 shrink-0"
@@ -241,7 +242,7 @@ function StatusHeaderComponent({
           <div className="md:hidden" data-testid="mobile-live-sampling">
             <PopoverPrimitive.Root>
               <PopoverPrimitive.Trigger
-                className="flex h-8 items-center gap-1.5 rounded-md border border-border/80 bg-muted/50 px-2.5 font-mono text-[10px] font-semibold text-foreground shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex h-8 items-center gap-1.5 rounded-md border border-input bg-popover px-2.5 font-mono text-[10px] font-semibold text-foreground shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={`${statusName} status, sampling ${displayedSamplingText}`}
                 aria-busy={pendingSampling != null}
               >
@@ -258,7 +259,7 @@ function StatusHeaderComponent({
                   sideOffset={8}
                   className="z-50"
                 >
-                  <PopoverPrimitive.Popup className="w-[min(18rem,calc(100vw-2rem))] origin-[var(--transform-origin)] rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-2xl outline-none transition duration-150 data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0">
+                  <PopoverPrimitive.Popup className="w-[min(18rem,calc(100vw-2rem))] origin-[var(--transform-origin)] rounded-lg border border-input bg-popover p-3 text-popover-foreground shadow-2xl outline-none transition duration-150 data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0">
                     <div className="mb-3 flex items-start justify-between gap-3">
                       <div>
                         <PopoverPrimitive.Title className="text-xs font-semibold">
@@ -271,7 +272,7 @@ function StatusHeaderComponent({
                         </PopoverPrimitive.Description>
                       </div>
                       <span
-                        className={`flex items-center gap-1 font-mono text-[9px] ${healthy ? 'text-foreground' : 'text-amber-500'}`}
+                        className={`flex items-center gap-1 font-mono text-[9px] ${healthy ? 'text-foreground' : 'text-amber-700 dark:text-amber-300'}`}
                       >
                         {indicator}
                         {statusName}
@@ -291,7 +292,7 @@ function StatusHeaderComponent({
                       {samplingError ? (
                         <output
                           role="alert"
-                          className="absolute right-0 top-[calc(100%+0.5rem)] z-50 flex w-max max-w-full items-center gap-1.5 rounded-md border border-amber-500/30 bg-popover px-3 py-2 font-mono text-[9px] text-amber-600 shadow-xl dark:text-amber-300"
+                          className="absolute right-0 top-[calc(100%+0.5rem)] z-50 flex w-max max-w-full items-center gap-1.5 rounded-md border border-amber-500/30 bg-popover px-3 py-2 font-mono text-[9px] text-amber-700 shadow-xl dark:text-amber-300"
                         >
                           <AlertTriangle
                             className="size-3.5 shrink-0"
@@ -308,12 +309,12 @@ function StatusHeaderComponent({
           </div>
 
           <a
-            href="https://github.com/intellisys-stevens/miglens"
+            href="https://github.com/intellisys-stevens/leviathan"
             target="_blank"
             rel="noreferrer"
             className={buttonVariants({ variant: 'ghost', size: 'icon' })}
-            aria-label="Open MIGLens repository on GitHub"
-            title="MIGLens on GitHub"
+            aria-label="Open Leviathan repository on GitHub"
+            title="Leviathan on GitHub"
           >
             <GitHubMark />
           </a>

@@ -2,46 +2,49 @@
 
 ## Supported versions
 
-MIGLens is pre-1.0. Security fixes are applied to the latest release line.
+Leviathan is pre-1.0. Security fixes are applied to the latest release line.
 
 ## Reporting a vulnerability
 
 Please use GitHub's private security advisory flow for the repository rather
 than a public issue. Include the affected version, impact, reproduction, and
-the PID namespace in which MIGLens was running. Do not attach production
+the PID namespace in which Leviathan was running. Do not attach production
 process or GPU identifiers.
 
 ## Local agent trust boundary
 
-The `miglens` agent is a local observability process with the same read
+The `leviathan` agent is a local observability process with the same read
 visibility as its Unix user. It intentionally:
 
 - refuses non-loopback dashboard addresses;
 - exposes no GPU, host, or cloud mutation endpoint (the local settings endpoint
   changes only the process-local sampling cadence);
-- makes no outbound network request (the optional attribution client uses a
-  configured local Unix socket only);
+- makes no outbound network request unless the explicit `leviathan uplink`
+  command is selected (the optional attribution client uses a configured local
+  Unix socket only);
 - reads no process environment;
 - hides full command arguments unless explicitly enabled;
 - lists only GPU-connected processes with an open UVM device handle in its
   current PID namespace;
-- does not inspect cgroups or container runtimes;
+- reads cgroup paths only for those detected clients, and only when the
+  optional attribution socket is configured;
+- does not inspect container runtimes or query Pod objects;
 - does not request or elevate its own privileges.
 
-`/proc` and NVIDIA device visibility are sensitive privileges. Keep MIGLens in
+`/proc` and NVIDIA device visibility are sensitive privileges. Keep Leviathan in
 the intended PID namespace and expose only the GPU or MIG device allocation the
-workspace should monitor. MIGLens does not require the NVIDIA aggregate MIG
+workspace should monitor. Leviathan does not require the NVIDIA aggregate MIG
 monitor or MIG configuration capabilities.
 
 Running with `hostPID: true`, directly on a host, or through the packaged root
 systemd instance intentionally expands the candidate process inventory. See
 `docs/permissions.md` for that boundary. An SSH or Tailnet proxy does not make
-it safe to bind MIGLens publicly; every release still refuses non-loopback
+it safe to bind Leviathan publicly; every release still refuses non-loopback
 dashboard addresses.
 
 ## Jetstream fleet controller
 
-`miglens-hub` is a separate process and trust boundary. It does not start the
+`leviathan-hub` is a separate process and trust boundary. It does not start the
 local NVIDIA provider or alter the existing Nidhogg dashboard and `/api/v1/*`
 API. Its configured Nidhogg URL is a credential-free external link, not a
 reverse proxy.
@@ -86,13 +89,13 @@ compromise of one VM can forge telemetry for another eligible VM owned by that
 same Nova creator, but not for a different creator or project. Rotate the
 creator token after any VM compromise. Metadata-service UUID discovery is not
 instance attestation, so optional uplink telemetry alone must not be used for
-security decisions, billing, scheduling, or incident attribution. Keep it
-disabled outside an explicitly approved pilot. Request bodies, concurrent
-requests, their 256 MiB combined raw-body budget, retained bytes, and retained
-entries all have hard limits. Fleet inventory, creator identities, process
-users, and GPU telemetry are sensitive;
-limit dashboard access accordingly. See `docs/jetstream-fleet.md` before
-enabling the controller.
+security decisions, billing, scheduling, or incident attribution. Uplink is
+default-off and must remain disabled outside an explicitly approved pilot.
+Request bodies, concurrent requests, their 256 MiB combined raw-body budget,
+retained bytes, and retained entries all have hard limits. Fleet inventory,
+creator identities, process users, and GPU telemetry are sensitive; limit
+dashboard access accordingly. See `docs/jetstream-fleet.md` before enabling the
+controller.
 
 The optional Kubernetes bridge is a separate trust boundary. It receives a
 read-only service-account token, watches ResourceSlices and explicitly selected

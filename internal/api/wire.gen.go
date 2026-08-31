@@ -460,7 +460,7 @@ type MetricSource string
 // MetricStatus defines model for MetricStatus.
 type MetricStatus string
 
-// Process A GPU-connected process visible in MIGLens' current PID namespace. An open NVIDIA UVM handle includes idle CUDA contexts and does not imply active kernels, GPU memory use, or GI/CI ownership.
+// Process A GPU-connected process visible in Leviathan's current PID namespace. An open NVIDIA UVM handle includes idle CUDA contexts and does not imply active kernels, GPU memory use, or GI/CI ownership.
 type Process struct {
 	// CommandLine Present only when explicitly enabled.
 	CommandLine *string `json:"commandLine,omitempty"`
@@ -529,7 +529,7 @@ type Snapshot struct {
 	Gpus         []GPU        `json:"gpus"`
 	Host         Host         `json:"host"`
 
-	// Processes GPU-connected processes detected through open NVIDIA UVM device handles in the current PID namespace. MIGLens itself is excluded.
+	// Processes GPU-connected processes detected through open NVIDIA UVM device handles in the current PID namespace. Leviathan itself is excluded.
 	Processes     []Process             `json:"processes"`
 	SampledAt     time.Time             `json:"sampledAt"`
 	SchemaVersion SnapshotSchemaVersion `json:"schemaVersion"`

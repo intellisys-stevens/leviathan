@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/history"
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/history"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 func TestGenerationChangesAfterTopologyReplacement(t *testing.T) {

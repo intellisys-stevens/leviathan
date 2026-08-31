@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/fleet"
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/fleet"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 const testInstanceUUID = "123e4567-e89b-42d3-a456-426614174000"

@@ -1,12 +1,12 @@
 # Architecture
 
-![MIGLens data flow](assets/architecture.svg)
+![Leviathan data flow](assets/architecture.svg)
 
 The editable diagram source is `assets/architecture.mmd`.
 
 ## Runtime shape
 
-Core MIGLens is one Linux process and one executable. A single sampling loop
+Core Leviathan is one Linux process and one executable. A single sampling loop
 owns provider access and publishes complete snapshots. The TUI, streaming CLI,
 and HTTP server only consume those snapshots; they never poll NVIDIA APIs
 independently. Slow consumers receive the newest complete snapshot rather than
@@ -51,10 +51,10 @@ startup CLI, environment, or TOML values return after a restart.
 ## Providers
 
 `internal/provider/nvml` uses NVIDIA's Go NVML binding for discovery, physical
-metrics, memory, MIG attributes, power limits, and GPM activity/PCIe rates. It deliberately does not call NVML's
-host-process or placement APIs and never executes `nvidia-smi`. Device handles
-are discovered on each sample, so live topology changes are visible without
-restarting.
+metrics, memory, MIG attributes, power limits, and GPM activity/PCIe rates. It
+deliberately does not call NVML's host-process or placement APIs and never
+executes `nvidia-smi`. Device handles are discovered on each sample, so live
+topology changes are visible without restarting.
 
 `internal/provider/dcgm` decorates an NVML snapshot. It creates a local DCGM
 GI entity group, refreshes that group at the configured topology interval,
@@ -80,11 +80,11 @@ UUID assignments. An assignment is not evidence of active execution. See
 
 ## GPU processes
 
-The workspace decorator enumerates numeric entries from MIGLens' current
+The workspace decorator enumerates numeric entries from Leviathan's current
 `/proc` view and compares each process' file-descriptor device metadata with
 `/dev/nvidia-uvm`. Identity fields are resolved only after a match. An open UVM
 handle includes idle CUDA contexts; it does not prove current kernel execution,
-GPU memory consumption, or GPU/GI/CI ownership. MIGLens excludes itself.
+GPU memory consumption, or GPU/GI/CI ownership. Leviathan excludes itself.
 
 For matches, the collector resolves PID, user, executable path with `comm`
 fallback, and start time; command arguments are read only when explicitly
@@ -94,11 +94,11 @@ retain explicit status and diagnostics. Unreadable FD directories are reported
 in aggregate, while a readable namespace with zero matches is healthy.
 
 The process list is top-level snapshot data. It is neither associated with a
-GPU nor stored in history. With attribution configured, MIGLens reads the
+GPU nor stored in history. With attribution configured, Leviathan reads the
 cgroup path of each detected GPU client, recognizes Kubernetes Pod UIDs in
 cgroup v1/v2 systemd or cgroupfs layouts, and joins a one-way hash to the
 bridge's consumer scope. Only the resulting workload reference enters the
-public snapshot. No device ownership is inferred, and MIGLens does not inspect
+public snapshot. No device ownership is inferred, and Leviathan does not inspect
 container runtimes, process environments, Pod objects, or another PID
 namespace.
 
@@ -123,7 +123,7 @@ strict multi-metric min/max envelope while preserving endpoints.
 entities on one shared timestamp grid. Every response row represents one
 timestamp across the requested series. Its required `maxPoints` value is
 validated from 50 through 5000 and strictly caps the number of shared rows.
-MIGLens never interpolates or carries values forward: a missing measurement
+Leviathan never interpolates or carries values forward: a missing measurement
 remains absent, and a failed collector attempt is retained as an empty shared
 row so clients render a real gap. The legacy single-entity
 `GET /api/v1/history` endpoint remains available for detail views and API

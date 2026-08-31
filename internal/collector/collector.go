@@ -10,9 +10,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/history"
-	"github.com/intellisys-stevens/miglens/internal/model"
-	"github.com/intellisys-stevens/miglens/internal/provider"
+	"github.com/intellisys-stevens/leviathan/internal/history"
+	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/provider"
 )
 
 type Engine struct {
@@ -211,7 +211,7 @@ func staleSnapshot(snapshot model.Snapshot, at time.Time, detail string) model.S
 	stale.SampledAt = at
 	stale.Diagnostics = append(append([]model.Diagnostic(nil), snapshot.Diagnostics...), model.Diagnostic{
 		Code: "collector_sample", Severity: "error", Component: "collector", Summary: "GPU sampling failed; last topology retained", Detail: detail,
-		Remedy: "run `miglens doctor`; collection retries automatically without accumulating a polling backlog", Status: model.StatusStale,
+		Remedy: "run `leviathan doctor`; collection retries automatically without accumulating a polling backlog", Status: model.StatusStale,
 	})
 	stale.Capabilities = staleCapabilities(snapshot.Capabilities, detail)
 	stale.Processes = staleProcesses(snapshot.Processes, detail)

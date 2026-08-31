@@ -24,7 +24,7 @@ import (
 	tokens2 "github.com/gophercloud/gophercloud/v2/openstack/identity/v2/tokens"
 	tokens3 "github.com/gophercloud/gophercloud/v2/openstack/identity/v3/tokens"
 	"github.com/gophercloud/gophercloud/v2/pagination"
-	"github.com/intellisys-stevens/miglens/internal/fleet"
+	"github.com/intellisys-stevens/leviathan/internal/fleet"
 )
 
 var canonicalServerUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -181,7 +181,7 @@ func NewFromEnv(ctx context.Context, config Config) (*Source, error) {
 	}
 	httpClient, securedTransport := securedHTTPClient(config, authURL, authBaseURL, environment.projectID)
 	provider.HTTPClient = httpClient
-	provider.UserAgent.Prepend("miglens jetstream-inventory")
+	provider.UserAgent.Prepend("leviathan jetstream-inventory")
 	if err := openstack.Authenticate(ctx, provider, authOptions); err != nil {
 		return nil, safeOpenStackError("OpenStack authentication", err)
 	}

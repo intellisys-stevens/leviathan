@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 func TestConfigPrecedenceAndRedactedJSON(t *testing.T) {
@@ -21,9 +21,9 @@ func TestConfigPrecedenceAndRedactedJSON(t *testing.T) {
 	if err := os.WriteFile(configPath, []byte("interval = \"300ms\"\nprovider = \"nvml\"\nshow_command_line = true\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("MIGLENS_PROVIDER", "invalid")
-	t.Setenv("MIGLENS_INTERVAL", "400ms")
-	t.Setenv("MIGLENS_SHOW_COMMAND_LINE", "true")
+	t.Setenv("LEVIATHAN_PROVIDER", "invalid")
+	t.Setenv("LEVIATHAN_INTERVAL", "400ms")
+	t.Setenv("LEVIATHAN_SHOW_COMMAND_LINE", "true")
 	var stdout, stderr bytes.Buffer
 	err := Execute(context.Background(), &stdout, &stderr, []string{
 		"--config", configPath, "--provider", "fake", "--fixture", "multi-ci", "--interval", "250ms", "--show-command-line=false", "--no-profile", "snapshot", "--format", "json",
@@ -71,7 +71,7 @@ func TestServeRejectsNonLoopbackBeforeBinding(t *testing.T) {
 }
 
 func TestUplinkRejectsUnsafeInputsBeforeStartingCollector(t *testing.T) {
-	t.Setenv("MIGLENS_TEST_UPLINK_TOKEN", strings.Repeat("t", 48))
+	t.Setenv("LEVIATHAN_TEST_UPLINK_TOKEN", strings.Repeat("t", 48))
 	tests := []struct {
 		name string
 		args []string
@@ -79,9 +79,9 @@ func TestUplinkRejectsUnsafeInputsBeforeStartingCollector(t *testing.T) {
 	}{
 		{name: "interval", args: []string{"uplink", "--hub-url", "https://hub.example.test", "--uplink-interval", "1s"}, want: "between 5s and 5m"},
 		{name: "token environment", args: []string{"uplink", "--hub-url", "https://hub.example.test", "--token-env", "bad-name"}, want: "environment variable name"},
-		{name: "instance UUID", args: []string{"uplink", "--hub-url", "https://hub.example.test", "--instance-uuid", "not-a-uuid", "--token-env", "MIGLENS_TEST_UPLINK_TOKEN"}, want: "canonical lowercase UUID"},
-		{name: "HTTP Hub", args: []string{"uplink", "--hub-url", "http://hub.example.test", "--instance-uuid", "11111111-1111-4111-8111-111111111111", "--token-env", "MIGLENS_TEST_UPLINK_TOKEN"}, want: "base URL is invalid"},
-		{name: "missing token", args: []string{"uplink", "--hub-url", "https://hub.example.test", "--instance-uuid", "11111111-1111-4111-8111-111111111111", "--token-env", "MIGLENS_MISSING_UPLINK_TOKEN"}, want: "MIGLENS_MISSING_UPLINK_TOKEN is not set"},
+		{name: "instance UUID", args: []string{"uplink", "--hub-url", "https://hub.example.test", "--instance-uuid", "not-a-uuid", "--token-env", "LEVIATHAN_TEST_UPLINK_TOKEN"}, want: "canonical lowercase UUID"},
+		{name: "HTTP Hub", args: []string{"uplink", "--hub-url", "http://hub.example.test", "--instance-uuid", "11111111-1111-4111-8111-111111111111", "--token-env", "LEVIATHAN_TEST_UPLINK_TOKEN"}, want: "base URL is invalid"},
+		{name: "missing token", args: []string{"uplink", "--hub-url", "https://hub.example.test", "--instance-uuid", "11111111-1111-4111-8111-111111111111", "--token-env", "LEVIATHAN_MISSING_UPLINK_TOKEN"}, want: "LEVIATHAN_MISSING_UPLINK_TOKEN is not set"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -146,7 +146,7 @@ func TestServeShutsDownWithActiveSSEClient(t *testing.T) {
 }
 
 func TestVersionDoesNotRequireRuntimeConfiguration(t *testing.T) {
-	t.Setenv("MIGLENS_INTERVAL", "not-a-duration")
+	t.Setenv("LEVIATHAN_INTERVAL", "not-a-duration")
 	var stdout bytes.Buffer
 	if err := Execute(context.Background(), &stdout, &bytes.Buffer{}, []string{"version", "--format", "json"}); err != nil {
 		t.Fatal(err)
@@ -156,12 +156,20 @@ func TestVersionDoesNotRequireRuntimeConfiguration(t *testing.T) {
 	}
 }
 
+func TestLegacyMIGLensEnvironmentFailsBeforeCommandExecution(t *testing.T) {
+	t.Setenv("MIGLENS_CONFIG", "/tmp/legacy-config.toml")
+	err := Execute(context.Background(), &bytes.Buffer{}, &bytes.Buffer{}, []string{"version"})
+	if err == nil || !strings.Contains(err.Error(), "MIGLENS_CONFIG") || !strings.Contains(err.Error(), "LEVIATHAN_CONFIG") {
+		t.Fatalf("legacy environment error = %v", err)
+	}
+}
+
 func TestBuildInfoUsesLinkerMetadata(t *testing.T) {
 	previousVersion, previousCommit, previousBuildDate := Version, Commit, BuildDate
 	t.Cleanup(func() {
 		Version, Commit, BuildDate = previousVersion, previousCommit, previousBuildDate
 	})
-	Version, Commit, BuildDate = "0.2.0", "abc1234", "2026-08-30T12:00:00Z"
+	Version, Commit, BuildDate = "0.3.0", "abc1234", "2026-08-30T12:00:00Z"
 
 	got := buildInfo()
 	if got.Version != Version || got.Commit != Commit || got.BuildDate != BuildDate {
@@ -176,8 +184,8 @@ func TestResolveVersion(t *testing.T) {
 		moduleVersion string
 		want          string
 	}{
-		{name: "linker metadata wins", linkerVersion: "0.2.0", moduleVersion: "v9.9.9", want: "0.2.0"},
-		{name: "tagged module", linkerVersion: "dev", moduleVersion: "v0.2.0", want: "0.2.0"},
+		{name: "linker metadata wins", linkerVersion: "0.3.0", moduleVersion: "v9.9.9", want: "0.3.0"},
+		{name: "tagged module", linkerVersion: "dev", moduleVersion: "v0.3.0", want: "0.3.0"},
 		{name: "development build", linkerVersion: "dev", moduleVersion: "(devel)", want: "dev"},
 		{name: "missing build info", linkerVersion: "dev", want: "dev"},
 	}

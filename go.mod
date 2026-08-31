@@ -1,4 +1,4 @@
-module github.com/intellisys-stevens/miglens
+module github.com/intellisys-stevens/leviathan
 
 go 1.27.0
 

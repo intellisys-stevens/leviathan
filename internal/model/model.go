@@ -1,4 +1,4 @@
-// Package model contains MIGLens' provider-neutral wire model.
+// Package model contains Leviathan's provider-neutral wire model.
 package model
 
 import "time"
@@ -207,7 +207,7 @@ type RuntimeSettings struct {
 	AllowedSamplingIntervalsMs []int64 `json:"allowedSamplingIntervalsMs"`
 }
 
-// BuildInfo identifies the running MIGLens binary. These values are supplied
+// BuildInfo identifies the running Leviathan binary. These values are supplied
 // at build time and are read-only for the lifetime of the process.
 type BuildInfo struct {
 	Version   string `json:"version"`

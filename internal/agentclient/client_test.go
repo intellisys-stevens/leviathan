@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/fleet"
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/fleet"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 const (
@@ -37,9 +37,9 @@ func TestObserveUsesTrustedBinding(t *testing.T) {
 		requests <- request.URL.Path
 		writer.Header().Set("Content-Type", "application/json")
 		switch request.URL.Path {
-		case "/miglens/api/v1/snapshot":
+		case "/leviathan/api/v1/snapshot":
 			_ = json.NewEncoder(writer).Encode(validSnapshot(sampledAt, testHostname))
-		case "/miglens/api/v1/version":
+		case "/leviathan/api/v1/version":
 			_ = json.NewEncoder(writer).Encode(model.BuildInfo{Version: "0.2.0", Commit: "abc123", BuildDate: "2026-08-30T18:00:00Z"})
 		default:
 			http.NotFound(writer, request)
@@ -48,7 +48,7 @@ func TestObserveUsesTrustedBinding(t *testing.T) {
 	defer server.Close()
 
 	source := newTLSSource(t, server, map[string]Binding{
-		testInstanceUUID: {BaseURL: server.URL + "/miglens/", ExpectedHostname: testHostname},
+		testInstanceUUID: {BaseURL: server.URL + "/leviathan/", ExpectedHostname: testHostname},
 	}, Options{})
 	sample, err := source.Observe(context.Background(), fleet.Instance{UUID: testInstanceUUID, Name: "untrusted inventory name"})
 	if err != nil {
@@ -68,7 +68,7 @@ func TestObserveUsesTrustedBinding(t *testing.T) {
 	for requestPath := range requests {
 		got = append(got, requestPath)
 	}
-	if strings.Join(got, ",") != "/miglens/api/v1/snapshot,/miglens/api/v1/version" {
+	if strings.Join(got, ",") != "/leviathan/api/v1/snapshot,/leviathan/api/v1/version" {
 		t.Fatalf("paths = %v", got)
 	}
 }

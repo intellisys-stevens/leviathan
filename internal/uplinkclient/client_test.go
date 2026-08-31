@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/fleetuplink"
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/fleetuplink"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 const (

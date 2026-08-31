@@ -309,7 +309,7 @@ async function installSyntheticBackend(
     }
     if (url.pathname === '/api/v1/version') {
       await route.fulfill({
-        json: { version: '0.2.1', commit: 'synthetic', buildDate: sampledAt },
+        json: { version: '0.3.0', commit: 'synthetic', buildDate: sampledAt },
       });
       return;
     }
@@ -380,6 +380,10 @@ async function installSyntheticBackend(
 }
 
 test.beforeEach(async ({ page }, testInfo) => {
+  const theme = testInfo.project.name.endsWith('-light') ? 'light' : 'dark';
+  await page.addInitScript((selectedTheme) => {
+    localStorage.setItem('leviathan.theme.v1', selectedTheme);
+  }, theme);
   await installSyntheticBackend(page, {
     injectAlignedGap: testInfo.title.includes('explicit missing sample'),
   });
@@ -402,6 +406,49 @@ function alignedRequestCount(page: Page) {
 function moveCommands(pathData: string | null) {
   return pathData?.match(/M/gu)?.length ?? 0;
 }
+
+test('renders the Leviathan frost brand in the selected theme', async ({
+  page,
+}, testInfo) => {
+  const light = testInfo.project.name.endsWith('-light');
+  const root = page.locator('html');
+  if (light) await expect(root).not.toHaveClass(/\bdark\b/u);
+  else await expect(root).toHaveClass(/\bdark\b/u);
+
+  await expect(page.getByText('Leviathan', { exact: true })).toBeVisible();
+  await expect(page.getByText('MIGLens', { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole('link', { name: 'Open Leviathan repository on GitHub' }),
+  ).toHaveAttribute('href', 'https://github.com/intellisys-stevens/leviathan');
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute(
+    'href',
+    '/leviathan-mark.svg',
+  );
+
+  const visual = await page.evaluate(() => {
+    const body = getComputedStyle(document.body);
+    const cardElement = document.querySelector('.gpu-card')!;
+    const card = getComputedStyle(cardElement);
+    const cardRail = getComputedStyle(cardElement, '::before');
+    const header = getComputedStyle(document.querySelector('header')!);
+    return {
+      bodyPattern: body.backgroundImage,
+      cardRail: cardRail.backgroundImage,
+      cardRadius: Number.parseFloat(card.borderRadius),
+      headerBorder: Number.parseFloat(header.borderBottomWidth),
+      storedTheme: localStorage.getItem('leviathan.theme.v1'),
+      legacyKeys: Object.keys(localStorage).filter((key) =>
+        key.startsWith('miglens.'),
+      ),
+    };
+  });
+  expect(visual.bodyPattern).not.toBe('none');
+  expect(visual.cardRail).not.toBe('none');
+  expect(visual.cardRadius).toBeLessThanOrEqual(8);
+  expect(visual.headerBorder).toBeGreaterThanOrEqual(1);
+  expect(visual.storedTheme).toBe(light ? 'light' : 'dark');
+  expect(visual.legacyKeys).toEqual([]);
+});
 
 test('renders healthy aligned history as one continuous path per series', async ({
   page,
@@ -728,15 +775,40 @@ test('switches GPU and People views without reloading charts or clearing process
   await expect.poll(() => alignedRequestCount(page)).toBe(5);
 });
 
-test('keeps the detail chart 100% tick fully visible', async ({ page }) => {
+test('keeps every detail percentage tick visible', async ({ page }) => {
   await page
     .getByRole('button', { name: 'Open GPU 0 full GPU details' })
     .click();
 
   const chart = page.getByTestId('detail-history-chart');
+  const sheetGeometry = await page
+    .getByTestId('detail-sheet')
+    .evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return {
+        position: getComputedStyle(element).position,
+        top: bounds.top,
+        right: bounds.right,
+        height: bounds.height,
+      };
+    });
+  expect(sheetGeometry.position).toBe('fixed');
+  expect(sheetGeometry.top).toBeLessThanOrEqual(1);
+  expect(sheetGeometry.right).toBeGreaterThanOrEqual(
+    page.viewportSize()!.width - 1,
+  );
+  expect(sheetGeometry.height).toBeGreaterThanOrEqual(
+    page.viewportSize()!.height - 1,
+  );
   await expect(chart.locator('.recharts-wrapper')).toBeVisible();
-  const tick = chart.locator('svg text').filter({ hasText: /^100%$/ });
-  await expect(tick).toHaveCount(1);
+  const labels = chart.locator('svg text');
+  for (const label of ['0%', '25%', '50%', '75%', '100%']) {
+    await expect(
+      labels.filter({ hasText: new RegExp(`^${label}$`, 'u') }),
+    ).toHaveCount(1);
+  }
+
+  const tick = labels.filter({ hasText: /^100%$/ });
 
   const bounds = await tick.evaluate((element) => {
     const tickBox = element.getBoundingClientRect();

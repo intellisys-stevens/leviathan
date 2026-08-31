@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	gonvml "github.com/NVIDIA/go-nvml/pkg/nvml"
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 func TestCurrentPIDNamespaceReportsProcAvailable(t *testing.T) {

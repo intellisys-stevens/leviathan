@@ -177,7 +177,7 @@ export interface components {
        * @description Transport and fidelity tier that produced the retained snapshot.
        * @enum {string}
        */
-      source?: 'miglens_agent' | 'exosphere_console' | 'miglens_uplink';
+      source?: 'leviathan_agent' | 'exosphere_console' | 'leviathan_uplink';
       /** Format: date-time */
       lastAttemptAt?: string;
       /** Format: date-time */
@@ -296,7 +296,7 @@ export interface components {
       metrics: components['schemas']['MetricSet'];
       gpuInstances: components['schemas']['GpuInstance'][];
     };
-    /** @description A GPU-connected process visible in MIGLens' current PID namespace. An open NVIDIA UVM handle includes idle CUDA contexts and does not imply active kernels, GPU memory use, or GI/CI ownership. */
+    /** @description A GPU-connected process visible in Leviathan's current PID namespace. An open NVIDIA UVM handle includes idle CUDA contexts and does not imply active kernels, GPU memory use, or GI/CI ownership. */
     Process: {
       /** Format: uint32 */
       pid: number;
@@ -367,7 +367,7 @@ export interface components {
       sampledAt: string;
       host: components['schemas']['Host'];
       gpus: components['schemas']['GPU'][];
-      /** @description GPU-connected processes detected through open NVIDIA UVM device handles in the current PID namespace. MIGLens itself is excluded. */
+      /** @description GPU-connected processes detected through open NVIDIA UVM device handles in the current PID namespace. Leviathan itself is excluded. */
       processes: components['schemas']['Process'][];
       attribution?: components['schemas']['Attribution'];
       capabilities: components['schemas']['Capabilities'];

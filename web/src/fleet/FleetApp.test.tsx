@@ -212,20 +212,30 @@ describe('FleetApp', () => {
       screen.getByRole('link', { name: 'Open Jetstream dashboard' }),
     ).toHaveAttribute('href', '/platforms/jetstream');
     expect(screen.queryByRole('table')).toBeNull();
-    expect(document.title).toBe('Yggdrasill · MIGLens');
+    expect(document.title).toBe('Yggdrasill · Leviathan');
+    expect(
+      screen.getByRole('link', {
+        name: 'Open Leviathan repository on GitHub',
+      }),
+    ).toHaveAttribute(
+      'href',
+      'https://github.com/intellisys-stevens/leviathan',
+    );
+    expect(localStorage.getItem('leviathan.theme.v1')).toBe('dark');
+    expect(localStorage.getItem(`${'mig' + 'lens'}.theme.v1`)).toBeNull();
   });
 
   it('uses the Yggdrasill icon only while the platform surface is mounted', () => {
     const favicon = document.createElement('link');
     favicon.setAttribute('rel', 'icon');
-    favicon.setAttribute('href', '/miglens-mark.png');
+    favicon.setAttribute('href', '/leviathan-mark.svg');
     document.head.append(favicon);
 
     const { unmount } = render(<FleetApp pathname="/platforms" />);
 
     expect(favicon).toHaveAttribute('href', '/yggdrasill-favicon.png');
     unmount();
-    expect(favicon).toHaveAttribute('href', '/miglens-mark.png');
+    expect(favicon).toHaveAttribute('href', '/leviathan-mark.svg');
 
     favicon.remove();
   });
@@ -261,6 +271,35 @@ describe('FleetApp', () => {
     expect(within(peopleView).getByText('owner-c@example.test')).toBeVisible();
     expect(within(peopleView).queryByText('owner-b@example.test')).toBeNull();
     expect(within(peopleView).getByText('gpu-connected-user')).toBeVisible();
+    expect(localStorage.getItem('leviathan.jetstreamDashboardView.v1')).toBe(
+      'people',
+    );
+    expect(
+      localStorage.getItem(`${'mig' + 'lens'}.jetstreamDashboardView.v1`),
+    ).toBeNull();
+  });
+
+  it.each([
+    ['leviathan_agent', 'Leviathan agent'],
+    ['leviathan_uplink', 'Leviathan uplink'],
+  ] as const)('labels the %s telemetry source', (source, label) => {
+    const sourcedState = structuredClone(fleetState);
+    sourcedState.platforms[1].instances[0].agent.source = source;
+    mockUseFleet.mockReturnValue({
+      snapshot: sourcedState,
+      connection: 'live',
+      error: null,
+    });
+
+    render(<FleetApp pathname="/platforms/jetstream" />);
+    fireEvent.click(
+      screen.getByText('Full instance inventory', { selector: 'span' }),
+    );
+
+    const table = screen.getByRole('table', { name: 'Jetstream instances' });
+    expect(
+      within(table).getAllByTestId('fleet-instance-row')[0],
+    ).toHaveTextContent(label);
   });
 
   it('does not turn incomplete process inspection into a false zero-user claim', () => {

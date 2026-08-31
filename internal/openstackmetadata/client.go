@@ -109,7 +109,7 @@ func (client *Client) InstanceUUID(ctx context.Context) (string, error) {
 		return "", ErrUnavailable
 	}
 	request.Header.Set("Accept", "application/json")
-	request.Header.Set("User-Agent", "miglens-openstack-metadata")
+	request.Header.Set("User-Agent", "leviathan-openstack-metadata")
 
 	response, err := client.client.Do(request)
 	if err != nil {

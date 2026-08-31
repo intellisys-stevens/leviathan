@@ -1,5 +1,5 @@
 // Package fleettelemetry selects the strongest explicitly authorized
-// telemetry path for one fleet instance without changing the local MIGLens
+// telemetry path for one fleet instance without changing the local Leviathan
 // agent contract.
 package fleettelemetry
 
@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/fleet"
+	"github.com/intellisys-stevens/leviathan/internal/fleet"
 )
 
 var (

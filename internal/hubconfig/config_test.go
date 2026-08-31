@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/fleet"
+	"github.com/intellisys-stevens/leviathan/internal/fleet"
 )
 
 const validConfig = `
@@ -196,7 +196,7 @@ func TestConsoleTuningRequiresEnabledBoundedConfiguration(t *testing.T) {
 }
 
 func TestUplinkConfigurationReferencesEnvironmentWithoutReadingSecret(t *testing.T) {
-	t.Setenv("MIGLENS_TEST_OWNER_B_TOKEN", strings.Repeat("s", 48))
+	t.Setenv("LEVIATHAN_TEST_OWNER_B_TOKEN", strings.Repeat("s", 48))
 	text := strings.Replace(validConfig, `[[instances]]`, `[uplink]
 enabled = true
 ttl = "90s"
@@ -212,7 +212,7 @@ max_concurrent_requests = 3
 	text = strings.Replace(text, `creator_username = "owner-b@example.test"
 telemetry_enabled = false`, `creator_username = "owner-b@example.test"
 telemetry_enabled = true
-uplink_token_env = "MIGLENS_TEST_OWNER_B_TOKEN"`, 1)
+uplink_token_env = "LEVIATHAN_TEST_OWNER_B_TOKEN"`, 1)
 	config := loadText(t, text)
 	ttl, maxAge, futureSkew, err := config.UplinkDurations()
 	if err != nil || ttl != 90*time.Second || maxAge != 90*time.Second || futureSkew != 20*time.Second {
@@ -244,6 +244,7 @@ uplink_token_env = "MIGLENS_TEST_OWNER_B_TOKEN"`, 1)
 }
 
 func TestUplinkConfigurationFailsClosed(t *testing.T) {
+	legacyTokenEnvironment := "MIG" + "LENS_TEST_TOKEN"
 	base := strings.Replace(validConfig, `[[instances]]`, `[uplink]
 enabled = true
 
@@ -254,7 +255,7 @@ enabled = true
 creator_id = "nova-user-c"
 creator_username = "owner-c@example.test"
 telemetry_enabled = true
-uplink_token_env = "MIGLENS_TEST_OWNER_C_TOKEN"
+uplink_token_env = "LEVIATHAN_TEST_OWNER_C_TOKEN"
 `
 	tests := []struct {
 		name string
@@ -264,11 +265,13 @@ uplink_token_env = "MIGLENS_TEST_OWNER_C_TOKEN"
 		{name: "dynamic telemetry without route", text: strings.Replace(validConfig, `telemetry_enabled = false`, `telemetry_enabled = true`, 1)},
 		{name: "one creator token does not authorize another creator route", text: crossCreator},
 		{name: "token reference while disabled", text: strings.Replace(validConfig, `telemetry_enabled = false`, `telemetry_enabled = true
-uplink_token_env = "MIGLENS_TEST_TOKEN"`, 1)},
+uplink_token_env = "LEVIATHAN_TEST_TOKEN"`, 1)},
 		{name: "invalid token environment", text: strings.Replace(base, `telemetry_enabled = false`, `telemetry_enabled = true
 uplink_token_env = "bad-token-env"`, 1)},
+		{name: "legacy token environment", text: strings.Replace(base, `telemetry_enabled = false`, `telemetry_enabled = true
+uplink_token_env = "`+legacyTokenEnvironment+`"`, 1)},
 		{name: "token on disabled creator", text: strings.Replace(base, `telemetry_enabled = false`, `telemetry_enabled = false
-uplink_token_env = "MIGLENS_TEST_TOKEN"`, 1)},
+uplink_token_env = "LEVIATHAN_TEST_TOKEN"`, 1)},
 		{name: "unknown inline token", text: strings.Replace(base, `[uplink]`, `[uplink]
 token = "`+strings.Repeat("secret", 8)+`"`, 1)},
 		{name: "oversized body", text: strings.Replace(base, `[uplink]`, `[uplink]

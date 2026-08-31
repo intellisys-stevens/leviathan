@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 
-	"github.com/intellisys-stevens/miglens/internal/fleet"
+	"github.com/intellisys-stevens/leviathan/internal/fleet"
 )
 
 // UplinkAuthorizer performs the current-inventory portion of uplink

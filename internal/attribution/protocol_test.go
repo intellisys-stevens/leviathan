@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 func TestDocumentValidation(t *testing.T) {
@@ -19,7 +19,7 @@ func TestDocumentValidation(t *testing.T) {
 		name   string
 		mutate func(*Document)
 	}{
-		{name: "schema", mutate: func(value *Document) { value.SchemaVersion = "miglens.attribution/v2" }},
+		{name: "schema", mutate: func(value *Document) { value.SchemaVersion = "leviathan.attribution/v2" }},
 		{name: "raw-workspace-id", mutate: func(value *Document) { value.Workloads[0].Ref = "workspace-upstream-id" }},
 		{name: "control-character", mutate: func(value *Document) { value.Workloads[0].OwnerName = "owner\nname" }},
 		{name: "unknown-workload", mutate: func(value *Document) { value.Assignments[0].WorkloadRef = "workspace_00000000000000000000000000000000" }},

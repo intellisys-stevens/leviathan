@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/model"
-	"github.com/intellisys-stevens/miglens/internal/provider"
+	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/provider"
 )
 
 // Provider decorates telemetry with the latest optional attribution inventory.

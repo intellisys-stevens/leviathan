@@ -69,7 +69,7 @@ for (const [packagePath, metadata] of Object.entries(lock.packages ?? {})) {
 noticeRows.sort((left, right) => left.localeCompare(right));
 await writeFile(
   path.join(destination, 'THIRD_PARTY_NOTICES.txt'),
-  `MIGLens embedded web production dependencies\n\n${noticeRows.join('\n')}\n`,
+  `Leviathan embedded web production dependencies\n\n${noticeRows.join('\n')}\n`,
 );
 console.log(
   `Saved notices for ${noticeRows.length} production web packages to ${destination}.`,

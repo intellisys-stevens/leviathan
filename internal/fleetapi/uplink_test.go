@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/fleet"
-	"github.com/intellisys-stevens/miglens/internal/fleetuplink"
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/fleet"
+	"github.com/intellisys-stevens/leviathan/internal/fleetuplink"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 const (
@@ -97,7 +97,7 @@ func TestUplinkAcceptsAuthorizedActiveJetstreamInstance(t *testing.T) {
 	if call.projectID != uplinkProjectID || call.instanceUUID != uplinkUUIDA || call.bodyBytes != int64(len(body)) || !call.now.Equal(now) {
 		t.Fatalf("Put identity/receipt = %+v", call)
 	}
-	if call.sample.InstanceUUID != uplinkUUIDA || call.sample.CreatorID != uplinkCreatorA || call.sample.Source != fleet.TelemetrySourceMIGLensUplink || !call.sample.ObservedAt.Equal(now) || call.sample.Snapshot.Host.Hostname != "agent-host" {
+	if call.sample.InstanceUUID != uplinkUUIDA || call.sample.CreatorID != uplinkCreatorA || call.sample.Source != fleet.TelemetrySourceLeviathanUplink || !call.sample.ObservedAt.Equal(now) || call.sample.Snapshot.Host.Hostname != "agent-host" {
 		t.Fatalf("sample = %+v", call.sample)
 	}
 	if call.sample.BuildInfo == nil || call.sample.BuildInfo.Version != "v0.3.0" {

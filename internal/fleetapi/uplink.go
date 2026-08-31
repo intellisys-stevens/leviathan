@@ -13,9 +13,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/intellisys-stevens/miglens/internal/fleet"
-	"github.com/intellisys-stevens/miglens/internal/fleetuplink"
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/fleet"
+	"github.com/intellisys-stevens/leviathan/internal/fleetuplink"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 const (
@@ -176,7 +176,7 @@ func (h *uplinkHandler) receive(writer http.ResponseWriter, request *http.Reques
 	sample := fleet.AgentSample{
 		InstanceUUID: instanceUUID,
 		CreatorID:    identity.creatorID,
-		Source:       fleet.TelemetrySourceMIGLensUplink,
+		Source:       fleet.TelemetrySourceLeviathanUplink,
 		ObservedAt:   envelope.snapshot.SampledAt,
 		BuildInfo:    envelope.buildInfo,
 		Snapshot:     envelope.snapshot,
@@ -313,7 +313,7 @@ func writeUplinkError(writer http.ResponseWriter, status int) {
 }
 
 func writeUplinkUnauthorized(writer http.ResponseWriter) {
-	writer.Header().Set("WWW-Authenticate", `Bearer realm="miglens-uplink"`)
+	writer.Header().Set("WWW-Authenticate", `Bearer realm="leviathan-uplink"`)
 	writeUplinkError(writer, http.StatusUnauthorized)
 }
 

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Leviathan world-serpent mark</title>
+  <style>
+    .ink{fill:#15364b}.coil{fill:none;stroke:#15364b}@media(prefers-color-scheme:dark){.ink{fill:#8be4ff}.coil{stroke:#8be4ff}}
+  </style>
+  <mask id="facets">
+    <rect width="64" height="64" fill="#fff"/>
+    <path fill="#000" d="m16 48 6 3-3 5-5-4Zm11 6 7 1-3 5-5-3Zm11-1 7-5-2 8-5 1Zm12-38 6 1-3 4Z"/>
+  </mask>
+  <g mask="url(#facets)">
+    <path class="coil" stroke-linecap="square" stroke-linejoin="miter" stroke-width="5.5" d="m47 17-8-7-10-3-10 4-8 8-4 10 1 10 6 9 9 6 11 2 10-5 6-8 1-9-4-7-7-5-8-1-7 4-3 7 2 7 6 4 7-1 5-5"/>
+    <path class="ink" d="m43 11 4-6 4 6h4l7 5-3 8-6 4-7-3-7-7Z"/>
+  </g>
+</svg>

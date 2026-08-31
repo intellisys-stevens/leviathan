@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/intellisys-stevens/miglens/internal/fleet"
+	"github.com/intellisys-stevens/leviathan/internal/fleet"
 )
 
 const (
@@ -164,7 +164,7 @@ func (r *Registry) Put(projectID, instanceUUID string, bodyBytes int64, sample f
 	// control, so subsequent caller mutation cannot affect registry state.
 	candidate := sample
 	candidate.InstanceUUID = key.instanceUUID
-	candidate.Source = fleet.TelemetrySourceMIGLensUplink
+	candidate.Source = fleet.TelemetrySourceLeviathanUplink
 	candidate.Snapshot.SampledAt = candidate.Snapshot.SampledAt.UTC()
 	candidate.ObservedAt = candidate.Snapshot.SampledAt
 	if err := validateSample(candidate, now, r.config); err != nil {

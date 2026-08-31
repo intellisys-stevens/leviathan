@@ -1,16 +1,16 @@
 # Jetstream fleet controller
 
 Yggdrasill presents Nidhogg and Jetstream as peer platforms while preserving
-the existing single-host MIGLens contract. Nidhogg is still opened directly at
-its existing dashboard URL; the Hub does not proxy, reconfigure, or write to
+the existing single-host Leviathan contract. Nidhogg is still opened directly
+at its existing dashboard URL; the Hub does not proxy, reconfigure, or write to
 it.
 
 Jetstream no longer requires every instance to join the Tailnet. The scalable
 path is one project-scoped Hub plus outbound HTTPS telemetry from instances:
 
 1. the Hub discovers all project instances through Nova;
-2. exact Nova `user_id` rules select the creators MIGLens may manage;
-3. an instance with MIGLens installed pushes its full snapshot to one HTTPS
+2. exact Nova `user_id` rules select the creators Leviathan may manage;
+3. an instance with Leviathan installed pushes its full snapshot to one HTTPS
    Hub origin; and
 4. Nova console output supplies a coarse fallback when no full snapshot is
    available.
@@ -20,13 +20,13 @@ Instances initiate outbound requests and do not expose an inbound agent port.
 
 ## Processes and trust boundaries
 
-`miglens` and `miglens-hub` remain independent processes:
+`leviathan` and `leviathan-hub` remain independent processes:
 
-- `miglens` runs beside the NVIDIA driver and samples one host. `miglens
+- `leviathan` runs beside the NVIDIA driver and samples one host. `leviathan
   uplink` uses the same provider and snapshot-v1 model, discovers its canonical
   instance UUID from the fixed OpenStack link-local metadata endpoint, and
   periodically sends only the newest snapshot.
-- `miglens-hub` never loads NVML or DCGM. It inventories Jetstream, evaluates
+- `leviathan-hub` never loads NVML or DCGM. It inventories Jetstream, evaluates
   creator policy, receives bounded telemetry, and serves Yggdrasill.
 - `nidhogg_dashboard_url` is only an HTTPS link to the existing Nidhogg
   dashboard. Nidhogg routes and Coder attribution remain unchanged.
@@ -62,15 +62,15 @@ creator can remain inventory-visible with `telemetry_enabled = false`.
 
 For an active, authorized instance, the Hub selects one source:
 
-1. **Exact MIGLens pull binding.** A legacy `[[instances]]` entry with
+1. **Exact Leviathan pull binding.** A legacy `[[instances]]` entry with
    `agent_url` and `agent_hostname` remains authoritative. A failed exact
    binding is not silently hidden by a fallback.
-2. **MIGLens uplink.** A fresh, authenticated, agent-pushed snapshot provides
+2. **Leviathan uplink.** A fresh, authenticated, agent-pushed snapshot provides
    full GPU, MIG, memory, process, and user detail without an inbound VM route.
 3. **Exosphere console.** The Hub reads only Exosphere's strict resource-usage
    JSON record from a bounded console tail.
 
-The API and UI label retained observations as `MIGLens agent`, `MIGLens
+The API and UI label retained observations as `Leviathan agent`, `Leviathan
 uplink`, or `Exosphere console`.
 
 Console telemetry is deliberately low fidelity. It can report per-physical-GPU
@@ -89,7 +89,10 @@ oversized bodies remain blocked.
 
 The TOML contains only scope, policy, limits, HTTPS origins, and names of
 environment variables. It never contains an OpenStack secret or uplink bearer
-token.
+token. Uplink is default-off: omit `[uplink]` (or set only `enabled = false`)
+unless an explicitly approved pilot accepts the creator-scoped trust boundary.
+The complete example below deliberately enables that pilot and must not be
+copied into a production configuration by default.
 
 ```toml
 listen = "127.0.0.1:1398"
@@ -125,13 +128,13 @@ max_concurrent_requests = 8
 creator_id = "nova-user-a"
 creator_username = "owner-a@example.test"
 telemetry_enabled = true
-uplink_token_env = "MIGLENS_UPLINK_OWNER_A_TOKEN"
+uplink_token_env = "LEVIATHAN_UPLINK_OWNER_A_TOKEN"
 
 [[creators]]
 creator_id = "nova-user-b"
 creator_username = "owner-b@example.test"
 telemetry_enabled = true
-uplink_token_env = "MIGLENS_UPLINK_OWNER_B_TOKEN"
+uplink_token_env = "LEVIATHAN_UPLINK_OWNER_B_TOKEN"
 ```
 
 During the initial rollout, configure only the approved test creators. Other
@@ -154,7 +157,7 @@ agent_hostname = "legacy-agent"
 
 While an exact pull binding exists it remains the dashboard's authoritative
 source, even if the Hub accepts an uplink sample for migration testing. Verify
-the sender's one-time `MIGLens uplink connected.` message (or a reverse-proxy
+the sender's one-time `Leviathan uplink connected.` message (or a reverse-proxy
 202 response), then remove the exact pull entry. The creator rule then covers
 that instance and future instances without a new Hub entry.
 
@@ -179,8 +182,8 @@ export OS_PROJECT_ID="project-demo"
 export OS_REGION_NAME="RegionOne"
 export OS_INTERFACE="public"
 
-export MIGLENS_UPLINK_OWNER_A_TOKEN
-export MIGLENS_UPLINK_OWNER_B_TOKEN
+export LEVIATHAN_UPLINK_OWNER_A_TOKEN
+export LEVIATHAN_UPLINK_OWNER_B_TOKEN
 ```
 
 Use independent random tokens for each creator. A creator token authorizes only
@@ -199,19 +202,19 @@ timestamp through `sampledAt + max_sample_age`, including the permitted future
 skew interval, even after the full payload expires. `uplink.ttl` must still be
 at least `uplink.max_sample_age` as a conservative retention invariant.
 
-The metadata-service UUID discovery performed by `miglens uplink` is routing
+The metadata-service UUID discovery performed by `leviathan uplink` is routing
 input, not cryptographic instance attestation. The Hub authorizes that claimed
 UUID against fresh Nova inventory and the creator token, but it cannot prove
 which VM inside the creator trust domain sent the request. Keep uplink disabled
-by default outside the explicitly approved pilot. Uplink telemetry alone must
-not drive security decisions, billing, scheduling, or incident attribution.
+outside the explicitly approved pilot. Uplink telemetry alone must not drive
+security decisions, billing, scheduling, or incident attribution.
 
 ## Run the Hub
 
 ```bash
-go build -o ./bin/miglens-hub ./cmd/miglens-hub
-./bin/miglens-hub --config ./hub.toml inventory
-./bin/miglens-hub --config ./hub.toml serve
+go build -o ./bin/leviathan-hub ./cmd/leviathan-hub
+./bin/leviathan-hub --config ./hub.toml inventory
+./bin/leviathan-hub --config ./hub.toml serve
 ```
 
 Open Yggdrasill locally at `http://127.0.0.1:1398/platforms`.
@@ -225,14 +228,14 @@ one Tailnet enrollment per instance.
 
 ## Run an instance uplink
 
-Install the same `miglens` binary on the instance, inject only that creator's
+Install the same `leviathan` binary on the instance, inject only that creator's
 token, and start:
 
 ```bash
-export MIGLENS_UPLINK_TOKEN
-miglens uplink \
-  --hub-url "https://miglens-hub.example.test" \
-  --token-env MIGLENS_UPLINK_TOKEN \
+export LEVIATHAN_UPLINK_TOKEN
+leviathan uplink \
+  --hub-url "https://leviathan-hub.example.test" \
+  --token-env LEVIATHAN_UPLINK_TOKEN \
   --uplink-interval 15s
 ```
 
@@ -249,24 +252,26 @@ keeps no local retry queue. On a transient failure it continues local
 collection and retries with the next newest snapshot.
 
 For future instances, place the binary installation, creator-specific token
-environment file, and `miglens uplink` systemd unit in the user's Exosphere
+environment file, and `leviathan uplink` systemd unit in the user's Exosphere
 cloud-init boot script. That automates installation once per creator/template;
 it does not require collecting SSH passwords or opening inbound ports.
 
-Release archives include `miglens-uplink@.service` and
-`miglens-uplink.env.example`. Install the environment as
-`/etc/miglens/uplink-<user>.env` with mode `0600`, then enable the matching
+Release archives include `leviathan-uplink@.service` and
+`leviathan-uplink.env.example`. Install the environment as
+`/etc/leviathan/uplink-<user>.env` with mode `0600`, then enable the matching
 template instance. Use an explicit guest account in automation; cloud-init
 normally runs as root, so do not rely on `${USER}`:
 
 ```bash
-sudo install -D -m 0644 ./miglens-uplink@.service /etc/systemd/system/miglens-uplink@.service
-sudo install -d -m 0755 /etc/miglens
-# Securely create /etc/miglens/uplink-exouser.env from the example and inject
+sudo install -D -m 0644 \
+  ./leviathan-uplink@.service \
+  /etc/systemd/system/leviathan-uplink@.service
+sudo install -d -m 0755 /etc/leviathan
+# Securely create /etc/leviathan/uplink-exouser.env from the example and inject
 # only that Nova creator's token, then:
-sudo chmod 0600 /etc/miglens/uplink-exouser.env
+sudo chmod 0600 /etc/leviathan/uplink-exouser.env
 sudo systemctl daemon-reload
-sudo systemctl enable --now miglens-uplink@exouser.service
+sudo systemctl enable --now leviathan-uplink@exouser.service
 ```
 
 Here `<user>`/`%i` is the guest Linux account that runs the collector; it is

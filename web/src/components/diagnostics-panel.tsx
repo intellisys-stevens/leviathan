@@ -44,7 +44,7 @@ function DiagnosticsPanelComponent({
   const groups = groupDiagnostics(diagnostics);
   return (
     <section
-      className="border border-border/75 bg-card/90"
+      className="frost-panel border border-border/75 bg-card/90"
       aria-labelledby="diagnostics-heading"
     >
       <div className="border-b border-border/70 p-4">
@@ -69,12 +69,12 @@ function DiagnosticsPanelComponent({
               {diagnostic.severity === 'error' ? (
                 <CircleX className="mt-0.5 size-4 shrink-0 text-destructive" />
               ) : (
-                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-500" />
+                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-300" />
               )}
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="text-sm font-medium">{diagnostic.summary}</p>
-                  <span className="font-mono text-[10px] uppercase text-amber-500">
+                  <span className="font-mono text-[10px] uppercase text-amber-700 dark:text-amber-300">
                     {diagnostic.status}
                   </span>
                 </div>

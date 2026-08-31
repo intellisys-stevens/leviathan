@@ -427,7 +427,7 @@ export default function DetailSheet({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
-        className="w-full overflow-y-auto border-border bg-popover"
+        className="frost-sheet w-full overflow-y-auto border-input bg-popover"
         style={{ width: 'min(640px, 100vw)', maxWidth: '640px' }}
         data-testid="detail-sheet"
       >
@@ -475,7 +475,7 @@ export default function DetailSheet({
         <div className="space-y-5 px-5 pb-8">
           {selection.kind === 'compute_instance' &&
           selection.gi.computeInstances.length > 1 ? (
-            <div className="border border-amber-500/30 bg-amber-500/[0.06] p-3 text-xs text-amber-600 dark:text-amber-300">
+            <div className="border border-amber-500/30 bg-amber-500/[0.06] p-3 text-xs text-amber-700 dark:text-amber-300">
               GI metrics are shared by {selection.gi.computeInstances.length}{' '}
               CIs.
             </div>
@@ -531,7 +531,7 @@ export default function DetailSheet({
               data-testid="detail-history-chart"
             >
               {historyError ? (
-                <div className="grid h-full place-items-center text-xs text-amber-500">
+                <div className="grid h-full place-items-center text-xs text-amber-700 dark:text-amber-300">
                   {historyError}
                 </div>
               ) : chartData.length < 2 ? (
@@ -567,6 +567,7 @@ export default function DetailSheet({
                     <YAxis
                       domain={[0, 100]}
                       allowDataOverflow
+                      interval={0}
                       tickFormatter={(value: number) =>
                         formatRoundedPercent(value)
                       }
@@ -630,7 +631,7 @@ export default function DetailSheet({
               data-testid="detail-pcie-chart"
             >
               {historyError ? (
-                <div className="grid h-full place-items-center text-xs text-amber-500">
+                <div className="grid h-full place-items-center text-xs text-amber-700 dark:text-amber-300">
                   {historyError}
                 </div>
               ) : pcieChartData.length < 2 ? (
@@ -740,7 +741,10 @@ export default function DetailSheet({
               </div>
               <Progress
                 value={memory ?? 0}
-                className={`mt-2 ${memory != null && memory >= 85 ? '[&_[data-slot=progress-indicator]]:bg-amber-400' : '[&_[data-slot=progress-indicator]]:bg-cyan-400'}`}
+                aria-label={
+                  physical ? 'Full GPU memory used' : 'GPU instance memory used'
+                }
+                className={`mt-2 ${memory != null && memory >= 85 ? '[&_[data-slot=progress-indicator]]:bg-amber-400' : '[&_[data-slot=progress-indicator]]:bg-primary'}`}
               />
             </div>
             <div className="border border-border bg-card p-3">

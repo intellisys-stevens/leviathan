@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/fleet"
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/fleet"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 type DataSource interface {
@@ -149,7 +149,7 @@ func (s *Server) static(writer http.ResponseWriter, request *http.Request) {
 	// The fleet hub deliberately does not expose the single-host /api/v1 API.
 	// Send its root to the platform route so the shared SPA never boots the
 	// single-host dashboard against a server that cannot satisfy it. The
-	// existing miglens agent uses a different HTTP server and keeps serving its
+	// existing leviathan agent uses a different HTTP server and keeps serving its
 	// unchanged dashboard at /.
 	redirects := map[string]string{
 		"/":                 "/platforms",

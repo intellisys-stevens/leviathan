@@ -1,12 +1,12 @@
 // Package fleet contains the controller-side model for observing multiple
-// MIGLens agents. It deliberately wraps, rather than extends, model.Snapshot.
+// Leviathan agents. It deliberately wraps, rather than extends, model.Snapshot.
 package fleet
 
 import (
 	"strings"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 const SchemaVersion = "fleet-v1"
@@ -111,9 +111,9 @@ const (
 type TelemetrySource string
 
 const (
-	TelemetrySourceMIGLensAgent     TelemetrySource = "miglens_agent"
+	TelemetrySourceLeviathanAgent   TelemetrySource = "leviathan_agent"
 	TelemetrySourceExosphereConsole TelemetrySource = "exosphere_console"
-	TelemetrySourceMIGLensUplink    TelemetrySource = "miglens_uplink"
+	TelemetrySourceLeviathanUplink  TelemetrySource = "leviathan_uplink"
 )
 
 type PolicyReason string
@@ -165,7 +165,7 @@ type InventoryObservation struct {
 	Instances  []Instance
 }
 
-// AgentSample is a successful observation from one existing MIGLens agent.
+// AgentSample is a successful observation from one existing Leviathan agent.
 // The controller keeps the nested Snapshot at schema v1 while applying a
 // fleet-safe projection to free-form command and provider error fields.
 type AgentSample struct {

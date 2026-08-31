@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/fleet"
-	"github.com/intellisys-stevens/miglens/internal/model"
-	"github.com/intellisys-stevens/miglens/internal/provider/fake"
+	"github.com/intellisys-stevens/leviathan/internal/fleet"
+	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/provider/fake"
 )
 
 const (
@@ -28,7 +28,7 @@ func TestRegistryPutGetCanonicalizesIdentityAndClones(t *testing.T) {
 	registry := mustRegistry(t, Config{})
 	sample := validSample(now.Add(-time.Second))
 	sample.InstanceUUID = testOtherUUID
-	sample.Source = fleet.TelemetrySourceMIGLensAgent
+	sample.Source = fleet.TelemetrySourceLeviathanAgent
 	sample.ObservedAt = now.Add(24 * time.Hour)
 
 	if err := registry.Put(testProjectID, testInstanceUUID, 1024, sample, now); err != nil {
@@ -55,8 +55,8 @@ func TestRegistryPutGetCanonicalizesIdentityAndClones(t *testing.T) {
 	if stored.InstanceUUID != testInstanceUUID {
 		t.Fatalf("InstanceUUID = %q, want authenticated key", stored.InstanceUUID)
 	}
-	if stored.Source != fleet.TelemetrySourceMIGLensUplink {
-		t.Fatalf("Source = %q, want %q", stored.Source, fleet.TelemetrySourceMIGLensUplink)
+	if stored.Source != fleet.TelemetrySourceLeviathanUplink {
+		t.Fatalf("Source = %q, want %q", stored.Source, fleet.TelemetrySourceLeviathanUplink)
 	}
 	if !stored.ObservedAt.Equal(stored.Snapshot.SampledAt) {
 		t.Fatalf("ObservedAt = %v, sampledAt = %v", stored.ObservedAt, stored.Snapshot.SampledAt)
@@ -309,7 +309,7 @@ func TestRegistryRejectsContradictoryValuesAndTimes(t *testing.T) {
 	}
 }
 
-func TestRegistryAcceptsCurrentMIGLensFixtureSnapshots(t *testing.T) {
+func TestRegistryAcceptsCurrentLeviathanFixtureSnapshots(t *testing.T) {
 	now := testNow()
 	for _, fixtureName := range fake.Fixtures() {
 		t.Run(fixtureName, func(t *testing.T) {
@@ -563,7 +563,7 @@ func TestRegistryConcurrentAccess(t *testing.T) {
 				return
 			}
 			stored, ok := registry.Get(testProjectID, uuid, now)
-			if !ok || stored.InstanceUUID != uuid || stored.Source != fleet.TelemetrySourceMIGLensUplink {
+			if !ok || stored.InstanceUUID != uuid || stored.Source != fleet.TelemetrySourceLeviathanUplink {
 				errorsChannel <- fmt.Errorf("Get(%s): ok=%v sample=%+v", uuid, ok, stored)
 				return
 			}
@@ -599,7 +599,7 @@ func validSample(sampledAt time.Time) fleet.AgentSample {
 	return fleet.AgentSample{
 		InstanceUUID: testInstanceUUID,
 		CreatorID:    testCreatorID,
-		Source:       fleet.TelemetrySourceMIGLensAgent,
+		Source:       fleet.TelemetrySourceLeviathanAgent,
 		ObservedAt:   sampledAt,
 		BuildInfo: &model.BuildInfo{
 			Version:   "v0.2.0",

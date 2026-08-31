@@ -1,5 +1,5 @@
 // Package consolemetrics adapts the bounded resource-usage records emitted by
-// Exosphere into MIGLens fleet samples. Console output is treated as untrusted
+// Exosphere into Leviathan fleet samples. Console output is treated as untrusted
 // input: only the documented JSON record is decoded, and raw console text is
 // neither retained nor copied into errors, diagnostics, or returned samples.
 package consolemetrics
@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/fleet"
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/fleet"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 const (
@@ -405,7 +405,7 @@ func snapshotFor(instance fleet.Instance, record consoleRecord) model.Snapshot {
 			Severity:  "warning",
 			Component: "Exosphere console telemetry",
 			Summary:   "GPU memory telemetry is unavailable",
-			Remedy:    "install and connect a MIGLens agent for GPU memory telemetry",
+			Remedy:    "install and connect a Leviathan agent for GPU memory telemetry",
 			Status:    model.StatusUnsupported,
 		},
 		{
@@ -413,7 +413,7 @@ func snapshotFor(instance fleet.Instance, record consoleRecord) model.Snapshot {
 			Severity:  "warning",
 			Component: "Exosphere console telemetry",
 			Summary:   "GPU process inventory is unavailable",
-			Remedy:    "install and connect a privileged MIGLens agent for process and user attribution",
+			Remedy:    "install and connect a privileged Leviathan agent for process and user attribution",
 			Status:    model.StatusUnsupported,
 		},
 	}
@@ -423,7 +423,7 @@ func snapshotFor(instance fleet.Instance, record consoleRecord) model.Snapshot {
 			Severity:  "warning",
 			Component: "Exosphere console telemetry",
 			Summary:   "GPU utilization telemetry is unavailable",
-			Remedy:    "verify that nvidia-smi works in the instance or install a MIGLens agent",
+			Remedy:    "verify that nvidia-smi works in the instance or install a Leviathan agent",
 			Status:    model.StatusUnsupported,
 		})
 	}

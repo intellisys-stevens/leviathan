@@ -1,5 +1,5 @@
 // Package attribution implements the versioned, local handoff between an
-// optional workload-attribution bridge and the MIGLens telemetry process.
+// optional workload-attribution bridge and the Leviathan telemetry process.
 package attribution
 
 import (
@@ -13,11 +13,11 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 const (
-	SchemaVersion    = "miglens.attribution/v1"
+	SchemaVersion    = "leviathan.attribution/v1"
 	MaxDocumentBytes = 1 << 20
 	MaxWorkloads     = 1024
 	MaxAssignments   = 2048
@@ -42,7 +42,7 @@ type SourceStatus struct {
 
 // ProcessScope is an internal bridge-to-host join. ScopeRef is derived from a
 // Kubernetes Pod UID before it enters the handoff and is never exposed by the
-// MIGLens public API.
+// Leviathan public API.
 type ProcessScope struct {
 	ScopeRef    string `json:"scopeRef"`
 	WorkloadRef string `json:"workloadRef"`

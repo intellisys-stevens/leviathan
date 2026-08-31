@@ -2,6 +2,7 @@ import { Activity, AlertTriangle, Moon, Sun } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { readBrowserSetting, writeBrowserSetting } from '../browser-storage';
 import { GitHubMark } from '../components/status-header';
 import {
   isJetstreamFleetPathname,
@@ -13,7 +14,7 @@ import { JetstreamDashboard } from './jetstream-dashboard';
 import type { FleetConnectionState, PlatformObservation } from './types';
 import { useFleet } from './use-fleet';
 
-const themeKey = 'miglens.theme.v1';
+const themeKey = 'leviathan.theme.v1';
 const platformName = 'Yggdrasill';
 const platformIconPath = '/yggdrasill.png';
 const platformFaviconPath = '/yggdrasill-favicon.png';
@@ -92,14 +93,14 @@ function FleetHeader({
             </p>
             <p className="truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
               {scope === 'platform'
-                ? 'MIGLens · platform read-only'
-                : `${scope} · MIGLens read-only`}
+                ? 'Leviathan · platform read-only'
+                : `${scope} · Leviathan read-only`}
             </p>
           </div>
         </a>
         <div className="flex shrink-0 items-center gap-2">
           <output
-            className={`flex h-8 items-center gap-1.5 font-mono text-[10px] font-semibold ${healthy ? 'text-foreground' : 'text-amber-500'}`}
+            className={`flex h-8 items-center gap-1.5 font-mono text-[10px] font-semibold ${healthy ? 'text-foreground' : 'text-amber-700 dark:text-amber-300'}`}
             aria-live="polite"
             aria-label={`Platform connection status: ${statusName}`}
           >
@@ -110,12 +111,12 @@ function FleetHeader({
             {statusName}
           </output>
           <a
-            href="https://github.com/intellisys-stevens/miglens"
+            href="https://github.com/intellisys-stevens/leviathan"
             target="_blank"
             rel="noreferrer"
             className={buttonVariants({ variant: 'ghost', size: 'icon' })}
-            aria-label="Open MIGLens repository on GitHub"
-            title="MIGLens on GitHub"
+            aria-label="Open Leviathan repository on GitHub"
+            title="Leviathan on GitHub"
           >
             <GitHubMark />
           </a>
@@ -171,12 +172,12 @@ export default function FleetApp({ pathname }: { pathname: string }) {
   const showPlatformOverview = isPlatformOverviewPathname(pathname);
   const degraded = snapshot ? platformDegraded(jetstream) : false;
   const [theme, setTheme] = useState<'dark' | 'light'>(() =>
-    localStorage.getItem(themeKey) === 'light' ? 'light' : 'dark',
+    readBrowserSetting(themeKey) === 'light' ? 'light' : 'dark',
   );
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
-    localStorage.setItem(themeKey, theme);
+    writeBrowserSetting(themeKey, theme);
   }, [theme]);
 
   useEffect(() => {
@@ -187,7 +188,7 @@ export default function FleetApp({ pathname }: { pathname: string }) {
     document.title = showJetstreamInstances
       ? `Jetstream · ${platformName}`
       : showPlatformOverview
-        ? `${platformName} · MIGLens`
+        ? `${platformName} · Leviathan`
         : `${platformName} page not found`;
     favicon?.setAttribute('href', platformFaviconPath);
     return () => {
@@ -248,7 +249,7 @@ export default function FleetApp({ pathname }: { pathname: string }) {
                   {platformName}
                 </h1>
                 <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-                  The MIGLens monitoring platform for Nidhogg and Jetstream,
+                  The Leviathan monitoring platform for Nidhogg and Jetstream,
                   organized by GPUs and People.
                 </p>
               </div>

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 const secretCanary = "SECRET-CANARY-MUST-NEVER-LEAK"

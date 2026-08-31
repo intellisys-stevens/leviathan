@@ -1,4 +1,4 @@
-// Package hubcli wires the standalone MIGLens fleet controller. Its OpenStack
+// Package hubcli wires the standalone Leviathan fleet controller. Its OpenStack
 // access is read-only; an explicitly enabled endpoint may receive authenticated
 // telemetry from agents. It intentionally does not start the local collector.
 package hubcli
@@ -17,16 +17,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/agentclient"
-	"github.com/intellisys-stevens/miglens/internal/fleet"
-	"github.com/intellisys-stevens/miglens/internal/fleetapi"
-	"github.com/intellisys-stevens/miglens/internal/fleettelemetry"
-	"github.com/intellisys-stevens/miglens/internal/fleetuplink"
-	"github.com/intellisys-stevens/miglens/internal/hubconfig"
-	"github.com/intellisys-stevens/miglens/internal/jetstream/consolemetrics"
-	"github.com/intellisys-stevens/miglens/internal/jetstream/openstackinventory"
-	"github.com/intellisys-stevens/miglens/internal/model"
-	"github.com/intellisys-stevens/miglens/internal/webui"
+	"github.com/intellisys-stevens/leviathan/internal/agentclient"
+	"github.com/intellisys-stevens/leviathan/internal/config"
+	"github.com/intellisys-stevens/leviathan/internal/fleet"
+	"github.com/intellisys-stevens/leviathan/internal/fleetapi"
+	"github.com/intellisys-stevens/leviathan/internal/fleettelemetry"
+	"github.com/intellisys-stevens/leviathan/internal/fleetuplink"
+	"github.com/intellisys-stevens/leviathan/internal/hubconfig"
+	"github.com/intellisys-stevens/leviathan/internal/jetstream/consolemetrics"
+	"github.com/intellisys-stevens/leviathan/internal/jetstream/openstackinventory"
+	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/webui"
 	"github.com/spf13/cobra"
 )
 
@@ -43,6 +44,9 @@ type application struct {
 }
 
 func Execute(ctx context.Context, stdout, stderr io.Writer, args []string) error {
+	if err := config.RejectLegacyEnv(); err != nil {
+		return err
+	}
 	app := &application{stdout: stdout, stderr: stderr}
 	root := app.command()
 	root.SetArgs(args)
@@ -53,8 +57,8 @@ func Execute(ctx context.Context, stdout, stderr io.Writer, args []string) error
 
 func (app *application) command() *cobra.Command {
 	root := &cobra.Command{
-		Use:           "miglens-hub",
-		Short:         "Cloud-read-only multi-platform MIGLens controller",
+		Use:           "leviathan-hub",
+		Short:         "Cloud-read-only multi-platform Leviathan controller",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -231,7 +235,7 @@ func (app *application) serveCommand() *cobra.Command {
 				MaxHeaderBytes:    16 << 10,
 				BaseContext:       func(net.Listener) context.Context { return command.Context() },
 			}
-			fmt.Fprintf(app.stderr, "Yggdrasill (MIGLens platform): http://%s/platforms\n", listener.Addr())
+			fmt.Fprintf(app.stderr, "Yggdrasill (Leviathan platform): http://%s/platforms\n", listener.Addr())
 			fmt.Fprintln(app.stderr, "OpenStack inventory is project-scoped; telemetry sources are explicitly authorized and source-qualified.")
 			if config.Uplink.Enabled {
 				fmt.Fprintln(app.stderr, "Authenticated outbound agent uplink is enabled; bearer tokens are loaded only from named environment variables.")
@@ -400,7 +404,7 @@ func versionCommand(stdout io.Writer) *cobra.Command {
 			if jsonOutput {
 				return json.NewEncoder(stdout).Encode(info)
 			}
-			_, err := fmt.Fprintf(stdout, "miglens-hub %s (%s, %s)\n", info.Version, info.Commit, info.BuildDate)
+			_, err := fmt.Fprintf(stdout, "leviathan-hub %s (%s, %s)\n", info.Version, info.Commit, info.BuildDate)
 			return err
 		},
 	}

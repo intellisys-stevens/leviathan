@@ -10,10 +10,10 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/intellisys-stevens/miglens/internal/config"
-	"github.com/intellisys-stevens/miglens/internal/history"
-	"github.com/intellisys-stevens/miglens/internal/model"
-	"github.com/intellisys-stevens/miglens/internal/render"
+	"github.com/intellisys-stevens/leviathan/internal/config"
+	"github.com/intellisys-stevens/leviathan/internal/history"
+	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/render"
 )
 
 type DataSource interface {
@@ -126,7 +126,7 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	if m.snapshot.SampledAt.IsZero() {
-		return "\n  MIGLens is opening NVIDIA providers…\n"
+		return "\n  Leviathan is opening NVIDIA providers…\n"
 	}
 	if m.help {
 		return m.helpView()
@@ -211,7 +211,7 @@ func (m Model) header(width int) string {
 	if m.paused {
 		state = m.style("warn", "Ⅱ PAUSED")
 	}
-	title := m.style("title", " MIGLens ") + "  " + m.snapshot.Host.Hostname
+	title := m.style("title", " Leviathan ") + "  " + m.snapshot.Host.Hostname
 	right := fmt.Sprintf("%s  %s  #%d", state, provider, m.snapshot.Sequence)
 	gap := max(1, width-lipgloss.Width(title)-lipgloss.Width(right))
 	return title + strings.Repeat(" ", gap) + right
@@ -401,14 +401,14 @@ func (m Model) footer(width int) string {
 
 func (m Model) helpView() string {
 	lines := []string{
-		m.style("title", " MIGLens keys "), "",
+		m.style("title", " Leviathan keys "), "",
 		"j / k, arrows   Select a GPU or MIG compute instance",
 		"Tab             Cycle details, processes, diagnostics",
 		"/               Search GPU process PID, user, or executable",
 		"Enter           Show metric source, scope, and status",
 		"p               Pause/resume display updates (collection continues)",
 		"?               Close this help", "q               Quit", "",
-		m.style("muted", "MIGLens is read-only. Missing telemetry is never displayed as zero."),
+		m.style("muted", "Leviathan is read-only. Missing telemetry is never displayed as zero."),
 	}
 	return "\n" + m.panel(strings.Join(lines, "\n"), max(48, min(80, m.width-4)))
 }

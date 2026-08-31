@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
-  title: MIGLens fleet API
-  version: 0.1.0
+  title: Leviathan fleet API
+  version: 0.3.0
   description: Project-scoped multi-instance inventory, sanitized observations, and an optional authenticated telemetry uplink. No endpoint mutates cloud resources.
   license:
     name: MIT
@@ -186,7 +186,7 @@ components:
         status: { type: string, enum: [not_managed, not_configured, available, unreachable, stale, incompatible] }
         source:
           type: string
-          enum: [miglens_agent, exosphere_console, miglens_uplink]
+          enum: [leviathan_agent, exosphere_console, leviathan_uplink]
           description: Transport and fidelity tier that produced the retained snapshot.
         lastAttemptAt: { type: string, format: date-time }
         lastSuccessAt: { type: string, format: date-time }

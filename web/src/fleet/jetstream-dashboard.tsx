@@ -10,6 +10,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { readBrowserSetting, writeBrowserSetting } from '../browser-storage';
 import { GPUCard } from '../components/gpu-card';
 import {
   InstanceTable,
@@ -26,7 +27,7 @@ import {
 } from './process-inspection';
 import type { InstanceObservation, PlatformObservation } from './types';
 
-const dashboardViewKey = 'miglens.jetstreamDashboardView.v1';
+const dashboardViewKey = 'leviathan.jetstreamDashboardView.v1';
 type DashboardView = 'gpus' | 'people';
 
 const cloudLabels: Record<string, string> = {
@@ -42,9 +43,7 @@ const cloudLabels: Record<string, string> = {
 };
 
 function storedDashboardView(): DashboardView {
-  return localStorage.getItem(dashboardViewKey) === 'people'
-    ? 'people'
-    : 'gpus';
+  return readBrowserSetting(dashboardViewKey) === 'people' ? 'people' : 'gpus';
 }
 
 function statusClasses(status: string): string {
@@ -529,7 +528,7 @@ export function JetstreamDashboard({
 
   function selectDashboardView(view: DashboardView) {
     setDashboardView(view);
-    localStorage.setItem(dashboardViewKey, view);
+    writeBrowserSetting(dashboardViewKey, view);
   }
 
   return (

@@ -31,18 +31,18 @@ type Props = {
 
 const temperatureTone = {
   unavailable: 'border-border bg-muted/40 text-muted-foreground',
-  cool: 'border-sky-500/25 bg-sky-500/[0.08] text-sky-600 dark:text-sky-300',
+  cool: 'border-sky-500/25 bg-sky-500/[0.08] text-sky-700 dark:text-sky-300',
   normal: 'border-primary/25 bg-primary/[0.08] text-primary',
-  warm: 'border-amber-500/30 bg-amber-500/[0.09] text-amber-600 dark:text-amber-300',
+  warm: 'border-amber-500/30 bg-amber-500/[0.09] text-amber-700 dark:text-amber-300',
   hot: 'border-destructive/35 bg-destructive/[0.09] text-destructive',
 } as const;
 
 const powerTone = {
   unavailable: 'border-border bg-muted/40 text-muted-foreground',
   unknown: 'border-border bg-muted/40 text-muted-foreground',
-  low: 'border-sky-500/25 bg-sky-500/[0.08] text-sky-600 dark:text-sky-300',
+  low: 'border-sky-500/25 bg-sky-500/[0.08] text-sky-700 dark:text-sky-300',
   normal: 'border-primary/25 bg-primary/[0.08] text-primary',
-  high: 'border-amber-500/25 bg-amber-500/[0.07] text-amber-600 dark:text-amber-300',
+  high: 'border-amber-500/25 bg-amber-500/[0.07] text-amber-700 dark:text-amber-300',
   near_limit:
     'border-orange-500/40 bg-orange-500/[0.12] text-orange-700 dark:text-orange-200',
 } as const;
@@ -64,9 +64,9 @@ function TemperatureChip({ gpu }: { gpu: GPU }) {
     <span
       className={`flex min-w-[4.7rem] items-center justify-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[11px] tabular-nums transition-colors duration-300 ${temperatureTone[level]}`}
       title={`Physical GPU temperature · ${level}`}
-      aria-label={`Physical GPU temperature ${formatted}, ${level}`}
     >
       <Thermometer className="size-3.5" aria-hidden="true" /> {formatted}
+      <span className="sr-only">, Physical GPU temperature, {level}</span>
     </span>
   );
 }
@@ -90,9 +90,9 @@ function PowerChip({ gpu }: { gpu: GPU }) {
     <span
       className={`flex min-w-[4.7rem] items-center justify-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[11px] tabular-nums transition-colors duration-300 ${powerTone[level]}`}
       title={`Physical GPU power · ${context}`}
-      aria-label={`Physical GPU power ${formatted}, ${context}`}
     >
       <Zap className="size-3.5" aria-hidden="true" /> {formatted}
+      <span className="sr-only">, Physical GPU power, {context}</span>
     </span>
   );
 }
@@ -161,7 +161,7 @@ function MigBlock({
             className={
               memory != null && memory >= 85
                 ? '[&_[data-slot=progress-indicator]]:bg-amber-400'
-                : '[&_[data-slot=progress-indicator]]:bg-cyan-400'
+                : '[&_[data-slot=progress-indicator]]:bg-primary'
             }
           />
         </div>
@@ -263,7 +263,7 @@ function MigBlock({
 
 function GPUCardComponent({ gpu, attribution, onSelect }: Props) {
   return (
-    <Card className="gpu-card border-border/75 bg-card/90 py-0 shadow-[0_14px_35px_rgb(0_0_0/13%)] ring-0">
+    <Card className="frost-panel gpu-card border-border/75 bg-card/90 py-0 shadow-[0_14px_35px_rgb(0_0_0/13%)] ring-0">
       <CardHeader className="border-b border-border/70 py-4">
         <div className="flex min-w-0 items-center gap-3">
           <span className="grid size-9 shrink-0 place-items-center rounded-md border border-primary/20 bg-primary/10 text-primary">

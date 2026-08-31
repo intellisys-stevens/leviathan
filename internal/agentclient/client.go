@@ -1,4 +1,4 @@
-// Package agentclient reads telemetry from explicitly bound, existing MIGLens
+// Package agentclient reads telemetry from explicitly bound, existing Leviathan
 // agents. It is intentionally read-only and never discovers agent endpoints
 // from cloud inventory or caller-controlled request data.
 package agentclient
@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/fleet"
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/fleet"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 const (
@@ -40,7 +40,7 @@ var (
 )
 
 // Binding is a trusted association between one OpenStack instance UUID and one
-// MIGLens HTTPS endpoint. ExpectedHostname is compared with Snapshot.Host.Hostname
+// Leviathan HTTPS endpoint. ExpectedHostname is compared with Snapshot.Host.Hostname
 // before the instance UUID is copied into the returned fleet sample.
 type Binding struct {
 	BaseURL          string
@@ -65,7 +65,7 @@ type trustedBinding struct {
 }
 
 // Source implements fleet.AgentSource using only GET requests to the existing
-// MIGLens v1 snapshot and version endpoints.
+// Leviathan v1 snapshot and version endpoints.
 type Source struct {
 	bindings         map[string]trustedBinding
 	client           *http.Client
@@ -205,7 +205,7 @@ func (s *Source) Observe(ctx context.Context, instance fleet.Instance) (fleet.Ag
 	// snapshot with the exact hostname pinned in the binding.
 	return fleet.AgentSample{
 		InstanceUUID: instance.UUID,
-		Source:       fleet.TelemetrySourceMIGLensAgent,
+		Source:       fleet.TelemetrySourceLeviathanAgent,
 		ObservedAt:   snapshot.SampledAt,
 		BuildInfo:    &buildInfo,
 		Snapshot:     snapshot,
@@ -225,7 +225,7 @@ func (s *Source) getJSON(ctx context.Context, binding trustedBinding, endpointPa
 		return nil, ErrAgentUnavailable
 	}
 	request.Header.Set("Accept", "application/json")
-	request.Header.Set("User-Agent", "miglens-fleet-agent-client")
+	request.Header.Set("User-Agent", "leviathan-fleet-agent-client")
 	response, err := s.client.Do(request)
 	if err != nil {
 		if contextErr := ctx.Err(); contextErr != nil {

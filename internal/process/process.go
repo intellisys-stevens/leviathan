@@ -18,8 +18,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/attribution"
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/attribution"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 var podUIDInCgroup = regexp.MustCompile(`pod([[:xdigit:]]{8}[-_][[:xdigit:]]{4}[-_][[:xdigit:]]{4}[-_][[:xdigit:]]{4}[-_][[:xdigit:]]{12})`)
@@ -86,7 +86,7 @@ func (s *Scanner) Scan() Inventory {
 			Diagnostics: []model.Diagnostic{{
 				Code: "gpu_processes", Severity: "warning", Component: root,
 				Summary: "GPU-connected process inventory is unavailable", Detail: err.Error(),
-				Remedy: "make the current process namespace's /proc filesystem readable by MIGLens", Status: status,
+				Remedy: "make the current process namespace's /proc filesystem readable by Leviathan", Status: status,
 			}},
 		}
 	}
@@ -158,18 +158,18 @@ func (s *Scanner) Scan() Inventory {
 	}
 	diagnostics := []model.Diagnostic{}
 	if uninspectable > 0 {
-		remedy := "run MIGLens in the workload's PID namespace as the same user; a host-level service cannot inspect other users' processes without broader /proc privileges"
+		remedy := "run Leviathan in the workload's PID namespace as the same user; a host-level service cannot inspect other users' processes without broader /proc privileges"
 		diagnostics = append(diagnostics, model.Diagnostic{
 			Code: "gpu_process_fds", Severity: "warning", Component: root,
 			Summary: fmt.Sprintf("%d process(es) could not be checked for GPU device access", uninspectable),
-			Detail:  "MIGLens only identifies GPU-connected processes by inspecting file-descriptor metadata in the current PID namespace.",
+			Detail:  "Leviathan only identifies GPU-connected processes by inspecting file-descriptor metadata in the current PID namespace.",
 			Remedy:  remedy, Status: uninspectableStatus,
 		})
 	}
 	if incomplete > 0 {
 		remedy := "processes can exit while a snapshot is collected; persistent errors should be checked against /proc mount permissions"
 		if incompleteStatus == model.StatusPermissionDenied {
-			remedy = "run MIGLens as the same workspace user when process identity fields must be readable"
+			remedy = "run Leviathan as the same workspace user when process identity fields must be readable"
 		}
 		diagnostics = append(diagnostics, model.Diagnostic{
 			Code: "gpu_process_fields", Severity: "warning", Component: root,
@@ -182,7 +182,7 @@ func (s *Scanner) Scan() Inventory {
 		diagnostics = append(diagnostics, model.Diagnostic{
 			Code: "gpu_process_start_time", Severity: "warning", Component: filepath.Join(root, "stat"),
 			Summary: "GPU process start times are unavailable", Detail: bootErr.Error(),
-			Remedy: "make the current process namespace's /proc/stat readable by MIGLens", Status: statusFor(bootErr),
+			Remedy: "make the current process namespace's /proc/stat readable by Leviathan", Status: statusFor(bootErr),
 		})
 	}
 	return Inventory{

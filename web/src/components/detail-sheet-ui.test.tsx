@@ -123,6 +123,11 @@ describe('detail sheet presentation', () => {
     const memory = within(dialog).getByText('Full GPU memory').parentElement;
     expect(memory).not.toHaveTextContent('dcgm');
     expect(memory).not.toHaveTextContent('error');
+    expect(
+      within(dialog).getByRole('progressbar', {
+        name: 'Full GPU memory used',
+      }),
+    ).toHaveClass('[&_[data-slot=progress-indicator]]:bg-primary');
     expect(dialog).not.toHaveTextContent('GPU-synthetic-0');
     for (const tick of ['0%', '25%', '50%', '75%', '100%']) {
       expect(within(dialog).getByText(tick)).toBeInTheDocument();

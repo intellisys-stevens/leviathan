@@ -28,7 +28,7 @@ import {
   useOverviewHistory,
 } from '../overview-history';
 import type { Snapshot } from '../types';
-import type { ConnectionState } from '../use-miglens';
+import type { ConnectionState } from '../use-leviathan';
 import { ChartWindowControl } from './chart-window-control';
 
 const colors = [
@@ -133,7 +133,7 @@ export function SeriesTooltip({
 
   return (
     <div
-      className="max-w-[calc(100vw-2rem)] rounded border border-border bg-popover px-3 py-2 text-[11px] shadow-lg"
+      className="max-w-[calc(100vw-2rem)] rounded border border-input bg-popover px-3 py-2 text-[11px] shadow-xl"
       data-testid={testId}
     >
       <p className="mb-1 font-mono text-[9px] text-muted-foreground">
@@ -307,7 +307,7 @@ function ChartLegend({
         <button
           type="button"
           key={entity.key}
-          className={`inline-flex items-center gap-1.5 rounded-sm px-1.5 py-1 font-mono text-[9px] outline-none transition-[color,background-color,opacity] duration-150 focus-visible:ring-1 focus-visible:ring-ring ${
+          className={`inline-flex items-center gap-1.5 rounded-sm px-1.5 py-1 font-mono text-[9px] outline-none transition-[color,background-color,opacity] duration-150 focus-visible:ring-2 focus-visible:ring-ring ${
             activeKey === entity.key
               ? 'bg-accent text-foreground'
               : activeKey
@@ -456,7 +456,7 @@ function ChartPanel({
 
   return (
     <section
-      className={`relative min-w-0 overflow-visible border border-border/75 bg-card/90 p-4 ${definition.fullWidth ? 'md:col-span-2' : ''}`}
+      className={`frost-panel relative min-w-0 overflow-visible border border-border/75 bg-card/90 p-4 ${definition.fullWidth ? 'md:col-span-2' : ''}`}
       aria-labelledby={`${definition.id}-heading`}
       data-testid={definition.id}
     >
@@ -476,7 +476,7 @@ function ChartPanel({
               ? 'text-primary'
               : stateLabel === 'unavailable'
                 ? 'text-muted-foreground'
-                : 'text-amber-500'
+                : 'text-amber-700 dark:text-amber-300'
           }`}
         >
           {stateLabel}
@@ -552,6 +552,7 @@ function ChartPanel({
                         ]
                 }
                 allowDataOverflow={percent}
+                interval={percent ? 0 : undefined}
                 ticks={percent ? percentageTicks : undefined}
                 tickFormatter={(value) =>
                   throughput
@@ -701,7 +702,7 @@ export function OverviewCharts({
         onChartWindowChange={onChartWindowChange}
         className="mt-4"
       />
-      <div
+      <section
         className="relative z-10 mt-2 grid grid-cols-1 gap-4 md:grid-cols-2"
         aria-label={`${rangeLabel} GPU history`}
       >
@@ -717,7 +718,7 @@ export function OverviewCharts({
             rangeLabel={rangeLabel}
           />
         ))}
-      </div>
+      </section>
     </>
   );
 }

@@ -235,7 +235,7 @@ func (c *Controller) successfulAgentObservation(attemptedAt, completedAt time.Ti
 	if source == "" {
 		// Existing AgentSource implementations predate the explicit transport
 		// marker. Preserve their behavior while new sources identify themselves.
-		source = TelemetrySourceMIGLensAgent
+		source = TelemetrySourceLeviathanAgent
 	}
 	attempt := timePointer(attemptedAt)
 	if sample.InstanceUUID != instance.UUID {

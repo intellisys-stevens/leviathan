@@ -1,5 +1,5 @@
 // Package hubconfig loads the non-secret configuration for the standalone
-// MIGLens fleet controller. OpenStack credentials remain in standard OS_*
+// Leviathan fleet controller. OpenStack credentials remain in standard OS_*
 // environment variables and are never accepted in this file.
 package hubconfig
 
@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/agentclient"
-	localconfig "github.com/intellisys-stevens/miglens/internal/config"
-	"github.com/intellisys-stevens/miglens/internal/fleet"
-	"github.com/intellisys-stevens/miglens/internal/fleetapi"
-	"github.com/intellisys-stevens/miglens/internal/fleetuplink"
+	"github.com/intellisys-stevens/leviathan/internal/agentclient"
+	localconfig "github.com/intellisys-stevens/leviathan/internal/config"
+	"github.com/intellisys-stevens/leviathan/internal/fleet"
+	"github.com/intellisys-stevens/leviathan/internal/fleetapi"
+	"github.com/intellisys-stevens/leviathan/internal/fleetuplink"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -301,6 +301,9 @@ func validateUplink(config Config) error {
 		}
 		if !environmentVariableName.MatchString(creator.UplinkTokenEnv) {
 			return errors.New("creator uplink_token_env must be an exact environment variable name")
+		}
+		if localconfig.IsLegacyEnvName(creator.UplinkTokenEnv) {
+			return errors.New("creator uplink_token_env uses a retired product prefix; rename it to LEVIATHAN_*")
 		}
 		if _, duplicate := seenEnvironment[creator.UplinkTokenEnv]; duplicate {
 			return errors.New("creator uplink_token_env values must be unique")

@@ -1,6 +1,6 @@
 package provider
 
-import "github.com/intellisys-stevens/miglens/internal/model"
+import "github.com/intellisys-stevens/leviathan/internal/model"
 
 var sourceRank = map[model.MetricSource]int{
 	model.SourceSynthetic: 0,
@@ -9,7 +9,7 @@ var sourceRank = map[model.MetricSource]int{
 	model.SourceNVMLGPM:   30,
 }
 
-// MergeMetric applies MIGLens' canonical precedence: available GPM, DCGM, then NVML.
+// MergeMetric applies Leviathan's canonical precedence: available GPM, DCGM, then NVML.
 // An available lower-priority value beats an unavailable higher-priority value.
 func MergeMetric(current, candidate model.Metric) model.Metric {
 	if current.Status != model.StatusAvailable && candidate.Status == model.StatusAvailable {
