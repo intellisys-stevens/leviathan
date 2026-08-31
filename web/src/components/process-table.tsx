@@ -1,10 +1,11 @@
 import { memo, useDeferredValue, useMemo, useRef } from 'react';
 import { ChevronDown, Search } from 'lucide-react';
 import {
+  columnVisibilityFeature,
   createColumnHelper,
   flexRender,
-  getCoreRowModel,
-  useReactTable,
+  tableFeatures,
+  useTable,
 } from '@tanstack/react-table';
 import { Input } from '@/components/ui/input';
 import {
@@ -23,8 +24,9 @@ import { useMediaQuery } from '../use-media-query';
 
 const desktopProcessQuery = '(min-width: 768px)';
 
-const column = createColumnHelper<Process>();
-const baseColumns = [
+const processTableFeatures = tableFeatures({ columnVisibilityFeature });
+const column = createColumnHelper<typeof processTableFeatures, Process>();
+const baseColumns = column.columns([
   column.accessor('pid', {
     header: 'PID',
     cell: (context) => (
@@ -71,7 +73,7 @@ const baseColumns = [
       </span>
     ),
   }),
-];
+]);
 
 type Props = {
   processes: Snapshot['processes'];
@@ -270,7 +272,7 @@ function ProcessTableComponent({
   const columns = useMemo(
     () =>
       attributionConfigured
-        ? [
+        ? column.columns([
             ...baseColumns.slice(0, 2),
             column.accessor(
               (process) => {
@@ -291,14 +293,14 @@ function ProcessTableComponent({
               },
             ),
             ...baseColumns.slice(2),
-          ]
+          ])
         : baseColumns,
     [attributionConfigured, workloadsByRef],
   );
-  const table = useReactTable({
+  const table = useTable({
+    features: processTableFeatures,
     data: rows,
     columns,
-    getCoreRowModel: getCoreRowModel(),
     getRowId: (process) => `${process.pid}:${process.startTime || ''}`,
   });
   const resultLabel = deferredQuery
