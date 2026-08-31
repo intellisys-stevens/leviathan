@@ -55,6 +55,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/fleet/v1/uplink/{instanceUUID}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Submit a creator-authenticated snapshot claimed for one instance when the optional uplink is enabled.
+     * @description The bearer credential authenticates a Nova creator trust domain, not the individual VM. The instance UUID is a claim that is authorized against current inventory.
+     */
+    post: operations['putFleetUplinkSnapshot'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/healthz': {
     parameters: {
       query?: never;
@@ -131,9 +151,9 @@ export interface components {
     };
     InstanceObservation: {
       instance: components['schemas']['Instance'];
-      /** @description UUID and authoritative Nova creator ID exactly match the controller allowlist. */
+      /** @description An explicit UUID rule or exact authoritative Nova creator-ID rule manages this instance. */
       managed: boolean;
-      /** @description The exact UUID and authoritative Nova creator ID matched, the cloud state is active, and an explicit HTTPS agent binding exists. */
+      /** @description Authorization matched, the cloud state is active, and at least one explicitly configured telemetry path is enabled. */
       agentProbeEligible: boolean;
       /** @enum {string} */
       policyReason:
@@ -153,6 +173,11 @@ export interface components {
         | 'unreachable'
         | 'stale'
         | 'incompatible';
+      /**
+       * @description Transport and fidelity tier that produced the retained snapshot.
+       * @enum {string}
+       */
+      source?: 'miglens_agent' | 'exosphere_console' | 'miglens_uplink';
       /** Format: date-time */
       lastAttemptAt?: string;
       /** Format: date-time */
@@ -168,6 +193,14 @@ export interface components {
       version: string;
       commit: string;
       buildDate: string;
+    };
+    UplinkEnvelope: {
+      snapshot: components['schemas']['Snapshot'];
+      buildInfo?: components['schemas']['BuildInfo'];
+    };
+    UplinkAccepted: {
+      /** @constant */
+      status: 'accepted';
     };
     Health: {
       /** @enum {string} */
@@ -274,6 +307,8 @@ export interface components {
       commandLine?: string;
       /** Format: date-time */
       startTime?: string;
+      /** @description Opaque reference to a workload in this snapshot when optional attribution can resolve the process scope. */
+      workloadRef?: string;
       status: components['schemas']['MetricStatus'];
       message?: string;
     };
@@ -349,6 +384,15 @@ export interface components {
         'application/json': components['schemas']['Error'];
       };
     };
+    /** @description The uplink request was rejected without disclosing token, creator, instance, or payload details. */
+    UplinkRejected: {
+      headers: {
+        [name: string]: unknown;
+      };
+      content: {
+        'application/json': components['schemas']['Error'];
+      };
+    };
   };
   parameters: never;
   requestBodies: never;
@@ -416,6 +460,39 @@ export interface operations {
           'application/json': components['schemas']['BuildInfo'];
         };
       };
+    };
+  };
+  putFleetUplinkSnapshot: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        instanceUUID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UplinkEnvelope'];
+      };
+    };
+    responses: {
+      /** @description The newest valid sample was accepted into the bounded in-memory registry. */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['UplinkAccepted'];
+        };
+      };
+      400: components['responses']['UplinkRejected'];
+      401: components['responses']['UplinkRejected'];
+      404: components['responses']['UplinkRejected'];
+      409: components['responses']['UplinkRejected'];
+      413: components['responses']['UplinkRejected'];
+      429: components['responses']['UplinkRejected'];
+      500: components['responses']['UplinkRejected'];
     };
   };
   fleetHealthz: {

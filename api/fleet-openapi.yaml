@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: MIGLens fleet API
   version: 0.1.0
-  description: Read-only multi-instance inventory and sanitized MIGLens agent observations.
+  description: Project-scoped multi-instance inventory, sanitized observations, and an optional authenticated telemetry uplink. No endpoint mutates cloud resources.
   license:
     name: MIT
     identifier: MIT
@@ -40,6 +40,39 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BuildInfo" }
+  /api/fleet/v1/uplink/{instanceUUID}:
+    post:
+      operationId: putFleetUplinkSnapshot
+      summary: Submit a creator-authenticated snapshot claimed for one instance when the optional uplink is enabled.
+      description: The bearer credential authenticates a Nova creator trust domain, not the individual VM. The instance UUID is a claim that is authorized against current inventory.
+      security:
+        - creatorBearer: []
+      parameters:
+        - name: instanceUUID
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UplinkEnvelope" }
+      responses:
+        "202":
+          description: The newest valid sample was accepted into the bounded in-memory registry.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UplinkAccepted" }
+        "400": { $ref: "#/components/responses/UplinkRejected" }
+        "401": { $ref: "#/components/responses/UplinkRejected" }
+        "404": { $ref: "#/components/responses/UplinkRejected" }
+        "409": { $ref: "#/components/responses/UplinkRejected" }
+        "413": { $ref: "#/components/responses/UplinkRejected" }
+        "429": { $ref: "#/components/responses/UplinkRejected" }
+        "500": { $ref: "#/components/responses/UplinkRejected" }
   /healthz:
     get:
       operationId: fleetHealthz
@@ -56,9 +89,19 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Health" }
 components:
+  securitySchemes:
+    creatorBearer:
+      type: http
+      scheme: bearer
+      description: A creator-scoped token loaded by the Hub from a named environment variable.
   responses:
     Unavailable:
       description: No complete fleet state has been published yet.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    UplinkRejected:
+      description: The uplink request was rejected without disclosing token, creator, instance, or payload details.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -127,10 +170,10 @@ components:
         instance: { $ref: "#/components/schemas/Instance" }
         managed:
           type: boolean
-          description: UUID and authoritative Nova creator ID exactly match the controller allowlist.
+          description: An explicit UUID rule or exact authoritative Nova creator-ID rule manages this instance.
         agentProbeEligible:
           type: boolean
-          description: The exact UUID and authoritative Nova creator ID matched, the cloud state is active, and an explicit HTTPS agent binding exists.
+          description: Authorization matched, the cloud state is active, and at least one explicitly configured telemetry path is enabled.
         policyReason:
           type: string
           enum: [allowed, not_allowlisted, creator_mismatch, cloud_not_active, agent_not_configured]
@@ -141,6 +184,10 @@ components:
       required: [status]
       properties:
         status: { type: string, enum: [not_managed, not_configured, available, unreachable, stale, incompatible] }
+        source:
+          type: string
+          enum: [miglens_agent, exosphere_console, miglens_uplink]
+          description: Transport and fidelity tier that produced the retained snapshot.
         lastAttemptAt: { type: string, format: date-time }
         lastSuccessAt: { type: string, format: date-time }
         observedAt: { type: string, format: date-time }
@@ -157,6 +204,19 @@ components:
         version: { type: string }
         commit: { type: string }
         buildDate: { type: string }
+    UplinkEnvelope:
+      type: object
+      additionalProperties: false
+      required: [snapshot]
+      properties:
+        snapshot: { $ref: "./openapi.yaml#/components/schemas/Snapshot" }
+        buildInfo: { $ref: "#/components/schemas/BuildInfo" }
+    UplinkAccepted:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, const: accepted }
     Health:
       type: object
       required: [status]

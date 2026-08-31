@@ -1,168 +1,278 @@
 # Jetstream fleet controller
 
-The Jetstream fleet controller adds a project-scoped view around existing
-MIGLens agents. It does not turn Jetstream into a GPU provider and does not
-change the single-host snapshot contract.
+Yggdrasill presents Nidhogg and Jetstream as peer platforms while preserving
+the existing single-host MIGLens contract. Nidhogg is still opened directly at
+its existing dashboard URL; the Hub does not proxy, reconfigure, or write to
+it.
 
-## Process and platform boundaries
+Jetstream no longer requires every instance to join the Tailnet. The scalable
+path is one project-scoped Hub plus outbound HTTPS telemetry from instances:
 
-`miglens` and `miglens-hub` are independent processes:
+1. the Hub discovers all project instances through Nova;
+2. exact Nova `user_id` rules select the creators MIGLens may manage;
+3. an instance with MIGLens installed pushes its full snapshot to one HTTPS
+   Hub origin; and
+4. Nova console output supplies a coarse fallback when no full snapshot is
+   available.
 
-- `miglens` runs beside the NVIDIA driver, samples one host, and keeps serving
-  its existing dashboard and `/api/v1/*` API on loopback. Its optional Coder
-  attribution remains local to that snapshot.
-- `miglens-hub` does not load NVML or DCGM. It periodically reads OpenStack
-  inventory and wraps approved agents' unchanged `Snapshot v1` documents in a
-  separate fleet state.
+Only the Hub or its HTTPS reverse proxy needs a stable reachable address.
+Instances initiate outbound requests and do not expose an inbound agent port.
 
-The hub UI, Yggdrasill, presents Nidhogg and Jetstream as peer platforms. The
-`nidhogg_dashboard_url` setting is only a link to the existing Nidhogg entry.
-The hub does not proxy that service, change its routes, or write to its API.
+## Processes and trust boundaries
 
-## Three read-only layers
+`miglens` and `miglens-hub` remain independent processes:
 
-### 1. Inventory
+- `miglens` runs beside the NVIDIA driver and samples one host. `miglens
+  uplink` uses the same provider and snapshot-v1 model, discovers its canonical
+  instance UUID from the fixed OpenStack link-local metadata endpoint, and
+  periodically sends only the newest snapshot.
+- `miglens-hub` never loads NVML or DCGM. It inventories Jetstream, evaluates
+  creator policy, receives bounded telemetry, and serves Yggdrasill.
+- `nidhogg_dashboard_url` is only an HTTPS link to the existing Nidhogg
+  dashboard. Nidhogg routes and Coder attribution remain unchanged.
 
-The inventory adapter authenticates from standard `OS_*` environment variables
-and lists instances only within the exact `OS_PROJECT_ID`. Configuration must
-separately allowlist that project ID, the identity host, and the Nova compute
-host selected from the service catalog.
+The Hub has no route that creates, starts, shelves, deletes, or modifies an
+OpenStack instance. The optional telemetry POST changes only a bounded
+in-memory latest-sample registry.
 
-Authentication requires an HTTPS `POST` to the identity token endpoint. After
-authentication, the OpenStack transport permits only HTTPS `GET` and `HEAD` to
-the allowlisted identity and compute hosts. It rejects redirects,
-`all_tenants`, non-allowlisted hosts, and cloud mutation methods. Returned
-metadata and tags are discarded rather than copied into fleet state; only the
-sanitized inventory fields and creator identity are retained.
+## Inventory and creator authorization
 
-### 2. Agent identity
+OpenStack authentication comes only from standard `OS_*` environment
+variables. `OS_PROJECT_ID`, the Keystone host, and the Nova host must each
+match an exact configured allowlist. System-scoped auth, `all_tenants`,
+redirects, non-HTTPS cloud endpoints, and non-allowlisted hosts are rejected.
 
-An instance is eligible for an agent probe only when all of these are true:
+Nova `user_id` is the authorization identity. `exoCreatorUsername` is retained
+only as an advisory display fallback. There are two policy forms:
 
-1. its normalized cloud state is active;
-2. its canonical lowercase UUID is explicitly configured;
-3. its authoritative Nova `user_id` exactly matches the configured creator
-   ID; and
-4. that UUID has an explicit credential-free HTTPS agent URL and expected
-   snapshot hostname.
+- `[[instances]]` pins one UUID to one creator and has highest precedence.
+  An explicit mismatch fails closed and never falls through to a creator rule.
+- `[[creators]]` dynamically manages every current or future instance whose
+  authoritative Nova `user_id` exactly matches `creator_id`.
 
-The paired creator username is a trusted display label. Exosphere creator
-metadata may be retained for inventory-only display, but is never an
-authorization factor. There are no wildcard UUIDs, creators, projects, or
-hosts. The agent client follows no redirect and sends only
-`GET /api/v1/snapshot` and
-`GET /api/v1/version`. It accepts the result only after the snapshot reports
-schema `v1` and its hostname exactly matches the binding. Response bodies and
-timeouts are bounded, and errors do not include response bodies or URLs.
+The exact rule has precedence for identity and for an optional direct
+`agent_url` binding; it is not a negative telemetry override. With no direct
+binding, a correctly pinned active instance may still use globally enabled
+console telemetry or the token configured for that same creator.
 
-Instances missing from the exact UUID-and-Nova-creator-ID list are still
-visible in the sanitized inventory, but remain inventory-only. Shelved,
-stopped, mismatched, unknown, or unbound instances receive no successful
-telemetry association. The
-controller never uses an instance name as an identity or authorization key.
+Wildcards, duplicate IDs, and conflicting creator labels are rejected. A
+creator can remain inventory-visible with `telemetry_enabled = false`.
 
-### 3. Fleet telemetry
+## Telemetry source precedence
 
-The controller keeps inventory freshness and agent freshness separate. One
-unreachable agent does not remove other instances or make the OpenStack
-inventory unavailable. A retained agent snapshot is marked stale at the outer
-fleet layer rather than rewriting its inner metric provenance.
+For an active, authorized instance, the Hub selects one source:
 
-The hub serves fleet state, server-sent events, version, and health endpoints;
-it has no cloud or agent mutation route. It does not retrieve passphrases, make
-SSH connections, install software, or change instance lifecycle state.
+1. **Exact MIGLens pull binding.** A legacy `[[instances]]` entry with
+   `agent_url` and `agent_hostname` remains authoritative. A failed exact
+   binding is not silently hidden by a fallback.
+2. **MIGLens uplink.** A fresh, authenticated, agent-pushed snapshot provides
+   full GPU, MIG, memory, process, and user detail without an inbound VM route.
+3. **Exosphere console.** The Hub reads only Exosphere's strict resource-usage
+   JSON record from a bounded console tail.
 
-## Non-secret configuration
+The API and UI label retained observations as `MIGLens agent`, `MIGLens
+uplink`, or `Exosphere console`.
 
-The TOML file contains only scope controls, allowlists, and credential-free
-HTTPS locations. All values below are synthetic examples:
+Console telemetry is deliberately low fidelity. It can report per-physical-GPU
+utilization, but not GPU model, memory, MIG topology, PIDs, guest users, or
+commands. Yggdrasill therefore marks those fields unavailable and never treats
+console-only coverage as a complete GPU/process inventory.
+
+Nova exposes console output through the `os-getConsoleOutput` server action,
+which uses POST despite being read-only. When console fallback is enabled, the
+transport admits only this exact JSON action for a canonical UUID in the
+configured project, with 1–200 lines and a bounded response. Reboot, rebuild,
+delete, unknown actions, extra fields, cross-project paths, queries, and
+oversized bodies remain blocked.
+
+## Non-secret Hub configuration
+
+The TOML contains only scope, policy, limits, HTTPS origins, and names of
+environment variables. It never contains an OpenStack secret or uplink bearer
+token.
 
 ```toml
 listen = "127.0.0.1:1398"
 refresh_interval = "30s"
 agent_timeout = "8s"
-agent_stale_after = "45s"
-max_concurrent_agents = 2
+agent_stale_after = "60s"
+max_concurrent_agents = 4
 nidhogg_dashboard_url = "https://nidhogg.example.test/"
 
 [openstack]
 allowed_project_ids = ["project-demo"]
 allowed_auth_hosts = ["identity.example.test:5000"]
 allowed_compute_hosts = ["compute.example.test:8774"]
-max_instances = 100
-request_timeout = "10s"
+max_instances = 500
+request_timeout = "15s"
+console_metrics_enabled = true
+console_lines = 200
+console_max_age = "5m"
+console_max_response_bytes = 262144
 
+[uplink]
+enabled = true
+ttl = "2m"
+max_sample_age = "2m"
+max_future_skew = "30s"
+max_body_bytes = 8388608
+max_entries = 500
+max_retained_bytes = 268435456
+max_creator_retained_bytes = 67108864
+max_concurrent_requests = 8
+
+[[creators]]
+creator_id = "nova-user-a"
+creator_username = "owner-a@example.test"
+telemetry_enabled = true
+uplink_token_env = "MIGLENS_UPLINK_OWNER_A_TOKEN"
+
+[[creators]]
+creator_id = "nova-user-b"
+creator_username = "owner-b@example.test"
+telemetry_enabled = true
+uplink_token_env = "MIGLENS_UPLINK_OWNER_B_TOKEN"
+```
+
+During the initial rollout, configure only the approved test creators. Other
+project instances remain visible but unmanaged and receive neither console
+requests nor telemetry association. Copy `creator_id` only from the
+authoritative Nova `user_id`; `creator_username` is a display label, not an
+authorization value. Audit legacy `[[instances]]` entries at the same time,
+because an exact UUID pin can also make an instance managed.
+
+An existing exact binding remains valid during migration:
+
+```toml
 [[instances]]
 uuid = "11111111-1111-4111-8111-111111111111"
 creator_id = "nova-user-a"
 creator_username = "owner-a@example.test"
-agent_url = "https://gpu-agent-a.example.test"
-agent_hostname = "gpu-agent-a"
-
-[[instances]]
-uuid = "22222222-2222-4222-8222-222222222222"
-creator_id = "nova-user-b"
-creator_username = "owner-b@example.test"
-agent_url = "https://gpu-agent-b.example.test"
-agent_hostname = "gpu-agent-b"
+agent_url = "https://legacy-agent.example.test"
+agent_hostname = "legacy-agent"
 ```
 
-An `[[instances]]` entry is an exact authorization pair, not an inventory
-filter. Removing an entry stops agent probing but does not hide that instance
-from the project inventory. Changing an instance name does not change its UUID
-binding.
+While an exact pull binding exists it remains the dashboard's authoritative
+source, even if the Hub accepts an uplink sample for migration testing. Verify
+the sender's one-time `MIGLens uplink connected.` message (or a reverse-proxy
+202 response), then remove the exact pull entry. The creator rule then covers
+that instance and future instances without a new Hub entry.
 
-The parser rejects unknown TOML fields. In particular, do not add an
-application-credential secret, token, password, OpenRC body, or SSH material to
-this file. Restrict its permissions anyway because the allowlists describe
-infrastructure topology:
+The parser rejects unknown fields, including inline `token`, `password`,
+`openrc`, and application-credential secret fields. Keep the file private
+because it still describes infrastructure topology:
 
 ```bash
 chmod 0600 hub.toml
 ```
 
-## OpenStack environment
+## Hub secrets and OpenStack environment
 
-Inject credentials into the `miglens-hub` process using standard OpenStack
-environment variables. An application credential with only the required
-project reader role is recommended. The following names and non-secret values
-are illustrative; the secret itself should be supplied by a process supervisor
-or secret manager rather than written to TOML or shell history:
+Supply OpenStack credentials and independent creator tokens through a process
+supervisor or secret manager. The values below are names/placeholders only:
 
 ```bash
 export OS_AUTH_URL="https://identity.example.test:5000/v3"
-export OS_APPLICATION_CREDENTIAL_ID="synthetic-credential-id"
-export OS_PROJECT_ID="project-demo"
-export OS_REGION_NAME="RegionDemo"
-export OS_INTERFACE="public"
+export OS_APPLICATION_CREDENTIAL_ID="application-credential-id"
 export OS_APPLICATION_CREDENTIAL_SECRET
+export OS_PROJECT_ID="project-demo"
+export OS_REGION_NAME="RegionOne"
+export OS_INTERFACE="public"
+
+export MIGLENS_UPLINK_OWNER_A_TOKEN
+export MIGLENS_UPLINK_OWNER_B_TOKEN
 ```
 
-`OS_PROJECT_ID` must exactly match one `allowed_project_ids` entry. The host in
-`OS_AUTH_URL` and the compute endpoint selected from the service catalog must
-also exactly match their corresponding host allowlists. System-scoped auth is
-rejected.
+Use independent random tokens for each creator. A creator token authorizes only
+active, managed instances whose current Nova `user_id` matches that creator;
+it cannot submit for another configured creator. This is deliberately a
+creator-scoped credential: any VM holding it can submit for another eligible VM
+owned by that same Nova creator. Treat all instances under one creator as one
+uplink trust domain, rotate the creator token after any VM compromise, and do
+not reuse it for another creator. Tokens are hashed when the Hub starts;
+concurrent requests, request sizes, global retained bytes, per-creator retained
+bytes, and retained entries are bounded. The configured request-body limit
+multiplied by effective concurrency may not exceed 256 MiB (the defaults use
+8 MiB by 8 requests, or 64 MiB). Samples must be fresh, and `sampledAt`
+must move strictly forward. A separate bounded watermark remembers an accepted
+timestamp through `sampledAt + max_sample_age`, including the permitted future
+skew interval, even after the full payload expires. `uplink.ttl` must still be
+at least `uplink.max_sample_age` as a conservative retention invariant.
 
-## Commands
+The metadata-service UUID discovery performed by `miglens uplink` is routing
+input, not cryptographic instance attestation. The Hub authorizes that claimed
+UUID against fresh Nova inventory and the creator token, but it cannot prove
+which VM inside the creator trust domain sent the request. Keep uplink disabled
+by default outside the explicitly approved pilot. Uplink telemetry alone must
+not drive security decisions, billing, scheduling, or incident attribution.
 
-Build the standalone development binary separately from the local agent:
+## Run the Hub
 
 ```bash
 go build -o ./bin/miglens-hub ./cmd/miglens-hub
-```
-
-Verify the sanitized inventory without starting agent polling or the dashboard:
-
-```bash
 ./bin/miglens-hub --config ./hub.toml inventory
-```
-
-Start the loopback-only fleet dashboard:
-
-```bash
 ./bin/miglens-hub --config ./hub.toml serve
 ```
 
-Open Yggdrasill at `http://127.0.0.1:1398/platforms`. For remote access, leave
-the listener on loopback and place an authenticated SSH or Tailnet proxy in
-front of it.
+Open Yggdrasill locally at `http://127.0.0.1:1398/platforms`.
+
+The Hub deliberately stays on loopback. To receive VM uplinks, publish that
+loopback service through one authenticated HTTPS reverse proxy on a central
+host. Preserve the original `Authorization` header, disable request-body
+logging, cap bodies consistently with `max_body_bytes`, and do not expose the
+Hub directly over plaintext HTTP. This is one central network integration, not
+one Tailnet enrollment per instance.
+
+## Run an instance uplink
+
+Install the same `miglens` binary on the instance, inject only that creator's
+token, and start:
+
+```bash
+export MIGLENS_UPLINK_TOKEN
+miglens uplink \
+  --hub-url "https://miglens-hub.example.test" \
+  --token-env MIGLENS_UPLINK_TOKEN \
+  --uplink-interval 15s
+```
+
+By default the command obtains the UUID from exactly
+`http://169.254.169.254/openstack/latest/meta_data.json`. Proxy use,
+redirects, alternate hosts, large responses, duplicate UUID fields, and
+non-canonical UUIDs are rejected. This discovery prevents accidental routing
+mistakes but does not attest the calling VM. `--instance-uuid` is available for
+a controlled diagnostic override.
+
+The sender accepts only a credential-free HTTPS origin, never follows a
+redirect, carries no cookies, performs one bounded request per interval, and
+keeps no local retry queue. On a transient failure it continues local
+collection and retries with the next newest snapshot.
+
+For future instances, place the binary installation, creator-specific token
+environment file, and `miglens uplink` systemd unit in the user's Exosphere
+cloud-init boot script. That automates installation once per creator/template;
+it does not require collecting SSH passwords or opening inbound ports.
+
+Release archives include `miglens-uplink@.service` and
+`miglens-uplink.env.example`. Install the environment as
+`/etc/miglens/uplink-<user>.env` with mode `0600`, then enable the matching
+template instance. Use an explicit guest account in automation; cloud-init
+normally runs as root, so do not rely on `${USER}`:
+
+```bash
+sudo install -D -m 0644 ./miglens-uplink@.service /etc/systemd/system/miglens-uplink@.service
+sudo install -d -m 0755 /etc/miglens
+# Securely create /etc/miglens/uplink-exouser.env from the example and inject
+# only that Nova creator's token, then:
+sudo chmod 0600 /etc/miglens/uplink-exouser.env
+sudo systemctl daemon-reload
+sudo systemctl enable --now miglens-uplink@exouser.service
+```
+
+Here `<user>`/`%i` is the guest Linux account that runs the collector; it is
+not the Nova creator identity. The Hub derives ownership only from Nova
+`user_id` and the creator-scoped token. An ordinary guest account sees only
+the processes permitted by that VM's `/proc` policy. Do not run this template
+as root merely to broaden process visibility: host-wide collection needs a
+separately reviewed root unit with restricted capabilities and explicit Hub
+egress, as described by the trust boundary in `docs/permissions.md`.

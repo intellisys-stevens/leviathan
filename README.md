@@ -16,8 +16,8 @@ MIGLens is a Linux-only, read-only monitor that understands the physical GPU →
 GPU Instance (GI) → Compute Instance (CI) hierarchy. One Go binary includes an
 interactive TUI, scriptable output, and a local React dashboard; an optional
 Kubernetes bridge adds scheduler-authoritative workspace assignments. The
-separate `miglens-hub` process can add a read-only Jetstream fleet view without
-changing or replacing any existing single-host deployment.
+separate `miglens-hub` process can add a cloud-read-only Jetstream fleet view
+without changing or replacing any existing single-host deployment.
 
 ## ✨ Highlights
 
@@ -56,6 +56,7 @@ miglens --fixture blackwell serve
 | `miglens snapshot -f table\|json` | One current snapshot |
 | `miglens watch -f table\|jsonl` | Continuous scriptable output |
 | `miglens serve` | Local dashboard on `127.0.0.1:1397` |
+| `miglens uplink --hub-url https://…` | Push full snapshots outbound to an authenticated Hub |
 | `miglens doctor -f text\|json` | Capability and permission report |
 | `miglens version` | Version, commit, and build time |
 | `miglens-hub --config hub.toml inventory` | Sanitized, project-scoped Jetstream inventory |
@@ -144,24 +145,27 @@ behavior.
 `miglens` and `miglens-hub` are independent processes. The local `miglens`
 agent continues to own one host's NVML/DCGM collection and unchanged
 `/api/v1/*` API. `miglens-hub` does not start a GPU collector; it reads a
-project-scoped OpenStack inventory and, only for explicitly approved active
-instances, reads an existing agent's snapshot and version over HTTPS.
+project-scoped OpenStack inventory and accepts telemetry only for explicitly
+approved active instances. Instances can push full snapshots outbound to one
+Hub, so they do not each need a Tailnet address or inbound agent port. A
+strictly bounded Exosphere console record provides coarse GPU-utilization
+fallback when no full snapshot is available.
 
 The Yggdrasill fleet dashboard presents Nidhogg and Jetstream as peers. The configured
 Nidhogg entry is a credential-free HTTPS link to the existing dashboard; the
 hub does not proxy, replace, or modify the Nidhogg entry or API.
 
-Hub configuration is fail-closed. It requires exact OpenStack project, identity
-host, and compute host allowlists. Each test-enabled instance must also match
-one exact lowercase UUID and authoritative Nova creator ID; wildcards are
-rejected. The paired creator username is a trusted display label, not
-metadata-based authorization.
-Instances discovered outside that list remain inventory-only and receive no
-agent request. OpenStack credentials are accepted only through standard `OS_*`
-environment variables and never through the non-secret TOML file.
+Hub configuration is fail-closed. It requires exact OpenStack project,
+identity-host, compute-host, and authoritative Nova creator-ID allowlists;
+wildcards are rejected. Existing exact UUID bindings still take precedence,
+while creator rules dynamically cover current and future instances. Uplink
+tokens are creator-scoped, named in TOML but loaded only from environment
+variables, and checked again against current Nova inventory before acceptance.
+Instances outside those rules remain inventory-only. OpenStack credentials are
+accepted only through standard `OS_*` environment variables.
 
-See [Jetstream fleet controller](docs/jetstream-fleet.md) for the three-layer
-model, synthetic configuration, credential handling, and commands.
+See [Jetstream fleet controller](docs/jetstream-fleet.md) for source
+precedence, synthetic configuration, credential handling, and commands.
 
 ## 🔒 Providers and privacy
 
@@ -173,9 +177,10 @@ The local agent's process discovery reads numeric `/proc` entries and
 file-descriptor device metadata. When attribution is enabled, it also reads
 matched clients' cgroup paths for a one-way workspace join. Command arguments
 are hidden unless `--show-command-line` is enabled. The local agent does not
-read environments, contact external services, cross PID namespaces, or require
-Docker, Kubernetes, or CRI sockets. Kubernetes is contacted only by the
-explicitly installed attribution bridge. The separate hub's bounded HTTPS
+read process environments, contact external services unless the explicit
+`miglens uplink` command is selected, cross PID namespaces, or require Docker,
+Kubernetes, or CRI sockets. Kubernetes is contacted only by the explicitly
+installed attribution bridge. The separate hub's bounded HTTPS
 destinations are documented in
 [SECURITY.md](SECURITY.md#jetstream-fleet-controller).
 

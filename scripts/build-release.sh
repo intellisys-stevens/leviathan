@@ -61,7 +61,8 @@ echo "verified glibc requirement ${required_glibc} <= ${glibc_baseline}" >&2
 
 cp LICENSE NOTICE README.md CONTRIBUTING.md SECURITY.md "${stage}/"
 cp contrib/systemd/miglens@.service "${stage}/"
-cp contrib/systemd/miglens.env.example contrib/systemd/miglens-attribution.env "${stage}/"
+cp contrib/systemd/miglens.env.example contrib/systemd/miglens-attribution.env contrib/systemd/miglens-uplink.env.example "${stage}/"
+cp contrib/systemd/miglens-uplink@.service "${stage}/"
 mkdir -p "${stage}/miglens@root.service.d"
 cp contrib/systemd/miglens@root.service.d/10-hardening.conf "${stage}/miglens@root.service.d/"
 mkdir -p "${stage}/api" "${stage}/charts" "${stage}/contrib" "${stage}/web/public"

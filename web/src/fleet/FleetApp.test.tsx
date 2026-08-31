@@ -305,6 +305,102 @@ describe('FleetApp', () => {
     expect(owner).not.toHaveTextContent('None observed');
   });
 
+  it('labels Exosphere console telemetry without overstating its detail', () => {
+    const consoleState = structuredClone(fleetState);
+    const observation = consoleState.platforms[1].instances[0];
+    observation.agent.source = 'exosphere_console';
+    observation.agent.snapshot!.host.hostname = 'jetstream-console';
+    observation.agent.snapshot!.processes = [];
+    observation.agent.snapshot!.capabilities.proc = {
+      name: '/proc',
+      available: false,
+      status: 'unsupported',
+      message:
+        'GPU-connected process inspection is unavailable from Exosphere console output.',
+    };
+    observation.agent.snapshot!.gpus[0].memory = {
+      totalBytes: null,
+      usedBytes: null,
+      freeBytes: null,
+      source: 'synthetic',
+      scope: 'physical_gpu',
+      sampledAt,
+      status: 'unsupported',
+      message: 'GPU memory is unavailable from Exosphere console output.',
+    };
+    observation.agent.snapshot!.gpus[0].metrics = {
+      gpu_activity: {
+        value: 43,
+        unit: 'percent',
+        source: 'synthetic',
+        scope: 'physical_gpu',
+        sampledAt,
+        status: 'available',
+      },
+      sm_activity: {
+        value: 43,
+        unit: 'percent',
+        source: 'synthetic',
+        scope: 'physical_gpu',
+        sampledAt,
+        status: 'available',
+      },
+      memory_activity: {
+        value: null,
+        unit: 'percent',
+        source: 'synthetic',
+        scope: 'physical_gpu',
+        sampledAt,
+        status: 'unsupported',
+        message: 'GPU memory is unavailable from Exosphere console output.',
+      },
+    };
+    observation.agent.snapshot!.diagnostics = [
+      {
+        code: 'console_gpu_memory',
+        severity: 'warning',
+        component: 'exosphere_console',
+        summary: 'GPU memory is unavailable from Exosphere console output',
+        status: 'unsupported',
+      },
+      {
+        code: 'console_gpu_processes',
+        severity: 'warning',
+        component: 'exosphere_console',
+        summary:
+          'GPU-connected process inspection is unavailable from Exosphere console output',
+        status: 'unsupported',
+      },
+    ];
+    mockUseFleet.mockReturnValue({
+      snapshot: consoleState,
+      connection: 'live',
+      error: null,
+    });
+
+    render(<FleetApp pathname="/platforms/jetstream" />);
+
+    const gpuRegion = screen.getByRole('region', {
+      name: 'GPU test instance GPU resources',
+    });
+    expect(gpuRegion).toHaveTextContent('Exosphere console');
+    expect(gpuRegion).toHaveTextContent('Processes unavailable');
+    expect(gpuRegion).toHaveTextContent('GPU-connected users: Unavailable');
+    expect(gpuRegion).toHaveTextContent('Full GPU memory: — / —');
+    expect(gpuRegion).toHaveTextContent(
+      'GPU memory is unavailable from Exosphere console output',
+    );
+    expect(gpuRegion).not.toHaveTextContent('None observed');
+
+    fireEvent.click(
+      screen.getByText('Full instance inventory', { selector: 'span' }),
+    );
+    const table = screen.getByRole('table', { name: 'Jetstream instances' });
+    const consoleRow = within(table).getAllByTestId('fleet-instance-row')[0];
+    expect(consoleRow).toHaveTextContent('Exosphere console');
+    expect(consoleRow).toHaveTextContent('Unavailable');
+  });
+
   it('keeps a stale last-good snapshot visible and labels it as retained', () => {
     const staleState = structuredClone(fleetState);
     staleState.platforms[1].instances[0].agent.status = 'stale';
@@ -323,7 +419,7 @@ describe('FleetApp', () => {
     expect(gpuRegion).toHaveTextContent('Stale');
     expect(gpuRegion).toHaveTextContent('2 processes · last known');
     expect(gpuRegion).toHaveTextContent('gpu-connected-user · last known');
-    expect(gpuRegion).toHaveTextContent('last retained Agent snapshot');
+    expect(gpuRegion).toHaveTextContent('last retained telemetry snapshot');
   });
 
   it('keeps unknown platform paths inside the platform surface', () => {
@@ -352,7 +448,7 @@ describe('FleetApp', () => {
     for (const heading of [
       'Creator',
       'Cloud',
-      'Agent',
+      'Telemetry source',
       'Telemetry',
       'GPU-connected users',
     ]) {

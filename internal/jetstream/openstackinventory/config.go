@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	defaultMaxInstances   = 500
-	defaultRequestTimeout = 15 * time.Second
+	defaultMaxInstances           = 500
+	defaultRequestTimeout         = 15 * time.Second
+	defaultMaxConsoleResponseSize = 256 * 1024
 )
 
 // Config contains only non-secret controls for the Jetstream inventory
@@ -27,6 +28,12 @@ type Config struct {
 	AllowedComputeHosts []string
 	MaxInstances        int
 	RequestTimeout      time.Duration
+
+	// AllowConsoleOutput opts into Nova's read-only os-getConsoleOutput action.
+	// It remains disabled for the inventory-only adapter unless the Hub enables
+	// the Exosphere fallback explicitly.
+	AllowConsoleOutput      bool
+	MaxConsoleResponseBytes int64
 
 	// HTTPClient is optional and exists primarily for injecting a trusted test
 	// transport. Production callers should leave it nil to use Go's verified
@@ -73,6 +80,12 @@ func (config Config) normalized() (Config, error) {
 	}
 	if config.RequestTimeout < time.Second || config.RequestTimeout > time.Minute {
 		return Config{}, errors.New("OpenStack request timeout must be between 1s and 1m")
+	}
+	if config.MaxConsoleResponseBytes == 0 {
+		config.MaxConsoleResponseBytes = defaultMaxConsoleResponseSize
+	}
+	if config.MaxConsoleResponseBytes < 4*1024 || config.MaxConsoleResponseBytes > 1024*1024 {
+		return Config{}, errors.New("OpenStack console response limit must be between 4096 and 1048576 bytes")
 	}
 	if config.Clock == nil {
 		config.Clock = func() time.Time { return time.Now().UTC() }

@@ -46,7 +46,7 @@ local NVIDIA provider or alter the existing Nidhogg dashboard and `/api/v1/*`
 API. Its configured Nidhogg URL is a credential-free external link, not a
 reverse proxy.
 
-The hub has three distinct read-only layers:
+The hub is cloud-read-only and has four distinct layers:
 
 1. The inventory layer obtains a project-scoped token from an allowlisted
    OpenStack identity host, then lists Nova instances through an allowlisted
@@ -54,34 +54,43 @@ The hub has three distinct read-only layers:
    `POST`; subsequent inventory operations are `GET`/`HEAD`. The transport
    rejects redirects, non-HTTPS URLs, `all_tenants`, non-allowlisted hosts, and
    every other mutation method.
-2. The agent layer considers an active instance probe-eligible only when its
-   UUID and authoritative Nova `user_id` exactly match one configured pair and
-   an explicit agent binding exists. The paired creator username is a trusted
-   display label; mutable Exosphere metadata is not an authorization factor.
-   It then uses a separate explicit UUID-to-HTTPS binding, reads only
-   `/api/v1/snapshot` and `/api/v1/version`, rejects redirects and
-   credential-bearing URLs, and checks
-   snapshot schema `v1` plus the exact expected hostname before accepting the
-   instance identity.
-3. The telemetry layer wraps the accepted single-host snapshot in fleet state,
-   removes free-form sensitive details, and serves a read-only fleet API and
-   dashboard on loopback. An unknown, mismatched, inactive, or unbound instance
-   remains inventory-only or unavailable; it does not become a new network
-   target.
+2. The policy layer authorizes an exact UUID pin before an optional exact Nova
+   `user_id` creator rule. Mutable Exosphere metadata is never an authorization
+   factor. An explicit UUID mismatch fails closed instead of falling through.
+3. The telemetry layer gives an exact legacy HTTPS agent binding precedence,
+   then uses a fresh authenticated outbound uplink, then a coarse Exosphere
+   console fallback. Console access permits only the bounded
+   `os-getConsoleOutput` action for a canonical UUID in the configured project;
+   every cloud mutation action remains blocked.
+4. The presentation layer removes free-form sensitive details and labels the
+   source and fidelity of every retained snapshot. Unknown, mismatched,
+   inactive, or unauthorized instances remain inventory-only.
 
 OpenStack authentication material is read only from standard `OS_*`
-environment variables. The hub TOML is non-secret and rejects unknown fields;
-do not put application-credential secrets, passwords, tokens, OpenRC contents,
-or SSH keys in it. Exact project IDs, identity hosts, and compute hosts must be
-allowlisted independently of the credential's own cloud role. Keep the hub on
-loopback and expose it only through a separately authenticated SSH or Tailnet
-proxy.
+environment variables. Uplink bearer tokens are also loaded only from the
+specific environment-variable names referenced by creator rules. The hub TOML
+is non-secret and rejects unknown fields; do not put application-credential
+secrets, passwords, tokens, OpenRC contents, or SSH keys in it. Exact project
+IDs, identity hosts, and compute hosts must be allowlisted independently of the
+credential's own cloud role. Keep the hub on loopback. If VM uplinks are
+enabled, put one HTTPS reverse proxy in front of that listener, preserve
+`Authorization`, and disable request-body logging.
 
 The fleet controller does not retrieve instance passwords, open SSH sessions,
-bootstrap agents, start, stop, shelve, or unshelve instances. Its only agent
-egress is explicit HTTPS `GET` traffic, and its only OpenStack egress is the
-allowlisted authentication and read-only inventory traffic above. Fleet
-inventory, creator identities, process users, and GPU telemetry are sensitive;
+bootstrap agents, start, stop, shelve, or unshelve instances. Its OpenStack
+egress is allowlisted authentication, inventory, and the exact read-only
+console-output action. Optional ingress stores only a bounded, fresh,
+replay-resistant latest snapshot after creator-token and current-inventory
+checks. Uplink bearer tokens are creator-scoped rather than instance-scoped:
+compromise of one VM can forge telemetry for another eligible VM owned by that
+same Nova creator, but not for a different creator or project. Rotate the
+creator token after any VM compromise. Metadata-service UUID discovery is not
+instance attestation, so optional uplink telemetry alone must not be used for
+security decisions, billing, scheduling, or incident attribution. Keep it
+disabled outside an explicitly approved pilot. Request bodies, concurrent
+requests, their 256 MiB combined raw-body budget, retained bytes, and retained
+entries all have hard limits. Fleet inventory, creator identities, process
+users, and GPU telemetry are sensitive;
 limit dashboard access accordingly. See `docs/jetstream-fleet.md` before
 enabling the controller.
 

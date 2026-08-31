@@ -29,6 +29,13 @@ Process environments are never read. Full command arguments remain disabled
 unless `--show-command-line` or its equivalent configuration setting is
 explicitly enabled.
 
+`miglens uplink` is a separate, explicit network mode. It reads only the named
+bearer-token environment variable for its own authentication, discovers the
+instance UUID from the fixed OpenStack link-local metadata endpoint unless a
+UUID is supplied, and sends bounded snapshots to one configured HTTPS Hub
+origin. Normal TUI, snapshot, watch, and serve commands retain their existing
+outbound-network behavior.
+
 ## Hardened host-wide root mode
 
 On a multi-user host, an ordinary service account cannot inspect other users'

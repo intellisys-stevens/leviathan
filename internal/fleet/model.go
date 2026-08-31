@@ -104,6 +104,18 @@ const (
 	AgentIncompatible  AgentStatus = "incompatible"
 )
 
+// TelemetrySource identifies the transport and fidelity of a successful
+// observation. It is deliberately separate from model.MetricSource: one fleet
+// observation can contain metrics from several local providers while still
+// arriving through one controller-side transport.
+type TelemetrySource string
+
+const (
+	TelemetrySourceMIGLensAgent     TelemetrySource = "miglens_agent"
+	TelemetrySourceExosphereConsole TelemetrySource = "exosphere_console"
+	TelemetrySourceMIGLensUplink    TelemetrySource = "miglens_uplink"
+)
+
 type PolicyReason string
 
 const (
@@ -116,6 +128,7 @@ const (
 
 type AgentObservation struct {
 	Status        AgentStatus      `json:"status"`
+	Source        TelemetrySource  `json:"source,omitempty"`
 	LastAttemptAt *time.Time       `json:"lastAttemptAt,omitempty"`
 	LastSuccessAt *time.Time       `json:"lastSuccessAt,omitempty"`
 	ObservedAt    *time.Time       `json:"observedAt,omitempty"`
@@ -157,7 +170,11 @@ type InventoryObservation struct {
 // fleet-safe projection to free-form command and provider error fields.
 type AgentSample struct {
 	InstanceUUID string
-	ObservedAt   time.Time
-	BuildInfo    *model.BuildInfo
-	Snapshot     model.Snapshot
+	// CreatorID is populated only for authenticated fleet uplinks. It remains an
+	// internal authorization/accounting value and never crosses the public API.
+	CreatorID  string
+	Source     TelemetrySource
+	ObservedAt time.Time
+	BuildInfo  *model.BuildInfo
+	Snapshot   model.Snapshot
 }

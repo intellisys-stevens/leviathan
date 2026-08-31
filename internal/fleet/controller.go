@@ -2,6 +2,8 @@ package fleet
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net/url"
@@ -36,13 +38,14 @@ type Controller struct {
 	policy    Policy
 	options   ControllerOptions
 
-	refreshGate chan struct{}
-	agentSlots  chan struct{}
-	stateMu     sync.Mutex
-	current     Snapshot
-	hasState    bool
-	nextSubID   uint64
-	subs        map[uint64]chan Snapshot
+	refreshGate    chan struct{}
+	agentSlots     chan struct{}
+	stateMu        sync.Mutex
+	current        Snapshot
+	hasState       bool
+	uplinkCreators map[string][sha256.Size]byte
+	nextSubID      uint64
+	subs           map[uint64]chan Snapshot
 }
 
 func NewController(platform Platform, inventory InventorySource, agents AgentSource, policy Policy, options ControllerOptions) (*Controller, error) {
@@ -71,14 +74,15 @@ func NewController(platform Platform, inventory InventorySource, agents AgentSou
 		options.Clock = func() time.Time { return time.Now().UTC() }
 	}
 	return &Controller{
-		platform:    platform,
-		inventory:   inventory,
-		agents:      agents,
-		policy:      policy,
-		options:     options,
-		refreshGate: make(chan struct{}, 1),
-		agentSlots:  make(chan struct{}, options.MaxConcurrentAgents),
-		subs:        make(map[uint64]chan Snapshot),
+		platform:       platform,
+		inventory:      inventory,
+		agents:         agents,
+		policy:         policy,
+		options:        options,
+		refreshGate:    make(chan struct{}, 1),
+		agentSlots:     make(chan struct{}, options.MaxConcurrentAgents),
+		subs:           make(map[uint64]chan Snapshot),
+		uplinkCreators: make(map[string][sha256.Size]byte),
 	}, nil
 }
 
@@ -86,6 +90,20 @@ func (c *Controller) Current() (Snapshot, bool) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	return cloneSnapshot(c.current), c.hasState
+}
+
+// UplinkAuthorized performs one current-inventory lookup. The eligibility map
+// is replaced in the same critical section that publishes Current(), so an
+// authorization decision cannot lag behind a newer public controller state.
+func (c *Controller) UplinkAuthorized(creatorID, instanceUUID string) bool {
+	if c == nil {
+		return false
+	}
+	creatorDigest := sha256.Sum256([]byte(creatorID))
+	c.stateMu.Lock()
+	expectedCreator, found := c.uplinkCreators[instanceUUID]
+	c.stateMu.Unlock()
+	return found && subtle.ConstantTimeCompare(creatorDigest[:], expectedCreator[:]) == 1
 }
 
 // Subscribe returns a size-one latest-state channel. A slow subscriber drops
@@ -213,10 +231,17 @@ func (c *Controller) Refresh(ctx context.Context) Snapshot {
 }
 
 func (c *Controller) successfulAgentObservation(attemptedAt, completedAt time.Time, instance Instance, sample AgentSample) AgentObservation {
+	source := sample.Source
+	if source == "" {
+		// Existing AgentSource implementations predate the explicit transport
+		// marker. Preserve their behavior while new sources identify themselves.
+		source = TelemetrySourceMIGLensAgent
+	}
 	attempt := timePointer(attemptedAt)
 	if sample.InstanceUUID != instance.UUID {
 		return AgentObservation{
 			Status:        AgentIncompatible,
+			Source:        source,
 			LastAttemptAt: attempt,
 			Message:       "agent identity does not match inventory instance",
 		}
@@ -225,6 +250,7 @@ func (c *Controller) successfulAgentObservation(attemptedAt, completedAt time.Ti
 		buildInfo := cloneBuildInfo(sample.BuildInfo)
 		return AgentObservation{
 			Status:        AgentIncompatible,
+			Source:        source,
 			LastAttemptAt: attempt,
 			BuildInfo:     buildInfo,
 			Message:       "agent snapshot schema is incompatible",
@@ -246,6 +272,7 @@ func (c *Controller) successfulAgentObservation(attemptedAt, completedAt time.Ti
 	snapshot := sanitizedModelSnapshot(sample.Snapshot)
 	return AgentObservation{
 		Status:        status,
+		Source:        source,
 		LastAttemptAt: attempt,
 		LastSuccessAt: timePointer(completedAt),
 		ObservedAt:    timePointer(observedAt),
@@ -307,7 +334,19 @@ func (c *Controller) inventoryFailure(attemptedAt, completedAt time.Time, previo
 }
 
 func (c *Controller) store(state Snapshot) Snapshot {
+	uplinkCreators := make(map[string][sha256.Size]byte)
+	for _, platform := range state.Platforms {
+		if platform.Platform.Kind != PlatformKindOpenStack || platform.Inventory.Status != InventoryAvailable {
+			continue
+		}
+		for _, observation := range platform.Instances {
+			if observation.Instance.CloudState == CloudStateActive && observation.Managed && observation.AgentProbeEligible {
+				uplinkCreators[observation.Instance.UUID] = sha256.Sum256([]byte(observation.Instance.CreatorID))
+			}
+		}
+	}
 	c.stateMu.Lock()
+	c.uplinkCreators = uplinkCreators
 	state.Sequence = c.current.Sequence + 1
 	owned := cloneSnapshot(state)
 	c.current = owned

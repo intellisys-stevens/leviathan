@@ -111,6 +111,136 @@ func TestPolicyReportsMissingAgentBindingWithoutProbing(t *testing.T) {
 	}
 }
 
+func TestPolicyDynamicallyAllowsExactNovaCreator(t *testing.T) {
+	policy, err := NewPolicyWithCreators(nil, []AllowedCreator{
+		{
+			CreatorID: "nova-user-a", CreatorUsername: "owner-a@example.test", TelemetryEnabled: true,
+		},
+		{
+			CreatorID: "nova-user-b", CreatorUsername: "owner-b@example.test", TelemetryEnabled: false,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewPolicyWithCreators() error = %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		instance Instance
+		managed  bool
+		eligible bool
+		reason   PolicyReason
+		username string
+	}{
+		{
+			name:     "matching creator with telemetry",
+			instance: Instance{UUID: instanceOne, CreatorID: "nova-user-a", CreatorUsername: "advisory@example.test", CloudState: CloudStateActive},
+			managed:  true, eligible: true, reason: PolicyAllowed, username: "owner-a@example.test",
+		},
+		{
+			name:     "matching creator without telemetry",
+			instance: Instance{UUID: instanceTwo, CreatorID: "nova-user-b", CloudState: CloudStateActive},
+			managed:  true, reason: PolicyAgentNotConfigured, username: "owner-b@example.test",
+		},
+		{
+			name:     "matching creator but inactive",
+			instance: Instance{UUID: instanceThree, CreatorID: "nova-user-a", CloudState: CloudStateShelved},
+			managed:  true, reason: PolicyCloudNotActive, username: "owner-a@example.test",
+		},
+		{
+			name:     "creator comparison is exact",
+			instance: Instance{UUID: instanceFour, CreatorID: "Nova-User-A", CloudState: CloudStateActive},
+			reason:   PolicyNotAllowlisted,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			decision := policy.Evaluate(test.instance)
+			if decision.Allowlisted != test.managed || decision.AgentProbeEligible != test.eligible || decision.Reason != test.reason || decision.CreatorUsername != test.username {
+				t.Fatalf("Evaluate() = %+v, want managed=%v eligible=%v reason=%q username=%q", decision, test.managed, test.eligible, test.reason, test.username)
+			}
+		})
+	}
+}
+
+func TestPolicyExplicitUUIDWinsOverCreatorRule(t *testing.T) {
+	policy, err := NewPolicyWithCreators(
+		map[string]AllowedIdentity{
+			instanceOne: {CreatorID: "nova-user-a", CreatorUsername: "owner-a@example.test", AgentConfigured: false},
+			instanceTwo: {CreatorID: "nova-user-a", CreatorUsername: "owner-a@example.test", AgentConfigured: true},
+		},
+		[]AllowedCreator{
+			{CreatorID: "nova-user-a", CreatorUsername: "owner-a@example.test", TelemetryEnabled: true},
+			{CreatorID: "nova-user-b", CreatorUsername: "owner-b@example.test", TelemetryEnabled: true},
+		},
+	)
+	if err != nil {
+		t.Fatalf("NewPolicyWithCreators() error = %v", err)
+	}
+
+	withoutBinding := policy.Evaluate(Instance{UUID: instanceOne, CreatorID: "nova-user-a", CloudState: CloudStateActive})
+	if !withoutBinding.Allowlisted || withoutBinding.AgentProbeEligible || withoutBinding.Reason != PolicyAgentNotConfigured {
+		t.Fatalf("explicit no-agent decision = %+v, want explicit rule to suppress creator telemetry", withoutBinding)
+	}
+
+	mismatch := policy.Evaluate(Instance{UUID: instanceTwo, CreatorID: "nova-user-b", CloudState: CloudStateActive})
+	if mismatch.Allowlisted || mismatch.AgentProbeEligible || mismatch.Reason != PolicyCreatorMismatch {
+		t.Fatalf("explicit mismatch decision = %+v, want fail-closed without creator fallback", mismatch)
+	}
+}
+
+func TestNewPolicyWithCreatorsRejectsAmbiguousCreatorRules(t *testing.T) {
+	tests := []struct {
+		name      string
+		instances map[string]AllowedIdentity
+		creators  []AllowedCreator
+	}{
+		{
+			name: "duplicate creator ID",
+			creators: []AllowedCreator{
+				{CreatorID: "nova-user-a", CreatorUsername: "owner@example.test"},
+				{CreatorID: "nova-user-a", CreatorUsername: "owner@example.test"},
+			},
+		},
+		{
+			name: "wildcard creator ID",
+			creators: []AllowedCreator{
+				{CreatorID: "nova-user-*", CreatorUsername: "owner@example.test"},
+			},
+		},
+		{
+			name: "wildcard creator username",
+			creators: []AllowedCreator{
+				{CreatorID: "nova-user-a", CreatorUsername: "*@example.test"},
+			},
+		},
+		{
+			name: "creator conflicts with exact instance label",
+			instances: map[string]AllowedIdentity{
+				instanceOne: {CreatorID: "nova-user-a", CreatorUsername: "first@example.test"},
+			},
+			creators: []AllowedCreator{
+				{CreatorID: "nova-user-a", CreatorUsername: "second@example.test"},
+			},
+		},
+		{
+			name: "same creator ID conflicts across exact instances",
+			instances: map[string]AllowedIdentity{
+				instanceOne: {CreatorID: "nova-user-a", CreatorUsername: "first@example.test"},
+				instanceTwo: {CreatorID: "nova-user-a", CreatorUsername: "second@example.test"},
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := NewPolicyWithCreators(test.instances, test.creators); err == nil {
+				t.Fatal("NewPolicyWithCreators() error = nil, want rejection")
+			}
+		})
+	}
+}
+
 func TestNormalizeCloudState(t *testing.T) {
 	tests := map[string]CloudState{
 		"ACTIVE":              CloudStateActive,

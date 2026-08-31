@@ -42,10 +42,14 @@ for required_path in \
   "${archive_root}/miglens@.service" \
   "${archive_root}/miglens.env.example" \
   "${archive_root}/miglens-attribution.env" \
+  "${archive_root}/miglens-uplink@.service" \
+  "${archive_root}/miglens-uplink.env.example" \
   "${archive_root}/miglens@root.service.d/10-hardening.conf" \
   "${archive_root}/contrib/systemd/miglens@.service" \
   "${archive_root}/contrib/systemd/miglens.env.example" \
   "${archive_root}/contrib/systemd/miglens-attribution.env" \
+  "${archive_root}/contrib/systemd/miglens-uplink@.service" \
+  "${archive_root}/contrib/systemd/miglens-uplink.env.example" \
   "${archive_root}/contrib/systemd/miglens@root.service.d/10-hardening.conf" \
   "${archive_root}/charts/miglens-attribution/Chart.yaml" \
   "${archive_root}/charts/miglens-attribution/values.yaml" \
@@ -82,6 +86,47 @@ grep -Fx 'ExecStart=/usr/local/bin/miglens --listen 127.0.0.1:1397 serve' "${roo
 grep -Fx 'EnvironmentFile=-/etc/miglens/miglens.env' "${root}/miglens@.service" >/dev/null
 grep -Fx '# MIGLENS_ATTRIBUTION_SOCKET=/run/miglens/attribution.sock' "${root}/miglens.env.example" >/dev/null
 grep -Fx 'MIGLENS_ATTRIBUTION_SOCKET=/run/miglens/attribution.sock' "${root}/miglens-attribution.env" >/dev/null
+
+uplink_units=(
+  "${root}/miglens-uplink@.service"
+  "${root}/contrib/systemd/miglens-uplink@.service"
+)
+for uplink_unit in "${uplink_units[@]}"; do
+  grep -Fx 'User=%i' "${uplink_unit}" >/dev/null
+  grep -Fx 'EnvironmentFile=/etc/miglens/uplink-%i.env' "${uplink_unit}" >/dev/null
+  grep -Fx 'ExecStart=/usr/local/bin/miglens uplink --hub-url=${MIGLENS_HUB_URL} --token-env=MIGLENS_UPLINK_TOKEN --uplink-interval=15s' "${uplink_unit}" >/dev/null
+  for directive in User EnvironmentFile ExecStart; do
+    [[ "$(grep -c "^${directive}=" "${uplink_unit}")" -eq 1 ]] || {
+      echo "uplink systemd unit must contain exactly one ${directive} directive" >&2
+      exit 1
+    }
+  done
+done
+cmp "${uplink_units[0]}" "${uplink_units[1]}" >/dev/null
+
+uplink_examples=(
+  "${root}/miglens-uplink.env.example"
+  "${root}/contrib/systemd/miglens-uplink.env.example"
+)
+for uplink_example in "${uplink_examples[@]}"; do
+  grep -Fx 'MIGLENS_HUB_URL=https://miglens-hub.example.test' "${uplink_example}" >/dev/null
+  grep -Fx 'MIGLENS_UPLINK_TOKEN=' "${uplink_example}" >/dev/null
+  [[ "$(grep -c '^MIGLENS_UPLINK_TOKEN=' "${uplink_example}")" -eq 1 ]] || {
+    echo "uplink environment example must contain exactly one token placeholder" >&2
+    exit 1
+  }
+  if grep -Ei '^[[:space:]]*[A-Z_]*(TOKEN|SECRET|PASSWORD|CREDENTIAL)[A-Z0-9_]*=[[:space:]]*[^[:space:]#]+' "${uplink_example}" >/dev/null; then
+    echo "uplink environment example must not contain a credential value" >&2
+    exit 1
+  fi
+  if grep -E '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=' "${uplink_example}" |
+    grep -Ev '^(MIGLENS_HUB_URL=https://miglens-hub\.example\.test|MIGLENS_UPLINK_TOKEN=)$' >/dev/null; then
+    echo "uplink environment example contains an unexpected assignment" >&2
+    exit 1
+  fi
+done
+cmp "${uplink_examples[0]}" "${uplink_examples[1]}" >/dev/null
+
 root_hardening="${root}/miglens@root.service.d/10-hardening.conf"
 for directive in \
   'CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_SYS_PTRACE' \

@@ -23,9 +23,13 @@ function jetstreamSummary(platform: PlatformObservation | undefined) {
   );
   const currentGPUObservations = monitored.filter(({ agent }) => {
     const nvml = agent.snapshot?.capabilities.nvml;
-    return nvml?.available === true && nvml.status === 'available';
+    return (
+      agent.source !== 'exosphere_console' &&
+      nvml?.available === true &&
+      nvml.status === 'available'
+    );
   });
-  const knownGPUs = currentGPUObservations.reduce(
+  const knownGPUs = monitored.reduce(
     (total, { agent }) => total + (agent.snapshot?.gpus.length ?? 0),
     0,
   );

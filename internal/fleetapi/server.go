@@ -1,6 +1,7 @@
-// Package fleetapi serves the read-only controller dashboard. It is separate
-// from the single-host API so the Nidhogg agent keeps its existing routes and
-// outbound-network-free security boundary.
+// Package fleetapi serves the controller dashboard and its explicitly enabled,
+// authenticated telemetry uplink. It is separate from the single-host API so
+// the Nidhogg agent keeps its existing routes and outbound-network-free
+// security boundary.
 package fleetapi
 
 import (
@@ -27,14 +28,33 @@ type Server struct {
 	source    DataSource
 	assets    fs.FS
 	buildInfo model.BuildInfo
+	uplink    *uplinkHandler
 	mux       *http.ServeMux
 }
 
 func NewServer(source DataSource, assets fs.FS, buildInfo model.BuildInfo) *Server {
-	server := &Server{source: source, assets: assets, buildInfo: buildInfo, mux: http.NewServeMux()}
+	return newServer(source, assets, buildInfo, nil)
+}
+
+// NewServerWithUplink constructs the fleet dashboard with the authenticated
+// agent-push endpoint explicitly enabled. NewServer intentionally leaves this
+// endpoint disabled so existing deployments remain read-only.
+func NewServerWithUplink(source DataSource, assets fs.FS, buildInfo model.BuildInfo, config UplinkConfig) (*Server, error) {
+	uplink, err := newUplinkHandler(source, config)
+	if err != nil {
+		return nil, err
+	}
+	return newServer(source, assets, buildInfo, uplink), nil
+}
+
+func newServer(source DataSource, assets fs.FS, buildInfo model.BuildInfo, uplink *uplinkHandler) *Server {
+	server := &Server{source: source, assets: assets, buildInfo: buildInfo, uplink: uplink, mux: http.NewServeMux()}
 	server.mux.HandleFunc("GET /api/fleet/v1/state", server.state)
 	server.mux.HandleFunc("GET /api/fleet/v1/events", server.events)
 	server.mux.HandleFunc("GET /api/fleet/v1/version", server.version)
+	if server.uplink != nil {
+		server.mux.HandleFunc("POST /api/fleet/v1/uplink/{instanceUUID}", server.uplink.receive)
+	}
 	server.mux.HandleFunc("GET /healthz", server.health)
 	server.mux.HandleFunc("/api/", func(writer http.ResponseWriter, _ *http.Request) {
 		writeError(writer, http.StatusNotFound, "API endpoint not found")
@@ -48,6 +68,13 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	writer.Header().Set("Referrer-Policy", "no-referrer")
 	writer.Header().Set("X-Frame-Options", "DENY")
 	writer.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'")
+	// net/http otherwise redirects paths containing dot segments or repeated
+	// slashes. API clients must never forward credentials across a redirect, so
+	// reject non-canonical API paths before ServeMux can clean them.
+	if strings.HasPrefix(request.URL.Path, "/api/") && path.Clean(request.URL.Path) != request.URL.Path {
+		writeError(writer, http.StatusNotFound, "API endpoint not found")
+		return
+	}
 	s.mux.ServeHTTP(writer, request)
 }
 

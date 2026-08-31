@@ -22,6 +22,8 @@ func TestConfigRequiresClosedHostAndInstanceBounds(t *testing.T) {
 		{name: "negative instance maximum", config: Config{AllowedProjectIDs: []string{testProjectID}, AllowedAuthHosts: []string{"identity.example.test"}, AllowedComputeHosts: []string{"compute.example.test"}, MaxInstances: -1}},
 		{name: "excessive instance maximum", config: Config{AllowedProjectIDs: []string{testProjectID}, AllowedAuthHosts: []string{"identity.example.test"}, AllowedComputeHosts: []string{"compute.example.test"}, MaxInstances: 10_001}},
 		{name: "short timeout", config: Config{AllowedProjectIDs: []string{testProjectID}, AllowedAuthHosts: []string{"identity.example.test"}, AllowedComputeHosts: []string{"compute.example.test"}, RequestTimeout: time.Millisecond}},
+		{name: "tiny console response bound", config: Config{AllowedProjectIDs: []string{testProjectID}, AllowedAuthHosts: []string{"identity.example.test"}, AllowedComputeHosts: []string{"compute.example.test"}, MaxConsoleResponseBytes: 1024}},
+		{name: "excessive console response bound", config: Config{AllowedProjectIDs: []string{testProjectID}, AllowedAuthHosts: []string{"identity.example.test"}, AllowedComputeHosts: []string{"compute.example.test"}, MaxConsoleResponseBytes: 1024*1024 + 1}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -41,8 +43,8 @@ func TestConfigDefaultsAreBounded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Config.normalized() error = %v", err)
 	}
-	if config.MaxInstances != defaultMaxInstances || config.RequestTimeout != defaultRequestTimeout {
-		t.Fatalf("defaults = max %d timeout %s", config.MaxInstances, config.RequestTimeout)
+	if config.MaxInstances != defaultMaxInstances || config.RequestTimeout != defaultRequestTimeout || config.MaxConsoleResponseBytes != defaultMaxConsoleResponseSize {
+		t.Fatalf("defaults = max %d timeout %s console bytes %d", config.MaxInstances, config.RequestTimeout, config.MaxConsoleResponseBytes)
 	}
 	if config.CreatorResolver == nil || config.Clock == nil {
 		t.Fatal("safe resolver and clock defaults were not installed")

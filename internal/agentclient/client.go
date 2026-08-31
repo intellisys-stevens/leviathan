@@ -205,6 +205,7 @@ func (s *Source) Observe(ctx context.Context, instance fleet.Instance) (fleet.Ag
 	// snapshot with the exact hostname pinned in the binding.
 	return fleet.AgentSample{
 		InstanceUUID: instance.UUID,
+		Source:       fleet.TelemetrySourceMIGLensAgent,
 		ObservedAt:   snapshot.SampledAt,
 		BuildInfo:    &buildInfo,
 		Snapshot:     snapshot,

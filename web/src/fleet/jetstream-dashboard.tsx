@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { GPUCard } from '../components/gpu-card';
 import {
   InstanceTable,
+  observationSourceLabel,
   telemetryLabel,
   telemetryState,
 } from './instance-table';
@@ -38,15 +39,6 @@ const cloudLabels: Record<string, string> = {
   suspended: 'Suspended',
   error: 'Error',
   unknown: 'Unknown',
-};
-
-const agentLabels: Record<string, string> = {
-  not_managed: 'Not monitored',
-  not_configured: 'Not configured',
-  available: 'Live',
-  unreachable: 'Unreachable',
-  stale: 'Stale',
-  incompatible: 'Incompatible',
 };
 
 function storedDashboardView(): DashboardView {
@@ -96,6 +88,7 @@ function hasCurrentGPUCoverage(observation: InstanceObservation): boolean {
   const snapshot = observation.agent.snapshot;
   return Boolean(
     observation.agent.status === 'available' &&
+    observation.agent.source !== 'exosphere_console' &&
     snapshot?.capabilities.nvml.available &&
     snapshot.capabilities.nvml.status === 'available',
   );
@@ -130,7 +123,7 @@ function snapshotHealthMessages(observation: InstanceObservation): string[] {
   const messages: string[] = [];
   if (observation.agent.status !== 'available') {
     messages.push(
-      'Showing the last retained Agent snapshot; current usage may have changed.',
+      'Showing the last retained telemetry snapshot; current usage may have changed.',
     );
   }
   const processSummary = processInspectionSummary(observation);
@@ -215,7 +208,7 @@ function InstanceIdentity({
         />
         <StatusChip
           status={agent.status}
-          label={agentLabels[agent.status] ?? 'Unknown'}
+          label={observationSourceLabel(agent)}
         />
         {agent.snapshot ? (
           <StatusChip
@@ -442,7 +435,7 @@ function JetstreamPeopleView({
                         />
                         <StatusChip
                           status={agent.status}
-                          label={agentLabels[agent.status] ?? 'Unknown'}
+                          label={observationSourceLabel(agent)}
                         />
                         {agent.snapshot ? (
                           <StatusChip
@@ -504,7 +497,7 @@ export function JetstreamDashboard({
   );
   const monitored = currentMonitoredInstances(instances);
   const retained = snapshotInstances(instances);
-  const currentGPUCount = gpuCount(monitored.filter(hasCurrentGPUCoverage));
+  const currentGPUCount = gpuCount(monitored);
   const currentProcessCount = currentKnownProcessCount(monitored);
   const completeGPUCoverage = running.every(hasCurrentGPUCoverage);
   const completeProcessCoverage = running.every(

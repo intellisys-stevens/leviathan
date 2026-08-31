@@ -9,6 +9,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type {
+  AgentObservation,
   AgentStatus,
   CloudState,
   InstanceObservation,
@@ -41,6 +42,20 @@ const agentLabels: Record<AgentStatus, string> = {
   stale: 'Stale',
   incompatible: 'Incompatible',
 };
+
+const sourceLabels: Record<NonNullable<AgentObservation['source']>, string> = {
+  miglens_agent: 'MIGLens agent',
+  exosphere_console: 'Exosphere console',
+  miglens_uplink: 'MIGLens uplink',
+};
+
+export function observationSourceLabel(agent: AgentObservation): string {
+  const source = agent.source ? sourceLabels[agent.source] : undefined;
+  if (!source) return agentLabels[agent.status] ?? 'Unknown';
+  if (agent.status === 'available') return source;
+  if (agent.status === 'stale') return `${source} · stale`;
+  return `${source} · ${agentLabels[agent.status] ?? 'Unknown'}`;
+}
 
 const policyLabels: Record<PolicyReason, string> = {
   allowed: 'Approved test scope',
@@ -189,7 +204,7 @@ export function InstanceTable({
                 <TableHead>Instance</TableHead>
                 <TableHead>Creator</TableHead>
                 <TableHead>Cloud</TableHead>
-                <TableHead>Agent</TableHead>
+                <TableHead>Telemetry source</TableHead>
                 <TableHead>Telemetry</TableHead>
                 <TableHead>GPU-connected users</TableHead>
                 <TableHead>Resources</TableHead>
@@ -231,7 +246,7 @@ export function InstanceTable({
                     <TableCell>
                       <StatusBadge
                         status={agent.status}
-                        label={agentLabels[agent.status] ?? 'Unknown'}
+                        label={observationSourceLabel(agent)}
                       />
                       <p className="mt-1 text-[9px] text-muted-foreground">
                         <time dateTime={agent.observedAt}>

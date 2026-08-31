@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -19,8 +20,10 @@ import (
 	"github.com/intellisys-stevens/miglens/internal/config"
 	"github.com/intellisys-stevens/miglens/internal/doctor"
 	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/miglens/internal/openstackmetadata"
 	"github.com/intellisys-stevens/miglens/internal/render"
 	"github.com/intellisys-stevens/miglens/internal/tui"
+	"github.com/intellisys-stevens/miglens/internal/uplinkclient"
 	"github.com/intellisys-stevens/miglens/internal/webui"
 	"github.com/spf13/cobra"
 )
@@ -76,7 +79,7 @@ func (a *application) command() *cobra.Command {
 	flags.StringVar(&a.flags.Fixture, "fixture", a.flags.Fixture, "use a deterministic fixture (see README for scenarios)")
 	flags.StringVar(&a.flags.AttributionSocket, "attribution-socket", a.flags.AttributionSocket, "optional MIGLens attribution bridge Unix socket")
 
-	root.AddCommand(a.tuiCommand(), a.snapshotCommand(), a.watchCommand(), a.serveCommand(), a.doctorCommand(), versionCommand(a.stdout))
+	root.AddCommand(a.tuiCommand(), a.snapshotCommand(), a.watchCommand(), a.serveCommand(), a.uplinkCommand(), a.doctorCommand(), versionCommand(a.stdout))
 	return root
 }
 
@@ -305,6 +308,98 @@ func (a *application) serveCommand() *cobra.Command {
 			}
 		},
 	}
+}
+
+var uplinkEnvironmentName = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,127}$`)
+var uplinkInstanceUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+func (a *application) uplinkCommand() *cobra.Command {
+	var hubURL string
+	var instanceUUID string
+	var tokenEnvironment string
+	var pushInterval time.Duration
+	command := &cobra.Command{
+		Use:   "uplink",
+		Short: "Continuously push local telemetry to an authenticated MIGLens Hub",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			if pushInterval < 5*time.Second || pushInterval > 5*time.Minute {
+				return errors.New("uplink interval must be between 5s and 5m")
+			}
+			if !uplinkEnvironmentName.MatchString(tokenEnvironment) {
+				return errors.New("uplink token environment variable name is invalid")
+			}
+			if instanceUUID != "" && !uplinkInstanceUUID.MatchString(instanceUUID) {
+				return errors.New("uplink instance UUID must be a canonical lowercase UUID")
+			}
+			token, found := os.LookupEnv(tokenEnvironment)
+			if !found {
+				return fmt.Errorf("uplink token environment variable %s is not set", tokenEnvironment)
+			}
+			client, err := uplinkclient.New(hubURL, token, uplinkclient.Options{})
+			if err != nil {
+				return err
+			}
+			if instanceUUID == "" {
+				metadata, metadataErr := openstackmetadata.New(openstackmetadata.Options{})
+				if metadataErr != nil {
+					return metadataErr
+				}
+				instanceUUID, metadataErr = metadata.InstanceUUID(command.Context())
+				if metadataErr != nil {
+					return metadataErr
+				}
+			}
+
+			engine, err := a.startEngine(command.Context())
+			if err != nil {
+				return err
+			}
+			defer engine.Stop()
+
+			info := buildInfo()
+			ticker := time.NewTicker(pushInterval)
+			defer ticker.Stop()
+			failed := false
+			connected := false
+			for {
+				snapshot, available := engine.Current()
+				if !available {
+					return errors.New("uplink snapshot is not available")
+				}
+				sendErr := client.Send(command.Context(), instanceUUID, snapshot, &info)
+				if sendErr != nil {
+					if command.Context().Err() != nil {
+						return nil
+					}
+					if !failed {
+						fmt.Fprintln(a.stderr, "MIGLens uplink is unavailable; retrying without a local queue.")
+					}
+					failed = true
+				} else {
+					if failed {
+						fmt.Fprintln(a.stderr, "MIGLens uplink recovered.")
+					} else if !connected {
+						fmt.Fprintln(a.stderr, "MIGLens uplink connected.")
+					}
+					failed = false
+					connected = true
+				}
+
+				select {
+				case <-command.Context().Done():
+					return nil
+				case <-ticker.C:
+				}
+			}
+		},
+	}
+	command.Flags().StringVar(&hubURL, "hub-url", "", "required credential-free HTTPS MIGLens Hub origin")
+	command.Flags().StringVar(&instanceUUID, "instance-uuid", "", "OpenStack instance UUID (default: discover from link-local metadata)")
+	command.Flags().StringVar(&tokenEnvironment, "token-env", "MIGLENS_UPLINK_TOKEN", "environment variable containing the creator-scoped bearer token")
+	command.Flags().DurationVar(&pushInterval, "uplink-interval", 15*time.Second, "telemetry push interval (5s–5m)")
+	_ = command.MarkFlagRequired("hub-url")
+	return command
 }
 
 func tunnelHint(address net.Addr) string {

@@ -88,6 +88,11 @@ func TestControllerOnlyContactsExactAllowedActiveInstances(t *testing.T) {
 	controller := mustController(t, inventory, agents, policy, now)
 
 	state := controller.Refresh(context.Background())
+	if !controller.UplinkAuthorized("owner-a@example.test", instanceOne) ||
+		controller.UplinkAuthorized("owner-b@example.test", instanceOne) ||
+		controller.UplinkAuthorized("owner-c@example.test", instanceThree) {
+		t.Fatal("uplink authorization index does not match the published eligible inventory")
+	}
 	if got := agents.calledUUIDs(); len(got) != 1 || got[0] != instanceOne {
 		t.Fatalf("agent calls = %v, want only %s", got, instanceOne)
 	}
@@ -220,6 +225,9 @@ func TestControllerRetainsLastGoodStateWhenInventoryFails(t *testing.T) {
 	good := controller.Refresh(context.Background())
 	clockNow = second
 	stale := controller.Refresh(context.Background())
+	if controller.UplinkAuthorized("owner-a@example.test", instanceOne) {
+		t.Fatal("stale inventory retained an uplink authorization")
+	}
 	if good.Platforms[0].Inventory.Status != InventoryAvailable {
 		t.Fatalf("first inventory status = %q", good.Platforms[0].Inventory.Status)
 	}

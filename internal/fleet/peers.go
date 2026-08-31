@@ -12,6 +12,12 @@ type StateSource interface {
 	Subscribe() (<-chan Snapshot, func())
 }
 
+// UplinkAuthorizationSource exposes the controller's atomically published,
+// current-inventory eligibility index without cloning the public snapshot.
+type UplinkAuthorizationSource interface {
+	UplinkAuthorized(creatorID, instanceUUID string) bool
+}
+
 // StaticPeers adds configured direct-dashboard platforms, such as Nidhogg, to
 // a dynamic fleet source without changing the single-host service itself.
 type StaticPeers struct {
@@ -47,6 +53,11 @@ func (source *StaticPeers) Current() (Snapshot, bool) {
 		return Snapshot{}, false
 	}
 	return source.decorate(state), true
+}
+
+func (source *StaticPeers) UplinkAuthorized(creatorID, instanceUUID string) bool {
+	authorizer, ok := source.source.(UplinkAuthorizationSource)
+	return ok && authorizer.UplinkAuthorized(creatorID, instanceUUID)
 }
 
 func (source *StaticPeers) Subscribe() (<-chan Snapshot, func()) {
