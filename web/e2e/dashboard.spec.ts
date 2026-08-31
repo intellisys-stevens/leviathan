@@ -415,6 +415,16 @@ function alignedRequestCount(page: Page) {
   return backendStates.get(page)?.alignedRequests ?? 0;
 }
 
+async function selectWorkloadOwner(page: Page, ownerName: string) {
+  if (page.viewportSize()!.width >= 1024) {
+    await page
+      .getByRole('tab', { name: new RegExp(`^${ownerName}`, 'u') })
+      .click();
+    return;
+  }
+  await page.getByLabel('Select user').selectOption({ label: ownerName });
+}
+
 function moveCommands(pathData: string | null) {
   return pathData?.match(/M/gu)?.length ?? 0;
 }
@@ -622,7 +632,7 @@ test('animates, pauses, resumes, and theme-gates the ambient snow canvas', async
   await expect(canvas).toHaveAttribute('data-state', 'running');
 });
 
-test('renders mobile snow at display cadence without per-flake path work', async ({
+test('renders mobile dot snow at display cadence without per-particle path work', async ({
   page,
 }, testInfo) => {
   test.skip(
@@ -722,7 +732,7 @@ test('renders mobile snow at display cadence without per-flake path work', async
 
   const canvas = page.getByTestId('ambient-snow');
   await expect(canvas).toHaveAttribute('data-state', 'running');
-  await expect(canvas).toHaveAttribute('data-particle-count', '36');
+  await expect(canvas).toHaveAttribute('data-particle-count', '44');
   await expect(canvas).toHaveAttribute('data-effective-dpr', '1.25');
   await expect
     .poll(() => canvas.evaluate((node) => (node as HTMLCanvasElement).width))
@@ -791,7 +801,7 @@ test('renders mobile snow at display cadence without per-flake path work', async
   // should draw on essentially every delivered display frame.
   expect(probe.referenceFrames).toBeGreaterThanOrEqual(20);
   expect(probe.clearCalls / probe.referenceFrames).toBeGreaterThanOrEqual(0.85);
-  expect(probe.drawImageCalls).toBeGreaterThanOrEqual(probe.clearCalls * 36);
+  expect(probe.drawImageCalls).toBeGreaterThanOrEqual(probe.clearCalls * 44);
   expect(probe.arcCalls).toBe(0);
   expect(probe.maxFrameDuration).toBeLessThan(50);
   await session.send('Emulation.clearDeviceMetricsOverride');
@@ -849,14 +859,10 @@ test('keeps the ambient snow backing store viewport-sized and DPR-capped', async
     expect(metrics.cssWidth).toBeCloseTo(metrics.viewportWidth, 0);
     expect(metrics.cssHeight).toBeCloseTo(metrics.viewportHeight, 0);
     const coarse = width < 768;
-    expect(metrics.backingWidth / metrics.cssWidth).toBeLessThanOrEqual(
-      coarse ? 1.26 : 1.51,
-    );
-    expect(metrics.backingHeight / metrics.cssHeight).toBeLessThanOrEqual(
-      coarse ? 1.26 : 1.51,
-    );
-    expect(metrics.particleCount).toBeGreaterThanOrEqual(coarse ? 36 : 70);
-    expect(metrics.particleCount).toBeLessThanOrEqual(coarse ? 64 : 140);
+    expect(metrics.backingWidth / metrics.cssWidth).toBeLessThanOrEqual(1.26);
+    expect(metrics.backingHeight / metrics.cssHeight).toBeLessThanOrEqual(1.26);
+    expect(metrics.particleCount).toBeGreaterThanOrEqual(coarse ? 44 : 80);
+    expect(metrics.particleCount).toBeLessThanOrEqual(coarse ? 80 : 160);
   }
 
   const session = await page.context().newCDPSession(page);
@@ -878,7 +884,7 @@ test('keeps the ambient snow backing store viewport-sized and DPR-capped', async
         };
       }),
     )
-    .toEqual({ dpr: 2, height: 900, width: 1_200 });
+    .toEqual({ dpr: 2, height: 750, width: 1_000 });
   await session.send('Emulation.clearDeviceMetricsOverride');
 });
 
@@ -898,6 +904,52 @@ test('renders healthy aligned history as one continuous path per series', async 
         .toBe(1);
     }
   }
+});
+
+test('keeps closed trend geometry stable while the live bucket updates', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'chromium-desktop-dark',
+    'One desktop project verifies immutable closed trend buckets.',
+  );
+  await expect.poll(() => alignedRequestCount(page)).toBe(5);
+
+  const curve = page
+    .getByTestId('utilization-chart')
+    .locator('.overview-series path.recharts-line-curve')
+    .first();
+  const initial = await curve.getAttribute('d');
+  expect(initial).not.toBeNull();
+
+  const nextSnapshot = structuredClone(snapshot);
+  nextSnapshot.sequence += 1;
+  nextSnapshot.sampledAt = new Date(
+    new Date(sampledAt).getTime() + 1_000,
+  ).toISOString();
+  nextSnapshot.gpus[0].metrics.gpu_activity = {
+    ...nextSnapshot.gpus[0].metrics.gpu_activity,
+    sampledAt: nextSnapshot.sampledAt,
+    value: 20,
+  };
+  await page.evaluate((payload) => {
+    const source = (
+      window as unknown as {
+        __leviathanEventSource: EventTarget;
+      }
+    ).__leviathanEventSource;
+    source.dispatchEvent(
+      new MessageEvent('snapshot', { data: JSON.stringify(payload) }),
+    );
+  }, nextSnapshot);
+
+  await expect.poll(() => curve.getAttribute('d')).not.toBe(initial);
+  const updated = await curve.getAttribute('d');
+  const commands = (path: string) => path.match(/[ML][^ML]*/gu) ?? [];
+  const before = commands(initial!);
+  const after = commands(updated!);
+  expect(after).toHaveLength(before.length);
+  expect(after.slice(0, -1)).toEqual(before.slice(0, -1));
 });
 
 test('keeps chart hover tooltips above plot clipping and inside the viewport', async ({
@@ -1308,20 +1360,26 @@ test('switches workbench views without reloading charts or clearing process filt
 
   await page.getByRole('link', { name: 'Workloads' }).click();
   await expect(page.getByTestId('people-view')).toBeVisible();
+  await selectWorkloadOwner(page, 'synthetic-owner');
   await expect(
-    page.getByText('synthetic-owner', { exact: true }),
+    page.getByTestId('person-card').getByRole('heading', {
+      name: 'synthetic-owner',
+      level: 3,
+    }),
   ).toBeVisible();
   await expect(
     page.getByText('synthetic-training', { exact: true }),
   ).toBeVisible();
+  await expect(page.getByTestId('person-card')).not.toContainText(
+    'second-synthetic-owner',
+  );
+  await expect(page.getByTestId('person-card')).not.toContainText(
+    'synthetic-inference',
+  );
   await expect(
-    page.getByText('second-synthetic-owner', { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByText('synthetic-inference', { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole('button', { name: 'Open GPU 1 · GI 0 · CI 0 details' }),
+    page.getByRole('button', {
+      name: /^Open GPU \d+ · Full GPU details$/u,
+    }),
   ).toBeVisible();
   await expect(
     page.getByText(
@@ -1338,45 +1396,42 @@ test('switches workbench views without reloading charts or clearing process filt
   );
   await expect(
     peopleView.getByRole('progressbar', {
-      name: 'GPU 1 GI 0 parent GI memory used, shared by 1 CI',
+      name: /^GPU \d+ · Full GPU memory used$/u,
     }),
   ).toBeVisible();
   await expect(
     peopleView.getByRole('progressbar', {
-      name: 'GPU 1 GI 0 parent GI SM activity, shared by 1 CI',
+      name: /^GPU \d+ · Full GPU GPU activity$/u,
     }),
   ).toBeVisible();
 
   const personCards = page.getByTestId('person-card');
-  await expect(personCards).toHaveCount(2);
-  const [firstCard, secondCard] = await Promise.all([
-    personCards.nth(0).boundingBox(),
-    personCards.nth(1).boundingBox(),
-  ]);
-  expect(firstCard).not.toBeNull();
-  expect(secondCard).not.toBeNull();
-  if (page.viewportSize()!.width >= 1400) {
-    expect(Math.abs(firstCard!.y - secondCard!.y)).toBeLessThanOrEqual(1);
-    expect(secondCard!.x).toBeGreaterThan(firstCard!.x + firstCard!.width);
-    expect(Math.abs(firstCard!.width - secondCard!.width)).toBeLessThanOrEqual(
-      1,
-    );
-  } else {
-    await expect
-      .poll(async () => {
-        const [first, second] = await Promise.all([
-          personCards.nth(0).boundingBox(),
-          personCards.nth(1).boundingBox(),
-        ]);
-        if (!first || !second) return 0;
-        return second.y - first.y - first.height;
-      })
-      .toBeGreaterThanOrEqual(15);
-  }
+  await expect(personCards).toHaveCount(1);
+  await expect(
+    page.getByRole('heading', { name: 'Assigned telemetry', level: 4 }),
+  ).toBeVisible();
+  await expect(page.locator('.workload-telemetry-chart')).toBeVisible();
+  await expect.poll(() => alignedRequestCount(page)).toBe(6);
+
+  await selectWorkloadOwner(page, 'second-synthetic-owner');
+  await expect(page.getByTestId('person-card')).toContainText(
+    'synthetic-inference',
+  );
+  await expect(
+    page.getByRole('button', { name: 'Open GPU 1 · GI 0 · CI 0 details' }),
+  ).toBeVisible();
+  await expect(page.getByTestId('person-card')).toContainText(
+    'No allocated GPU telemetry.',
+  );
+  await expect.poll(() => alignedRequestCount(page)).toBe(6);
+
+  await selectWorkloadOwner(page, 'synthetic-owner');
+  await expect(page.locator('.workload-telemetry-chart')).toBeVisible();
+  await expect.poll(() => alignedRequestCount(page)).toBe(6);
 
   await expect(page.getByTestId('process-section')).toHaveCount(0);
   await expect(page.getByTestId('temperature-chart')).toHaveCount(0);
-  await expect.poll(() => alignedRequestCount(page)).toBe(5);
+  await expect.poll(() => alignedRequestCount(page)).toBe(6);
 
   await page.getByRole('link', { name: 'Resources' }).click();
   await page
@@ -1421,7 +1476,7 @@ test('switches workbench views without reloading charts or clearing process filt
   await expect(
     page.getByRole('region', { name: 'GPU topology' }),
   ).toBeVisible();
-  await expect.poll(() => alignedRequestCount(page)).toBe(5);
+  await expect.poll(() => alignedRequestCount(page)).toBe(6);
 });
 
 test('keeps every detail percentage tick visible', async ({ page }) => {
@@ -1441,6 +1496,11 @@ test('keeps every detail percentage tick visible', async ({ page }) => {
       const chart = element.querySelector<HTMLElement>(
         '[data-testid="detail-history-chart"]',
       )!;
+      const pcieChart = element.querySelector<HTMLElement>(
+        '[data-testid="detail-pcie-chart"]',
+      )!;
+      const chartBounds = chart.getBoundingClientRect();
+      const pcieChartBounds = pcieChart.getBoundingClientRect();
       return {
         position: getComputedStyle(element).position,
         top: bounds.top,
@@ -1449,7 +1509,12 @@ test('keeps every detail percentage tick visible', async ({ page }) => {
         height: bounds.height,
         metricColumns:
           getComputedStyle(metrics).gridTemplateColumns.split(' ').length,
-        chartHeight: chart.getBoundingClientRect().height,
+        chartHeight: chartBounds.height,
+        pcieChartHeight: pcieChartBounds.height,
+        chartLeft: chartBounds.left,
+        pcieChartLeft: pcieChartBounds.left,
+        chartWidth: chartBounds.width,
+        pcieChartWidth: pcieChartBounds.width,
       };
     });
   const viewport = page.viewportSize()!;
@@ -1472,6 +1537,36 @@ test('keeps every detail percentage tick visible', async ({ page }) => {
     expect(sheetGeometry.metricColumns).toBe(5);
     expect(sheetGeometry.chartHeight).toBeCloseTo(224, 0);
   }
+  expect(sheetGeometry.pcieChartHeight).toBeCloseTo(
+    sheetGeometry.chartHeight,
+    0,
+  );
+  expect(sheetGeometry.pcieChartLeft).toBeCloseTo(sheetGeometry.chartLeft, 0);
+  expect(sheetGeometry.pcieChartWidth).toBeCloseTo(sheetGeometry.chartWidth, 0);
+  await expect(
+    page.getByTestId('detail-sheet').getByRole('heading', {
+      name: 'Activity',
+      level: 4,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByTestId('detail-sheet').getByRole('heading', {
+      name: 'PCIe transfer',
+      level: 4,
+    }),
+  ).toBeAttached();
+  await expect(
+    page.getByTestId('detail-sheet').getByRole('heading', {
+      name: '30m PCIe transfer',
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByTestId('detail-sheet').getByRole('table', {
+      name: '30m PCIe transfer history data summary',
+      includeHidden: true,
+    }),
+  ).toBeAttached();
   await expect(chart.locator('.recharts-wrapper')).toBeVisible();
   const labels = chart.locator('svg text');
   for (const label of ['0%', '25%', '50%', '75%', '100%']) {
@@ -1510,6 +1605,25 @@ test('keeps every detail percentage tick visible', async ({ page }) => {
   await expect(page.getByTestId('detail-sheet')).not.toContainText(gpuUUID);
   await expect(page.getByTestId('detail-sheet')).not.toContainText(
     `${gpuUUID}@g1`,
+  );
+  const detailSheet = page.getByTestId('detail-sheet');
+  const close = detailSheet.getByRole('button', { name: 'Close' });
+  await detailSheet.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect
+    .poll(() => detailSheet.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(0);
+  await expect(close).toBeVisible();
+  const [sheetBox, closeBox] = await Promise.all([
+    detailSheet.boundingBox(),
+    close.boundingBox(),
+  ]);
+  expect(sheetBox).not.toBeNull();
+  expect(closeBox).not.toBeNull();
+  expect(closeBox!.y).toBeGreaterThanOrEqual(sheetBox!.y);
+  expect(closeBox!.y + closeBox!.height).toBeLessThanOrEqual(
+    sheetBox!.y + sheetBox!.height,
   );
 });
 
@@ -1807,7 +1921,8 @@ test('opens resource details from card whitespace with one full-surface button',
   await activateWhitespace(/Open GPU 1 · GI 0 \/ CI 0 details/u);
 
   await page.getByRole('link', { name: 'Workloads' }).click();
-  await activateWhitespace(/Open GPU 0 · Full GPU details/u);
+  await selectWorkloadOwner(page, 'synthetic-owner');
+  await activateWhitespace(/^Open GPU \d+ · Full GPU details$/u);
 });
 
 test('keeps equal-size resource hover shadows and an independent focus ring', async ({
@@ -2097,6 +2212,13 @@ test('covers required responsive widths with a concise header', async ({
         getComputedStyle(element).gridTemplateColumns.split(' ').length,
     );
     expect(resourceColumns).toBe(width < 768 ? 2 : 3);
+    const migMetrics = page.locator('.mobile-mig-block').first();
+    await expect(
+      migMetrics.locator('[data-metric-icon="memory"]'),
+    ).toBeVisible();
+    await expect(
+      migMetrics.locator('[data-metric-icon="sm_activity"]'),
+    ).toBeVisible();
 
     await page
       .getByRole('button', { name: 'Open GPU 0 full GPU details' })
@@ -2131,6 +2253,18 @@ test('covers required responsive widths with a concise header', async ({
 
     await page.getByRole('link', { name: 'Workloads' }).click();
     const workloads = page.getByTestId('people-view');
+    const ownerSelect = page.getByLabel('Select user');
+    const ownerTabs = page.getByRole('tablist', { name: 'Users' });
+    if (width < 1024) {
+      await expect(ownerSelect).toBeVisible();
+      await expect(ownerTabs).toBeHidden();
+    } else {
+      await expect(ownerSelect).toBeHidden();
+      await expect(ownerTabs).toBeVisible();
+    }
+    await selectWorkloadOwner(page, 'synthetic-owner');
+    await expect(page.getByTestId('person-card')).toHaveCount(1);
+    await expect(page.locator('.workload-telemetry-chart')).toBeVisible();
     await expect(workloads).not.toContainText('Parent GI metrics');
     await expect(workloads).not.toContainText('Physical GPU metrics');
     await expect(workloads.getByText(/^(?:allocated|reserved)$/iu)).toHaveCount(
@@ -2144,6 +2278,12 @@ test('covers required responsive widths with a concise header', async ({
           getComputedStyle(element).gridTemplateColumns.split(' ').length,
       );
     expect(workloadColumns).toBe(2);
+    await expect(
+      workloads.locator('[data-metric-icon="gpu_activity"]').first(),
+    ).toBeVisible();
+    await expect(
+      workloads.locator('[data-metric-icon="memory"]').first(),
+    ).toBeVisible();
 
     const footer = page.locator('footer.app-footer');
     const mobileFooter = footer.locator('.mobile-footer-copy');
@@ -2258,6 +2398,8 @@ test('uses mobile-native tabs, compact charts, and a full-screen detail sheet', 
     return {
       left: bounds.left,
       right: bounds.right,
+      top: bounds.top,
+      bottom: bounds.bottom,
       width: bounds.width,
       closeHeight: closeBounds.height,
       closeWidth: closeBounds.width,
@@ -2272,7 +2414,25 @@ test('uses mobile-native tabs, compact charts, and a full-screen detail sheet', 
   expect(sheetGeometry.closeHeight).toBeGreaterThanOrEqual(44);
   expect(sheetGeometry.closeWidth).toBeGreaterThanOrEqual(44);
   expect(sheetGeometry.headerPosition).toBe('sticky');
-  await sheet.getByRole('button', { name: 'Close' }).click();
+  const close = sheet.getByRole('button', { name: 'Close' });
+  const closeBeforeScroll = await close.boundingBox();
+  expect(closeBeforeScroll).not.toBeNull();
+  await sheet.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect
+    .poll(() => sheet.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(0);
+  await expect(close).toBeVisible();
+  const closeAfterScroll = await close.boundingBox();
+  expect(closeAfterScroll).not.toBeNull();
+  expect(closeAfterScroll!.y).toBeGreaterThanOrEqual(sheetGeometry.top);
+  expect(closeAfterScroll!.y + closeAfterScroll!.height).toBeLessThanOrEqual(
+    sheetGeometry.bottom,
+  );
+  expect(closeAfterScroll!.x).toBeCloseTo(closeBeforeScroll!.x, 0);
+  await close.click();
+  await expect(sheet).toBeHidden();
 
   for (const view of ['Workloads', 'Operations', 'Overview']) {
     await mobileNavigation.getByRole('link', { name: view }).click();
@@ -2364,9 +2524,20 @@ test('matches targeted workbench and frost-dragon visual baselines', async ({
       animations: 'disabled',
       fullPage: false,
     });
+  const showAllocatedWorkloads = async () => {
+    await page.getByRole('link', { name: 'Workloads' }).click();
+    await selectWorkloadOwner(page, 'synthetic-owner');
+    await expect(page.locator('.workload-telemetry-chart')).toBeVisible();
+    await expect(
+      page.locator('.workload-telemetry-chart .recharts-wrapper'),
+    ).toBeVisible();
+  };
   const openFullGPUDetail = async () => {
+    await selectWorkloadOwner(page, 'synthetic-owner');
     await page
-      .getByRole('button', { name: 'Open GPU 0 · Full GPU details' })
+      .getByRole('button', {
+        name: /^Open GPU \d+ · Full GPU details$/u,
+      })
       .click();
     const detail = page.getByTestId('detail-sheet');
     await expect(detail).toBeVisible();
@@ -2400,7 +2571,7 @@ test('matches targeted workbench and frost-dragon visual baselines', async ({
       .locator('xpath=..')
       .hover();
     await capturePage('resources-desktop.png');
-    await page.getByRole('link', { name: 'Workloads' }).click();
+    await showAllocatedWorkloads();
     await capturePage('workloads-desktop-dark.png');
     await openFullGPUDetail();
     await captureViewport('detail-desktop-dark.png');
@@ -2408,7 +2579,7 @@ test('matches targeted workbench and frost-dragon visual baselines', async ({
   }
   if (project === 'chromium-desktop-light') {
     await capturePage('overview-frost-light.png');
-    await page.getByRole('link', { name: 'Workloads' }).click();
+    await showAllocatedWorkloads();
     await capturePage('workloads-desktop-light.png');
     await openFullGPUDetail();
     await captureViewport('detail-desktop-light.png');
@@ -2421,7 +2592,7 @@ test('matches targeted workbench and frost-dragon visual baselines', async ({
     const theme = project.endsWith('light') ? 'light' : 'dark';
     await page.getByRole('link', { name: 'Resources' }).click();
     await captureViewport(`resources-narrow-${theme}.png`);
-    await page.getByRole('link', { name: 'Workloads' }).click();
+    await showAllocatedWorkloads();
     await captureViewport(`workloads-mobile-${theme}.png`);
     await openFullGPUDetail();
     await captureViewport(`detail-mobile-${theme}.png`);

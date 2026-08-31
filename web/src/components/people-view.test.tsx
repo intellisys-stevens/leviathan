@@ -1,7 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { StrictMode, useState } from 'react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { LoadAlignedHistory } from '../overview-history';
 import type { Snapshot } from '../types';
 import { PeopleView } from './people-view';
+import { clearWorkloadHistoryCache } from './workload-telemetry-chart';
 
 function fixture(status: 'available' | 'stale' = 'available'): Snapshot {
   const sampledAt = '2026-08-30T12:00:00Z';
@@ -124,21 +127,96 @@ function fixture(status: 'available' | 'stale' = 'available'): Snapshot {
   };
 }
 
+function historyLoader(): ReturnType<typeof vi.fn<LoadAlignedHistory>> {
+  return vi.fn(async (request) => ({
+    window: request.window,
+    series: request.series,
+    points: [
+      {
+        sampledAt: '2026-08-30T11:59:55Z',
+        values: Object.fromEntries(
+          request.series.map((descriptor) => [
+            descriptor.key,
+            {
+              [descriptor.metrics[0]]: 20,
+              memory_used_bytes: 20,
+              memory_total_bytes: 100,
+            },
+          ]),
+        ),
+      },
+      {
+        sampledAt: '2026-08-30T12:00:00Z',
+        values: Object.fromEntries(
+          request.series.map((descriptor) => [
+            descriptor.key,
+            {
+              [descriptor.metrics[0]]: 40,
+              memory_used_bytes: 40,
+              memory_total_bytes: 100,
+            },
+          ]),
+        ),
+      },
+    ],
+  }));
+}
+
+function PeopleHarness({
+  snapshot,
+  onSelect = () => undefined,
+  loadHistory = historyLoader(),
+  initialPersonKey = null,
+  onChartWindowChange = () => undefined,
+}: {
+  snapshot: Snapshot;
+  onSelect?: (selection: import('../types').Selection) => void;
+  loadHistory?: LoadAlignedHistory;
+  initialPersonKey?: string | null;
+  onChartWindowChange?: (milliseconds: number) => void;
+}) {
+  const [selectedPersonKey, setSelectedPersonKey] = useState<string | null>(
+    initialPersonKey,
+  );
+  return (
+    <PeopleView
+      snapshot={snapshot}
+      onSelect={onSelect}
+      selectedPersonKey={selectedPersonKey}
+      onSelectedPersonChange={setSelectedPersonKey}
+      loadHistory={loadHistory}
+      chartWindowMs={30 * 60 * 1000}
+      retentionMs={60 * 60 * 1000}
+      onChartWindowChange={onChartWindowChange}
+    />
+  );
+}
+
 describe('people resource view', () => {
+  beforeEach(() => clearWorkloadHistoryCache());
+
   it('shows nested workspace resources without leaking opaque refs', () => {
     const onSelect = vi.fn();
     const view = render(
-      <PeopleView snapshot={fixture()} onSelect={onSelect} />,
+      <PeopleHarness
+        snapshot={fixture()}
+        onSelect={onSelect}
+        initialPersonKey={'coder\u0000synthetic-owner'}
+      />,
     );
 
-    expect(screen.getByText('synthetic-owner')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'synthetic-owner' }),
+    ).toBeInTheDocument();
     expect(screen.getByText('synthetic-workspace')).toBeInTheDocument();
-    expect(screen.getByText('second-synthetic-owner')).toBeInTheDocument();
-    expect(screen.getByText('second-synthetic-workspace')).toBeInTheDocument();
+    expect(
+      screen.getAllByText('second-synthetic-owner').length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText('second-synthetic-workspace')).toBeNull();
     expect(screen.getByText('GPU 0 · GI 1 · CI 2')).toBeInTheDocument();
-    expect(screen.getByText('GPU 1 · Full GPU')).toBeInTheDocument();
+    expect(screen.queryByText('GPU 1 · Full GPU')).toBeNull();
     expect(screen.queryByText('1g.synthetic · 1c.synthetic')).toBeNull();
-    expect(screen.getByText('Second Synthetic GPU')).toBeInTheDocument();
+    expect(screen.queryByText('Second Synthetic GPU')).toBeNull();
     expect(view.container).not.toHaveTextContent('Parent GI metrics');
     expect(view.container).not.toHaveTextContent('Physical GPU metrics');
     expect(view.container).not.toHaveTextContent('allocated');
@@ -146,24 +224,30 @@ describe('people resource view', () => {
     expect(view.container).not.toHaveTextContent('opaque-never-render');
 
     const activityIcons = view.container.querySelectorAll(
-      '.mobile-workload-metrics .lucide-activity',
+      '.mobile-workload-metrics [data-metric-icon="sm_activity"]',
     );
-    expect(activityIcons).toHaveLength(2);
+    expect(activityIcons).toHaveLength(1);
     for (const icon of activityIcons) {
       expect(icon).toHaveAttribute('aria-hidden', 'true');
     }
-    expect(screen.getByText('GPU active')).toBeInTheDocument();
+    expect(screen.queryByText('GPU active')).toBeNull();
     expect(screen.getByText('SM active')).toBeInTheDocument();
 
     const peopleGrid = screen.getByTestId('people-grid');
-    expect(peopleGrid).toHaveClass('grid', 'gap-4', 'min-[1400px]:grid-cols-2');
-    expect(peopleGrid).not.toHaveClass('xl:grid-cols-2');
+    expect(peopleGrid).toHaveClass(
+      'workloads-master-detail',
+      'lg:grid-cols-[15rem_minmax(0,1fr)]',
+    );
+    expect(screen.getByRole('tablist', { name: 'Users' })).toHaveAttribute(
+      'aria-orientation',
+      'vertical',
+    );
+    expect(screen.getByLabelText('Select user')).toHaveClass(
+      'workload-owner-select',
+      'lg:hidden',
+    );
     const personCards = screen.getAllByTestId('person-card');
-    expect(personCards).toHaveLength(2);
-    expect(
-      new Set(personCards.map((card) => card.getAttribute('data-snow-cap')))
-        .size,
-    ).toBe(2);
+    expect(personCards).toHaveLength(1);
     for (const personCard of personCards) {
       expect(personCard).toHaveClass('snow-capped', 'mobile-person-card');
       expect(['left', 'right', 'split', 'center', 'corner']).toContain(
@@ -205,10 +289,7 @@ describe('people resource view', () => {
     const computeButton = screen.getByRole('button', {
       name: 'Open GPU 0 · GI 1 · CI 2 details',
     });
-    const physicalButton = screen.getByRole('button', {
-      name: 'Open GPU 1 · Full GPU details',
-    });
-    for (const button of [computeButton, physicalButton]) {
+    for (const button of [computeButton]) {
       expect(button).toHaveClass(
         'interactive-resource-button',
         'absolute',
@@ -226,6 +307,16 @@ describe('people resource view', () => {
       expect.objectContaining({ kind: 'compute_instance' }),
     );
 
+    fireEvent.change(screen.getByLabelText('Select user'), {
+      target: { value: '0' },
+    });
+    const physicalButton = screen.getByRole('button', {
+      name: 'Open GPU 1 · Full GPU details',
+    });
+    expect(screen.getByText('second-synthetic-workspace')).toBeInTheDocument();
+    expect(screen.queryByText('synthetic-workspace')).toBeNull();
+    expect(screen.getByText('Second Synthetic GPU')).toBeInTheDocument();
+    expect(screen.getByText('GPU active')).toBeInTheDocument();
     onSelect.mockClear();
     physicalButton.focus();
     expect(physicalButton).toHaveFocus();
@@ -236,11 +327,49 @@ describe('people resource view', () => {
   });
 
   it('withholds retained assignments when attribution is stale', () => {
-    render(<PeopleView snapshot={fixture('stale')} onSelect={vi.fn()} />);
+    const loadHistory = historyLoader();
+    render(
+      <PeopleHarness snapshot={fixture('stale')} loadHistory={loadHistory} />,
+    );
     expect(screen.getByTestId('people-attribution-state')).toHaveTextContent(
       'Workspace assignments are stale',
     );
     expect(screen.queryByText('synthetic-workspace')).toBeNull();
+    expect(loadHistory).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the first sorted owner when the selected owner disappears', async () => {
+    const initial = fixture();
+    const view = render(
+      <PeopleHarness
+        snapshot={initial}
+        initialPersonKey={'coder\u0000synthetic-owner'}
+      />,
+    );
+    expect(
+      screen.getByRole('heading', { name: 'synthetic-owner' }),
+    ).toBeInTheDocument();
+
+    const next = fixture();
+    next.attribution!.workloads = next.attribution!.workloads.filter(
+      ({ ownerName }) => ownerName === 'second-synthetic-owner',
+    );
+    next.attribution!.assignments = next.attribution!.assignments.filter(
+      ({ workloadRef }) => workloadRef === 'opaque-never-render-two',
+    );
+    view.rerender(
+      <PeopleHarness
+        snapshot={next}
+        initialPersonKey={'coder\u0000synthetic-owner'}
+      />,
+    );
+
+    expect(
+      await screen.findByRole('heading', {
+        name: 'second-synthetic-owner',
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Select user')).toHaveValue('0');
   });
 
   it('keeps unresolved assignment warnings above and outside the people grid', () => {
@@ -251,7 +380,7 @@ describe('people resource view', () => {
       entityUuid: 'GPU-unresolved-synthetic',
       state: 'allocated',
     });
-    render(<PeopleView snapshot={snapshot} onSelect={vi.fn()} />);
+    render(<PeopleHarness snapshot={snapshot} />);
 
     const warning = screen.getByText(/could not be resolved/u);
     const grid = screen.getByTestId('people-grid');
@@ -259,5 +388,172 @@ describe('people resource view', () => {
     expect([...grid.parentElement!.children].indexOf(warning)).toBeLessThan(
       [...grid.parentElement!.children].indexOf(grid),
     );
+  });
+
+  it('loads only the selected owner allocated scopes and switches chart metrics', async () => {
+    const loadHistory = historyLoader();
+    const onChartWindowChange = vi.fn();
+    render(
+      <PeopleHarness
+        snapshot={fixture()}
+        loadHistory={loadHistory}
+        initialPersonKey={'coder\u0000synthetic-owner'}
+        onChartWindowChange={onChartWindowChange}
+      />,
+    );
+
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(1));
+    const request = loadHistory.mock.calls[0][0];
+    expect(request.series).toEqual([
+      {
+        key: 'assigned_0',
+        entity: 'GI-synthetic',
+        metrics: ['sm_activity', 'memory_used_bytes', 'memory_total_bytes'],
+      },
+    ]);
+    expect(
+      await screen.findByRole('heading', { name: 'Assigned telemetry' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('figure', {
+        name: 'synthetic-owner assigned resource activity trend',
+      }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('radio', { name: 'Memory' }));
+    expect(
+      screen.getByRole('figure', {
+        name: 'synthetic-owner assigned resource memory trend',
+      }),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('radio', {
+        name: '5m',
+      }),
+    );
+    expect(onChartWindowChange).toHaveBeenCalledWith(5 * 60 * 1000);
+  });
+
+  it('retains the live plot while retrying failed history locally', async () => {
+    const loadHistory = vi.fn<LoadAlignedHistory>();
+    loadHistory
+      .mockRejectedValueOnce(new Error('synthetic history failure'))
+      .mockImplementation(historyLoader());
+    render(
+      <PeopleHarness
+        snapshot={fixture()}
+        loadHistory={loadHistory}
+        initialPersonKey={'coder\u0000synthetic-owner'}
+      />,
+    );
+
+    expect(
+      await screen.findByText(
+        'History unavailable. Last complete data retained.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('figure', {
+        name: 'synthetic-owner assigned resource activity trend',
+      }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(
+        screen.queryByText('History unavailable. Last complete data retained.'),
+      ).toBeNull(),
+    );
+  });
+
+  it('does not request history for a reserved-only selected owner', async () => {
+    const loadHistory = historyLoader();
+    render(
+      <PeopleHarness
+        snapshot={fixture()}
+        loadHistory={loadHistory}
+        initialPersonKey={'coder\u0000second-synthetic-owner'}
+      />,
+    );
+
+    expect(screen.getByText('No allocated GPU telemetry.')).toBeInTheDocument();
+    await Promise.resolve();
+    expect(loadHistory).not.toHaveBeenCalled();
+  });
+
+  it('uses roving vertical-tab keys and keeps completed owner history cached', async () => {
+    const snapshot = fixture();
+    snapshot.attribution!.assignments[1].state = 'allocated';
+    const loadHistory = historyLoader();
+    render(
+      <PeopleHarness
+        snapshot={snapshot}
+        loadHistory={loadHistory}
+        initialPersonKey={'coder\u0000synthetic-owner'}
+      />,
+    );
+
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(1));
+    const firstTab = screen.getByRole('tab', { name: /^synthetic-owner/u });
+    const secondTab = screen.getByRole('tab', {
+      name: /^second-synthetic-owner/u,
+    });
+    firstTab.focus();
+    fireEvent.keyDown(firstTab, { key: 'ArrowDown' });
+    expect(secondTab).toHaveFocus();
+    expect(secondTab).toHaveAttribute('aria-selected', 'true');
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(2));
+
+    fireEvent.keyDown(secondTab, { key: 'ArrowUp' });
+    expect(firstTab).toHaveFocus();
+    expect(firstTab).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.keyDown(firstTab, { key: 'Home' });
+    expect(secondTab).toHaveFocus();
+    expect(secondTab).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.keyDown(secondTab, { key: 'End' });
+    expect(firstTab).toHaveFocus();
+    expect(firstTab).toHaveAttribute('aria-selected', 'true');
+    await Promise.resolve();
+    expect(loadHistory).toHaveBeenCalledTimes(2);
+    expect(
+      screen.getByRole('tabpanel', { name: 'synthetic-owner' }),
+    ).toBeInTheDocument();
+  });
+
+  it('shares one in-flight history request across StrictMode effect replay', async () => {
+    let release: (() => void) | undefined;
+    const loadHistory = vi.fn<LoadAlignedHistory>(async (request) => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return {
+        window: request.window,
+        series: request.series,
+        points: [],
+      };
+    });
+
+    render(
+      <StrictMode>
+        <PeopleHarness
+          snapshot={fixture()}
+          loadHistory={loadHistory}
+          initialPersonKey={'coder\u0000synthetic-owner'}
+        />
+      </StrictMode>,
+    );
+
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(1));
+    release?.();
+    await waitFor(() =>
+      expect(
+        screen.getByRole('figure', {
+          name: 'synthetic-owner assigned resource activity trend',
+        }),
+      ).toHaveAttribute('aria-busy', 'false'),
+    );
+    expect(loadHistory).toHaveBeenCalledTimes(1);
   });
 });

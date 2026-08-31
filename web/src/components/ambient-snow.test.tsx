@@ -106,7 +106,7 @@ function runNextFrame(timestamp: number) {
 function lastDrawGeometry(count: number) {
   return context.drawImage.mock.calls
     .slice(-count)
-    .map((call) => call.slice(5, 9));
+    .map((call) => call.slice(-4));
 }
 
 beforeEach(() => {
@@ -171,14 +171,14 @@ afterEach(() => {
 
 describe('ambient snow particle helpers', () => {
   it('uses bounded mobile and desktop density and backing-store profiles', () => {
-    expect(snowParticleCount(320, 568)).toBe(36);
-    expect(snowParticleCount(1280, 720)).toBe(102);
-    expect(snowParticleCount(3840, 2160)).toBe(140);
-    expect(snowParticleCount(3840, 2160, true)).toBe(64);
+    expect(snowParticleCount(320, 568)).toBe(44);
+    expect(snowParticleCount(1280, 720)).toBe(115);
+    expect(snowParticleCount(3840, 2160)).toBe(160);
+    expect(snowParticleCount(3840, 2160, true)).toBe(80);
 
     expect(snowPixelRatio(Number.NaN)).toBe(1);
     expect(snowPixelRatio(0.75)).toBe(1);
-    expect(snowPixelRatio(3)).toBe(1.5);
+    expect(snowPixelRatio(3)).toBe(1.25);
     expect(snowPixelRatio(2, 320, 800)).toBe(1.25);
     expect(snowPixelRatio(2, 1280, 720, true)).toBe(1.25);
     expect(snowPixelRatio(2, 3840, 2160)).toBe(1);
@@ -199,6 +199,7 @@ describe('ambient snow particle helpers', () => {
     const far = first.filter(({ layer }) => layer === 'far');
     const mid = first.filter(({ layer }) => layer === 'mid');
     const near = first.filter(({ layer }) => layer === 'near');
+    expect([far.length, mid.length, near.length]).toEqual([67, 36, 12]);
     expect(far.length).toBeGreaterThan(mid.length);
     expect(mid.length).toBeGreaterThan(near.length);
     expect(new Set(first.map(({ layer }) => layer))).toEqual(
@@ -223,7 +224,7 @@ describe('ambient snow particle helpers', () => {
     );
   });
 
-  it('updates reusable particle objects with a frame delta capped at 32ms', () => {
+  it('updates reusable particle objects with a frame delta capped at 50ms', () => {
     const particle: SnowParticle = {
       layer: 'mid',
       x: 10,
@@ -240,7 +241,7 @@ describe('ambient snow particle helpers', () => {
 
     expect(advanceSnowParticles(particles, 100, 100, 1_000)).toBe(particles);
     expect(particles[0]).toBe(particle);
-    expect(particle.y).toBeCloseTo(13.2);
+    expect(particle.y).toBeCloseTo(15);
 
     particle.x = -2;
     particle.y = 102;
@@ -260,13 +261,13 @@ describe('AmbientSnow', () => {
     expect(canvas).toHaveAttribute('data-state', 'running');
     expect(canvas).toHaveClass('ambient-snow');
     expect(canvas).toHaveStyle({ pointerEvents: 'none' });
-    expect(canvas).toHaveAttribute('width', '1200');
-    expect(canvas).toHaveAttribute('height', '900');
+    expect(canvas).toHaveAttribute('width', '1000');
+    expect(canvas).toHaveAttribute('height', '750');
     expect(canvas).toHaveAttribute('data-particle-count', String(count));
-    expect(canvas).toHaveAttribute('data-effective-dpr', '1.5');
+    expect(canvas).toHaveAttribute('data-effective-dpr', '1.25');
     expect(view.container.children).toHaveLength(1);
     expect(view.container.querySelectorAll('canvas')).toHaveLength(1);
-    expect(context.setTransform).toHaveBeenCalledWith(1.5, 0, 0, 1.5, 0, 0);
+    expect(context.setTransform).toHaveBeenCalledWith(1.25, 0, 0, 1.25, 0, 0);
     expect(context.drawImage).toHaveBeenCalledTimes(count);
     expect(context.arc).not.toHaveBeenCalled();
     expect(context.beginPath).not.toHaveBeenCalled();
@@ -278,10 +279,10 @@ describe('AmbientSnow', () => {
     const spriteAtlas = context.drawImage.mock.calls[0]?.[0];
     expect(spriteAtlas).toBeInstanceOf(HTMLCanvasElement);
     expect(spriteAtlas).not.toBe(canvas);
-    expect(spriteAtlas).toHaveAttribute('width', '36');
-    expect(spriteAtlas).toHaveAttribute('height', '12');
+    expect(spriteAtlas).toHaveAttribute('width', '8');
+    expect(spriteAtlas).toHaveAttribute('height', '8');
     expect(
-      context.drawImage.mock.calls.every((call) => call.length === 9),
+      context.drawImage.mock.calls.every((call) => call.length === 5),
     ).toBe(true);
     expect(animationFrames.size).toBe(1);
 
@@ -323,10 +324,10 @@ describe('AmbientSnow', () => {
 
     expect(canvas).toHaveAttribute('width', '400');
     expect(canvas).toHaveAttribute('height', '1000');
-    expect(canvas).toHaveAttribute('data-particle-count', '36');
+    expect(canvas).toHaveAttribute('data-particle-count', '44');
     expect(canvas).toHaveAttribute('data-effective-dpr', '1.25');
     expect(context.setTransform).toHaveBeenCalledWith(1.25, 0, 0, 1.25, 0, 0);
-    expect(context.drawImage).toHaveBeenCalledTimes(36);
+    expect(context.drawImage).toHaveBeenCalledTimes(44);
   });
 
   it('uses the coarse profile when a coarse pointer is reported', () => {
@@ -336,7 +337,7 @@ describe('AmbientSnow', () => {
 
     expect(screen.getByTestId('ambient-snow')).toHaveAttribute('width', '1600');
     expect(screen.getByTestId('ambient-snow')).toHaveAttribute('height', '900');
-    expect(context.drawImage).toHaveBeenCalledTimes(64);
+    expect(context.drawImage).toHaveBeenCalledTimes(80);
   });
 
   it('coalesces resize work and reacts to DPR-only resize notifications', () => {
@@ -401,7 +402,7 @@ describe('AmbientSnow', () => {
       'data-state',
       'static',
     );
-    expect(context.drawImage).toHaveBeenCalledTimes(70);
+    expect(context.drawImage).toHaveBeenCalledTimes(80);
     expect(context.arc).not.toHaveBeenCalled();
     expect(animationFrames.size).toBe(0);
   });
@@ -503,7 +504,7 @@ describe('AmbientSnow', () => {
       'running',
     );
     expect(context.setTransform).toHaveBeenCalled();
-    expect(context.drawImage).toHaveBeenCalledTimes(70);
+    expect(context.drawImage).toHaveBeenCalledTimes(80);
     expect(context.arc).not.toHaveBeenCalled();
     expect(animationFrames.size).toBe(1);
   });

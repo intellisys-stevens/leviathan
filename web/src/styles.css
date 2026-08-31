@@ -328,10 +328,48 @@ html[data-ambient-paused='true'] .app-shell::after {
   display: none;
 }
 
+.workloads-master-detail {
+  align-items: start;
+}
+
+.workload-owner-tab {
+  min-width: 0;
+}
+
+.workload-person-detail {
+  overflow: clip;
+}
+
+.workload-telemetry-controls > * {
+  min-width: 0;
+}
+
+.mobile-detail-sheet-header {
+  position: sticky;
+  z-index: 5;
+  top: 0;
+  background: var(--glass-popover);
+  -webkit-backdrop-filter: blur(24px) saturate(126%);
+  backdrop-filter: blur(24px) saturate(126%);
+}
+
 @media (min-width: 768px) {
   .detail-sheet-surface {
     width: clamp(40rem, 68vw, 55rem) !important;
     max-width: calc(100vw - 2rem) !important;
+  }
+}
+
+@media (min-width: 1024px) {
+  .workload-owner-picker {
+    position: sticky;
+    top: 8rem;
+    padding: 0.375rem;
+    border: 1px solid color-mix(in oklch, var(--border) 82%, transparent);
+    background: var(--card);
+    box-shadow:
+      inset 0 1px 0 var(--glass-edge),
+      0 12px 30px color-mix(in oklch, var(--foreground) 8%, transparent);
   }
 }
 
@@ -914,7 +952,8 @@ html[data-ambient-paused='true'] .app-shell::after {
   }
 
   .frost-panel,
-  .overview-summary {
+  .overview-summary,
+  .workload-owner-picker {
     background: var(--glass-panel);
     -webkit-backdrop-filter: blur(20px) saturate(122%);
     backdrop-filter: blur(20px) saturate(122%);
@@ -1304,14 +1343,14 @@ html[data-ambient-paused='true'] .app-shell::after {
     padding-bottom: env(safe-area-inset-bottom);
   }
 
-  .mobile-detail-sheet [data-slot='sheet-header'],
-  [data-testid='detail-sheet'] [data-slot='sheet-header'] {
-    position: sticky;
-    z-index: 5;
-    top: 0;
-    background: var(--glass-popover);
-    -webkit-backdrop-filter: blur(24px) saturate(126%);
-    backdrop-filter: blur(24px) saturate(126%);
+  .mobile-detail-sheet-header {
+    padding-top: calc(1.25rem + env(safe-area-inset-top));
+    padding-right: calc(3.5rem + env(safe-area-inset-right));
+  }
+
+  .mobile-detail-sheet-header [data-slot='sheet-close'] {
+    top: calc(0.75rem + env(safe-area-inset-top));
+    right: calc(0.75rem + env(safe-area-inset-right));
   }
 
   .mobile-detail-sheet-header [data-slot='sheet-title'] {
@@ -1345,6 +1384,16 @@ html[data-ambient-paused='true'] .app-shell::after {
   .health-ribbon {
     align-items: flex-start;
     flex-wrap: wrap;
+  }
+
+  .workload-telemetry-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .workload-telemetry-controls .segmented-control {
+    width: 100%;
   }
 }
 
@@ -1431,6 +1480,8 @@ html[data-ambient-paused='true'] .app-shell::after {
   .mobile-workbench-nav,
   .frost-panel,
   .overview-summary,
+  .workload-owner-picker,
+  .mobile-detail-sheet-header,
   .frost-sheet,
   .motion-popover {
     border-color: var(--input);

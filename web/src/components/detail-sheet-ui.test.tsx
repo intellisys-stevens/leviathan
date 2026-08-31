@@ -220,9 +220,10 @@ describe('detail sheet presentation', () => {
     expect(headerQueries.getByText('1c.1g.24gb')).toBeInTheDocument();
     expect(headerQueries.getByText('GI')).toBeInTheDocument();
     expect(headerQueries.getByText('CI')).toBeInTheDocument();
-    expect(
-      within(dialog).getByRole('button', { name: 'Close' }),
-    ).toBeInTheDocument();
+    const close = within(dialog).getByRole('button', { name: 'Close' });
+    expect(close).toBeInTheDocument();
+    expect(close.closest('[data-slot="sheet-header"]')).toBe(header);
+    expect(header).toHaveClass('mobile-detail-sheet-header', 'relative');
 
     const liveMetrics = within(dialog).getByTestId('detail-live-metrics');
     expect(liveMetrics).toHaveClass(
@@ -233,6 +234,42 @@ describe('detail sheet presentation', () => {
     );
     expect(liveMetrics).not.toHaveClass('lg:grid-cols-5');
     expect(liveMetrics.children).toHaveLength(7);
+    for (const tile of liveMetrics.children) {
+      const icon = tile.querySelector('[data-metric-icon]');
+      expect(icon).toBeInTheDocument();
+      expect(icon).toHaveAttribute('aria-hidden', 'true');
+    }
+    expect(
+      within(dialog).getByRole('heading', { name: 'History', level: 3 }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('heading', { name: 'Activity', level: 4 }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('heading', {
+        name: 'PCIe transfer',
+        level: 4,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('figure', { name: '30m activity history' }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('figure', {
+        name: '30m PCIe transfer history',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText('30m activity history data summary'),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText('30m PCIe transfer history data summary'),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getAllByRole('radiogroup', {
+        name: 'Detail chart window',
+      }),
+    ).toHaveLength(1);
   });
 
   it('omits metric provenance footers and the PCIe explanatory sentence', async () => {
@@ -261,11 +298,18 @@ describe('detail sheet presentation', () => {
       'lg:grid-cols-5',
     );
     expect(liveMetrics.children).toHaveLength(10);
+    for (const tile of liveMetrics.children) {
+      expect(tile.querySelector('[data-metric-icon]')).toHaveAttribute(
+        'aria-hidden',
+        'true',
+      );
+    }
     for (const chart of [
       within(dialog).getByTestId('detail-history-chart'),
       within(dialog).getByTestId('detail-pcie-chart'),
     ]) {
       expect(chart).toHaveClass('detail-chart-frame', 'h-[216px]', 'md:h-56');
+      expect(chart.querySelector('[data-chart-curve="linear"]')).not.toBeNull();
     }
 
     expect(
@@ -322,7 +366,7 @@ describe('detail sheet presentation', () => {
       ),
     );
     const activitySummary = within(dialog).getByRole('table', {
-      name: 'Activity history data summary',
+      name: '30m activity history data summary',
     });
     const oldSummary = within(activitySummary).getByRole('row', {
       name: /GPU activity/u,
@@ -402,7 +446,7 @@ describe('detail sheet presentation', () => {
       ),
     );
     const activitySummary = within(dialog).getByRole('table', {
-      name: 'Activity history data summary',
+      name: '30m activity history data summary',
     });
     const retainedSummary = within(activitySummary).getByRole('row', {
       name: /GPU activity/u,

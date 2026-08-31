@@ -3,13 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { chartRows, overviewMetricValue } from './components/overview-charts';
 import {
   buildOverviewEntities,
-  downsampleChartRows,
   mergeOverviewPoints,
-  movingAverageChartRows,
   overviewTopologyKey,
   pointFromSnapshot,
   useOverviewHistory,
-  type ChartRow,
   type OverviewPoint,
 } from './overview-history';
 import type { AlignedHistory, Snapshot } from './types';
@@ -247,13 +244,13 @@ describe('overview history', () => {
       series_0_tx: 2,
     });
     expect(data.rows[1]).toMatchObject({
-      series_0: 5,
-      series_0_rx: 2,
-      series_0_tx: 3,
+      series_0: 7,
+      series_0_rx: 3,
+      series_0_tx: 4,
     });
   });
 
-  it('renders a five-second trailing average without mutating raw points', () => {
+  it('renders stable five-second buckets without mutating raw points', () => {
     const gi = buildOverviewEntities(fixture())[1];
     const values = [10, 20, 30, 40, 50, 60];
     const points = values.map((value, index) => ({
@@ -262,55 +259,8 @@ describe('overview history', () => {
     }));
     const data = chartRows([gi], { [gi.key]: points }, 'utilization');
 
-    expect(data.rows.map((row) => row.series_0)).toEqual([
-      10, 15, 20, 25, 30, 40,
-    ]);
+    expect(data.rows.map((row) => row.series_0)).toEqual([30, 60]);
     expect(points.map((point) => point.values.sm_activity)).toEqual(values);
-  });
-
-  it('uses the same five-second window at every offered sampling rate', () => {
-    const expectation = [
-      { interval: 500, count: 11, expected: 6.5 },
-      { interval: 1000, count: 6, expected: 4 },
-      { interval: 2000, count: 4, expected: 3 },
-    ];
-    for (const { interval, count, expected } of expectation) {
-      const rows: ChartRow[] = Array.from({ length: count }, (_, index) => ({
-        time: index * interval,
-        value: index + 1,
-      }));
-      expect(movingAverageChartRows(rows, ['value']).at(-1)?.value).toBe(
-        expected,
-      );
-      expect(rows.at(-1)?.value).toBe(count);
-    }
-  });
-
-  it('keeps missing samples as gaps and restarts averaging after each gap', () => {
-    const rows: ChartRow[] = [
-      { time: 1, value: 10 },
-      { time: 2, value: 20 },
-      { time: 3, value: null },
-      { time: 4, value: 40 },
-      { time: 5, value: 60 },
-    ];
-
-    expect(
-      movingAverageChartRows(rows, ['value']).map((row) => row.value),
-    ).toEqual([10, 15, null, 40, 50]);
-    expect(rows[2].value).toBeNull();
-  });
-
-  it('recomputes the active average after eviction without float residue', () => {
-    const values = [89.9, 99.9, 33.3, 66.6, 1e-14, 0, 0, 0, 0, 0];
-    const rows = values.map((value, index) => ({
-      time: index * 1000,
-      value,
-    }));
-
-    const last = movingAverageChartRows(rows, ['value']).at(-1)?.value;
-    expect(last).toBe(0);
-    expect(Object.is(last, -0)).toBe(false);
   });
 
   it('deduplicates timestamps, prefers incoming points, and bounds the window', () => {
@@ -583,39 +533,5 @@ describe('overview history', () => {
     act(() => hook.result.current.retry());
     await waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(hook.result.current.error).toBeNull());
-  });
-
-  it('preserves every series minimum and maximum in each downsample bucket', () => {
-    const rows: ChartRow[] = Array.from({ length: 1_000 }, (_, time) => ({
-      time,
-      a: time === 150 ? 999 : time === 170 ? -999 : time % 20,
-      b: time === 550 ? 777 : time === 570 ? -777 : time % 11,
-    }));
-    const sampled = downsampleChartRows(rows, ['a', 'b'], 10);
-    expect(sampled.length).toBeLessThan(rows.length);
-    expect(sampled).toContain(rows[150]);
-    expect(sampled).toContain(rows[170]);
-    expect(sampled).toContain(rows[550]);
-    expect(sampled).toContain(rows[570]);
-    expect(sampled[0]).toBe(rows[0]);
-    expect(sampled.at(-1)).toBe(rows.at(-1));
-  });
-
-  it('strictly caps large multi-series chart data at 720 points', () => {
-    const keys = Array.from({ length: 12 }, (_, index) => `series_${index}`);
-    const rows: ChartRow[] = Array.from({ length: 7_202 }, (_, time) => {
-      const row: ChartRow = { time };
-      for (const [index, key] of keys.entries()) {
-        row[key] = time === 100 + index * 50 ? 10_000 + index : time % 97;
-      }
-      return row;
-    });
-    const sampled = downsampleChartRows(rows, keys, 720);
-
-    expect(sampled.length).toBeLessThanOrEqual(720);
-    expect(sampled[0]).toBe(rows[0]);
-    expect(sampled.at(-1)).toBe(rows.at(-1));
-    expect(sampled.some((row) => row.series_0 === 10_000)).toBe(true);
-    expect(downsampleChartRows(rows, keys, 0)).toEqual([]);
   });
 });

@@ -17,24 +17,19 @@ export type SnowParticle = {
 
 export type AmbientSnowState = 'running' | 'paused' | 'static' | 'hidden';
 
-const coarseMinimumParticleCount = 36;
-const coarseMaximumParticleCount = 64;
-const desktopMinimumParticleCount = 70;
-const desktopMaximumParticleCount = 140;
-const particleArea = 9_000;
-const maximumFrameDeltaMs = 32;
+const coarseMinimumParticleCount = 44;
+const coarseMaximumParticleCount = 80;
+const desktopMinimumParticleCount = 80;
+const desktopMaximumParticleCount = 160;
+const particleArea = 8_000;
+const maximumFrameDeltaMs = 50;
 const maximumBackingPixels = 8_294_400;
 const coarseViewportWidth = 768;
 const coarsePixelRatio = 1.25;
-const desktopPixelRatio = 1.5;
+const desktopPixelRatio = 1.25;
 const defaultSeed = 0x1e71a7a;
-const spriteSize = 12;
-
-const layerColors: Record<SnowLayer, string> = {
-  far: 'rgb(220 241 248)',
-  mid: 'rgb(220 247 255)',
-  near: 'rgb(225 250 255)',
-};
+const spriteSize = 8;
+const dotColor = 'rgb(225 250 255)';
 
 const layerRanges: Record<
   SnowLayer,
@@ -130,8 +125,8 @@ export function snowPixelRatio(
 }
 
 function layerAt(index: number, count: number): SnowLayer {
-  const nearStart = count - Math.max(1, Math.round(count * 0.12));
-  const midStart = Math.round(count * 0.55);
+  const nearStart = count - Math.max(1, Math.round(count * 0.1));
+  const midStart = Math.round(count * 0.58);
   if (index >= nearStart) return 'near';
   if (index >= midStart) return 'mid';
   return 'far';
@@ -201,8 +196,8 @@ function resizeSnowParticlePool(
 
   const count = snowParticleCount(width, height, coarsePointer);
   const desired = {
-    far: Math.round(count * 0.55),
-    near: Math.max(1, Math.round(count * 0.12)),
+    far: Math.round(count * 0.58),
+    near: Math.max(1, Math.round(count * 0.1)),
   };
   const targets: Record<SnowLayer, number> = {
     far: desired.far,
@@ -264,15 +259,10 @@ function drawSnow(
   context.clearRect(0, 0, width, height);
 
   for (const particle of particles) {
-    const sprite = atlas.regions[particle.layer];
     const diameter = particle.radius * 2;
     context.globalAlpha = particle.alpha;
     context.drawImage(
       atlas.source,
-      sprite.x,
-      sprite.y,
-      sprite.width,
-      sprite.height,
       particle.x - particle.radius,
       particle.y - particle.radius,
       diameter,
@@ -283,16 +273,8 @@ function drawSnow(
   context.globalAlpha = 1;
 }
 
-type SnowSpriteRegion = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
-
 type SnowSpriteAtlas = {
   source: HTMLCanvasElement;
-  regions: Record<SnowLayer, SnowSpriteRegion>;
 };
 
 const snowSpriteAtlases = new WeakMap<Document, SnowSpriteAtlas>();
@@ -301,55 +283,19 @@ function createSnowSpriteAtlas(
   ownerDocument: Document,
 ): SnowSpriteAtlas | null {
   const source = ownerDocument.createElement('canvas');
-  source.width = spriteSize * 3;
+  source.width = spriteSize;
   source.height = spriteSize;
   const context = source.getContext('2d');
   if (!context) return null;
 
-  const fill = (
-    layer: SnowLayer,
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-  ) => {
-    context.fillStyle = layerColors[layer];
-    context.fillRect(x, y, w, h);
-  };
+  context.fillStyle = dotColor;
+  context.fillRect(2, 0, 4, 1);
+  context.fillRect(1, 1, 6, 1);
+  context.fillRect(0, 2, 8, 4);
+  context.fillRect(1, 6, 6, 1);
+  context.fillRect(2, 7, 4, 1);
 
-  // Far: a compact chamfered dot.
-  fill('far', 4, 3, 4, 6);
-  fill('far', 3, 4, 6, 4);
-
-  // Mid: an angular diamond with enough body to survive down-scaling.
-  const midX = spriteSize;
-  fill('mid', midX + 5, 1, 2, 2);
-  fill('mid', midX + 3, 3, 6, 2);
-  fill('mid', midX + 1, 5, 10, 2);
-  fill('mid', midX + 3, 7, 6, 2);
-  fill('mid', midX + 5, 9, 2, 2);
-
-  // Near: a small six-point flake built from pixel-stable rectangles.
-  const nearX = spriteSize * 2;
-  fill('near', nearX + 5, 0, 2, 12);
-  fill('near', nearX + 1, 2, 2, 2);
-  fill('near', nearX + 3, 3, 2, 2);
-  fill('near', nearX + 7, 3, 2, 2);
-  fill('near', nearX + 9, 2, 2, 2);
-  fill('near', nearX + 4, 4, 4, 4);
-  fill('near', nearX + 3, 7, 2, 2);
-  fill('near', nearX + 1, 8, 2, 2);
-  fill('near', nearX + 7, 7, 2, 2);
-  fill('near', nearX + 9, 8, 2, 2);
-
-  return {
-    source,
-    regions: {
-      far: { x: 0, y: 0, width: spriteSize, height: spriteSize },
-      mid: { x: spriteSize, y: 0, width: spriteSize, height: spriteSize },
-      near: { x: spriteSize * 2, y: 0, width: spriteSize, height: spriteSize },
-    },
-  };
+  return { source };
 }
 
 function getSnowSpriteAtlas(ownerDocument: Document): SnowSpriteAtlas | null {
