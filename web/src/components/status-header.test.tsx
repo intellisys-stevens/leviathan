@@ -44,9 +44,9 @@ describe('StatusHeader sampling controls', () => {
     const combined = within(desktop).getByLabelText('Live status and sampling');
     expect(combined).not.toHaveClass('border', 'bg-primary/[0.07]');
     const brandMark = document.querySelector<HTMLElement>(
-      '[style*="miglens-mark.png"]',
+      '[style*="leviathan-mark.svg"]',
     );
-    expect(brandMark).toHaveClass('bg-foreground');
+    expect(brandMark).toHaveClass('bg-primary');
     expect(brandMark).toHaveAttribute('aria-hidden', 'true');
     expect(
       within(desktop).getByRole('status', {
@@ -58,7 +58,7 @@ describe('StatusHeader sampling controls', () => {
     const control = within(desktop).getByRole('group', {
       name: 'Sampling interval',
     });
-    expect(control).toHaveClass('gap-1', 'border-border/80', 'bg-muted/50');
+    expect(control).toHaveClass('gap-1', 'border-input', 'bg-popover');
     expect(
       within(control)
         .getAllByRole('button')
@@ -72,11 +72,11 @@ describe('StatusHeader sampling controls', () => {
       expect(option).toHaveClass('min-w-10', 'flex-none');
     }
     const repositoryLink = screen.getByRole('link', {
-      name: 'Open MIGLens repository on GitHub',
+      name: 'Open Leviathan repository on GitHub',
     });
     expect(repositoryLink).toHaveAttribute(
       'href',
-      'https://github.com/intellisys-stevens/miglens',
+      'https://github.com/intellisys-stevens/leviathan',
     );
     expect(repositoryLink).toHaveAttribute('target', '_blank');
     expect(repositoryLink).toHaveAttribute('rel', 'noreferrer');
@@ -134,7 +134,7 @@ describe('StatusHeader sampling controls', () => {
       name: 'Live status, sampling 1s',
     });
     expect(trigger).toHaveTextContent('Live · 1s');
-    expect(trigger).toHaveClass('border-border/80', 'bg-muted/50');
+    expect(trigger).toHaveClass('border-input', 'bg-popover');
     expect(trigger).not.toHaveClass('border-primary/25', 'bg-primary/[0.08]');
 
     fireEvent.click(trigger);
@@ -145,7 +145,7 @@ describe('StatusHeader sampling controls', () => {
     ).toBeInTheDocument();
     expect(
       within(dialog).getByRole('group', { name: 'Sampling interval' }),
-    ).toHaveClass('gap-1', 'border-border/80', 'bg-muted/50');
+    ).toHaveClass('gap-1', 'border-input', 'bg-popover');
     for (const option of within(dialog).getAllByRole('button')) {
       expect(option).toHaveClass('min-w-0', 'flex-1');
       expect(option).not.toHaveClass('min-w-10');

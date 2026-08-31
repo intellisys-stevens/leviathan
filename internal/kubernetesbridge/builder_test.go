@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/intellisys-stevens/miglens/internal/attribution"
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/attribution"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 	resourcev1 "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )

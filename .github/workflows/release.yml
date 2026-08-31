@@ -29,16 +29,19 @@ jobs:
         run: |
           set -euo pipefail
           version=${GITHUB_REF_NAME#v}
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$(git cat-file -t "$GITHUB_REF_NAME")" = tag
           git tag --points-at HEAD | grep -Fxq "$GITHUB_REF_NAME"
-          test "$(awk '$1 == "version:" { print $2 }' charts/miglens-attribution/Chart.yaml)" = "$version"
-          test "$(awk '$1 == "appVersion:" { gsub(/"/, "", $2); print $2 }' charts/miglens-attribution/Chart.yaml)" = "$version"
+          test "$(awk '$1 == "version:" { print $2 }' charts/leviathan-attribution/Chart.yaml)" = "$version"
+          test "$(awk '$1 == "appVersion:" { gsub(/"/, "", $2); print $2 }' charts/leviathan-attribution/Chart.yaml)" = "$version"
           test "$(sed -n 's/^  version: //p' api/openapi.yaml | head -n 1)" = "$version"
           test "$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)",$/\1/p' web/package.json | head -n 1)" = "$version"
           test "$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)",$/\1/p' web/package-lock.json | sed -n '1p')" = "$version"
           test "$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)",$/\1/p' web/package-lock.json | sed -n '2p')" = "$version"
           grep -Fxq -- "  --version $version \\" README.md
           grep -Fxq -- "  --version $version \\" docs/kubernetes-attribution.md
+          scripts/verify-branding.sh
+          scripts/verify-release-metadata.sh "$version"
           source_epoch=$(git log -1 --format=%ct)
           build_date=$(date -u -d "@$source_epoch" +%Y-%m-%dT%H:%M:%SZ)
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -67,12 +70,12 @@ jobs:
           version: v3.18.6
       - name: Test and vet attribution components
         run: |
-          go test ./cmd/miglens-kubernetes-bridge ./internal/attribution ./internal/kubernetesbridge
-          go vet ./cmd/miglens-kubernetes-bridge ./internal/attribution ./internal/kubernetesbridge
+          go test ./cmd/leviathan-kubernetes-bridge ./internal/attribution ./internal/kubernetesbridge
+          go vet ./cmd/leviathan-kubernetes-bridge ./internal/attribution ./internal/kubernetesbridge
       - name: Check Go dependency licenses
         run: |
-          go run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/miglens --disallowed_types=forbidden,restricted,unknown
-          go run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/miglens-kubernetes-bridge --disallowed_types=forbidden,restricted,unknown
+          go run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/leviathan --disallowed_types=forbidden,restricted,unknown
+          go run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/leviathan-kubernetes-bridge --disallowed_types=forbidden,restricted,unknown
       - name: Check reachable Go vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
       - name: Check frontend dependencies
@@ -130,7 +133,7 @@ jobs:
         run: |
           archive=$(scripts/build-release.sh)
           scripts/verify-release-archive.sh "$archive" "$VERSION" "$ARCHITECTURE"
-          sbom="dist/miglens_linux_${ARCHITECTURE}.spdx.json"
+          sbom="dist/leviathan_linux_${ARCHITECTURE}.spdx.json"
           echo "archive=${archive}" >> "$GITHUB_OUTPUT"
           echo "sbom=${sbom}" >> "$GITHUB_OUTPUT"
       - name: Generate SPDX SBOM
@@ -167,7 +170,7 @@ jobs:
       id-token: write
       packages: write
     env:
-      BRIDGE_IMAGE: ghcr.io/${{ github.repository_owner }}/miglens-kubernetes-bridge
+      BRIDGE_IMAGE: ghcr.io/${{ github.repository_owner }}/leviathan-kubernetes-bridge
     steps:
       - uses: actions/checkout@v7
         with:
@@ -184,7 +187,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: contrib/container/miglens-kubernetes-bridge.Dockerfile
+          file: contrib/container/leviathan-kubernetes-bridge.Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           provenance: mode=max
@@ -205,7 +208,7 @@ jobs:
         with:
           image: ${{ env.BRIDGE_IMAGE }}@${{ steps.build.outputs.digest }}
           format: spdx-json
-          output-file: dist/miglens-kubernetes-bridge_${{ needs.release-metadata.outputs.version }}_linux_amd64.spdx.json
+          output-file: dist/leviathan-kubernetes-bridge_${{ needs.release-metadata.outputs.version }}_linux_amd64.spdx.json
           upload-artifact: false
           upload-release-assets: false
       - name: Write arm64 bridge image SPDX SBOM
@@ -215,7 +218,7 @@ jobs:
         with:
           image: ${{ env.BRIDGE_IMAGE }}@${{ steps.build.outputs.digest }}
           format: spdx-json
-          output-file: dist/miglens-kubernetes-bridge_${{ needs.release-metadata.outputs.version }}_linux_arm64.spdx.json
+          output-file: dist/leviathan-kubernetes-bridge_${{ needs.release-metadata.outputs.version }}_linux_arm64.spdx.json
           upload-artifact: false
           upload-release-assets: false
       - name: Attest bridge image provenance
@@ -229,14 +232,14 @@ jobs:
         with:
           subject-name: ${{ env.BRIDGE_IMAGE }}
           subject-digest: ${{ steps.build.outputs.digest }}
-          sbom-path: dist/miglens-kubernetes-bridge_${{ needs.release-metadata.outputs.version }}_linux_amd64.spdx.json
+          sbom-path: dist/leviathan-kubernetes-bridge_${{ needs.release-metadata.outputs.version }}_linux_amd64.spdx.json
           push-to-registry: true
       - name: Attest arm64 bridge image SBOM
         uses: actions/attest@v4
         with:
           subject-name: ${{ env.BRIDGE_IMAGE }}
           subject-digest: ${{ steps.build.outputs.digest }}
-          sbom-path: dist/miglens-kubernetes-bridge_${{ needs.release-metadata.outputs.version }}_linux_arm64.spdx.json
+          sbom-path: dist/leviathan-kubernetes-bridge_${{ needs.release-metadata.outputs.version }}_linux_arm64.spdx.json
           push-to-registry: true
       - uses: sigstore/cosign-installer@v4.1.2
       - name: Sign bridge image with GitHub OIDC
@@ -277,18 +280,18 @@ jobs:
         run: |
           set -euo pipefail
           scripts/verify-helm-chart.sh
-          chart_version=$(helm show chart charts/miglens-attribution | awk '$1 == "version:" { print $2 }')
-          app_version=$(helm show chart charts/miglens-attribution | awk '$1 == "appVersion:" { gsub(/"/, "", $2); print $2 }')
+          chart_version=$(helm show chart charts/leviathan-attribution | awk '$1 == "version:" { print $2 }')
+          app_version=$(helm show chart charts/leviathan-attribution | awk '$1 == "appVersion:" { gsub(/"/, "", $2); print $2 }')
           test "$chart_version" = "${{ needs.release-metadata.outputs.version }}"
           test "$app_version" = "${{ needs.release-metadata.outputs.version }}"
       - name: Package Helm chart
-        run: mkdir -p dist && helm package charts/miglens-attribution --destination dist
+        run: mkdir -p dist && helm package charts/leviathan-attribution --destination dist
       - name: Generate chart SPDX SBOM
         uses: anchore/sbom-action@v0
         with:
-          file: dist/miglens-attribution-${{ needs.release-metadata.outputs.version }}.tgz
+          file: dist/leviathan-attribution-${{ needs.release-metadata.outputs.version }}.tgz
           format: spdx-json
-          output-file: dist/miglens-attribution_${{ needs.release-metadata.outputs.version }}.spdx.json
+          output-file: dist/leviathan-attribution_${{ needs.release-metadata.outputs.version }}.spdx.json
           upload-artifact: false
           upload-release-assets: false
       - name: Publish Helm chart as OCI artifact
@@ -300,7 +303,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "$HELM_PASSWORD" | helm registry login ghcr.io --username "$HELM_USERNAME" --password-stdin
-          output=$(helm push "dist/miglens-attribution-${{ needs.release-metadata.outputs.version }}.tgz" "oci://$CHART_REGISTRY" 2>&1)
+          output=$(helm push "dist/leviathan-attribution-${{ needs.release-metadata.outputs.version }}.tgz" "oci://$CHART_REGISTRY" 2>&1)
           printf '%s\n' "$output"
           digest=$(awk '$1 == "Digest:" { print $2 }' <<<"$output")
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
@@ -308,22 +311,22 @@ jobs:
       - name: Attest Helm OCI provenance
         uses: actions/attest@v4
         with:
-          subject-name: ${{ env.CHART_REGISTRY }}/miglens-attribution
+          subject-name: ${{ env.CHART_REGISTRY }}/leviathan-attribution
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
       - name: Sign Helm OCI artifact with GitHub OIDC
         env:
           DIGEST: ${{ steps.push.outputs.digest }}
-        run: cosign sign --yes "$CHART_REGISTRY/miglens-attribution@$DIGEST"
+        run: cosign sign --yes "$CHART_REGISTRY/leviathan-attribution@$DIGEST"
       - name: Attest chart archive provenance
         uses: actions/attest@v4
         with:
-          subject-path: dist/miglens-attribution-${{ needs.release-metadata.outputs.version }}.tgz
+          subject-path: dist/leviathan-attribution-${{ needs.release-metadata.outputs.version }}.tgz
       - name: Attest chart archive SBOM
         uses: actions/attest@v4
         with:
-          subject-path: dist/miglens-attribution-${{ needs.release-metadata.outputs.version }}.tgz
-          sbom-path: dist/miglens-attribution_${{ needs.release-metadata.outputs.version }}.spdx.json
+          subject-path: dist/leviathan-attribution-${{ needs.release-metadata.outputs.version }}.tgz
+          sbom-path: dist/leviathan-attribution_${{ needs.release-metadata.outputs.version }}.spdx.json
       - uses: actions/upload-artifact@v7
         with:
           name: release-chart
@@ -365,4 +368,4 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --latest --title "MIGLens $GITHUB_REF_NAME"
+        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --latest --title "Leviathan $GITHUB_REF_NAME"

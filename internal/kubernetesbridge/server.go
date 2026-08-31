@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/attribution"
+	"github.com/intellisys-stevens/leviathan/internal/attribution"
 )
 
 type Server struct {

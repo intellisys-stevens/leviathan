@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/model"
-	"github.com/intellisys-stevens/miglens/internal/provider"
+	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/provider"
 )
 
 func TestClientFreshStaleAndExpiredInventory(t *testing.T) {

@@ -114,7 +114,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Return build metadata for the running MIGLens binary. */
+        /** Return build metadata for the running Leviathan binary. */
         get: operations["getBuildInfo"];
         put?: never;
         post?: never;
@@ -179,7 +179,7 @@ export interface components {
             status: components["schemas"]["MetricStatus"];
             message?: string;
         };
-        /** @description A GPU-connected process visible in MIGLens' current PID namespace. An open NVIDIA UVM handle includes idle CUDA contexts and does not imply active kernels, GPU memory use, or GI/CI ownership. */
+        /** @description A GPU-connected process visible in Leviathan's current PID namespace. An open NVIDIA UVM handle includes idle CUDA contexts and does not imply active kernels, GPU memory use, or GI/CI ownership. */
         Process: {
             /** Format: uint32 */
             pid: number;
@@ -334,7 +334,7 @@ export interface components {
             sampledAt: string;
             host: components["schemas"]["Host"];
             gpus: components["schemas"]["GPU"][];
-            /** @description GPU-connected processes detected through open NVIDIA UVM device handles in the current PID namespace. MIGLens itself is excluded. */
+            /** @description GPU-connected processes detected through open NVIDIA UVM device handles in the current PID namespace. Leviathan itself is excluded. */
             processes: components["schemas"]["Process"][];
             attribution?: components["schemas"]["Attribution"];
             capabilities: components["schemas"]["Capabilities"];

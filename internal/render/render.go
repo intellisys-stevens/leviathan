@@ -6,8 +6,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/doctor"
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/doctor"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 func SnapshotTable(writer io.Writer, snapshot model.Snapshot, ascii bool) {
@@ -17,7 +17,7 @@ func SnapshotTable(writer io.Writer, snapshot model.Snapshot, ascii bool) {
 		dash, branch, lastBranch = "-", "+-", "\\-"
 	}
 	output := tabwriter.NewWriter(writer, 0, 4, 2, ' ', 0)
-	fmt.Fprintf(output, "MIGLens\t%s\t%s\tsequence %d\n", snapshot.Host.Hostname, snapshot.SampledAt.Format(time.RFC3339), snapshot.Sequence)
+	fmt.Fprintf(output, "Leviathan\t%s\t%s\tsequence %d\n", snapshot.Host.Hostname, snapshot.SampledAt.Format(time.RFC3339), snapshot.Sequence)
 	fmt.Fprintln(output, "ENTITY\tPROFILE\tMEMORY\tSM\tSTATUS")
 	if len(snapshot.GPUs) == 0 {
 		fmt.Fprintf(output, "%s\t%s\t%s\t%s\t%s\n", "No NVIDIA GPUs", dash, dash, dash, "unsupported")
@@ -63,7 +63,7 @@ func SnapshotTable(writer io.Writer, snapshot model.Snapshot, ascii bool) {
 
 func DoctorText(writer io.Writer, report doctor.Report) {
 	output := tabwriter.NewWriter(writer, 0, 4, 2, ' ', 0)
-	fmt.Fprintf(output, "MIGLens doctor\t%s\n", report.CheckedAt.Format(time.RFC3339))
+	fmt.Fprintf(output, "Leviathan doctor\t%s\n", report.CheckedAt.Format(time.RFC3339))
 	fmt.Fprintln(output, "STATUS\tCOMPONENT\tCHECK\tDETAIL")
 	for _, diagnostic := range report.Diagnostics {
 		detail := diagnostic.Detail

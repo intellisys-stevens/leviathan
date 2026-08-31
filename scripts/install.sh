@@ -1,34 +1,42 @@
 #!/bin/sh
 set -eu
 
-repository="intellisys-stevens/miglens"
+repository="intellisys-stevens/leviathan"
 minimum_glibc="2.34"
-requested_version=${MIGLENS_VERSION:-latest}
-install_directory=${MIGLENS_INSTALL_DIR:-}
+requested_version=${LEVIATHAN_VERSION:-latest}
+install_directory=${LEVIATHAN_INSTALL_DIR:-}
 temporary_directory=
 target_temporary=
 
 usage() {
   cat <<'EOF'
-Install MIGLens from a GitHub release.
+Install Leviathan from a GitHub release.
 
 Usage: install.sh [options]
 
 Options:
-  --version VERSION    Install a release such as v0.2.1 (default: latest)
+  --version VERSION    Install a release such as v0.3.0 (default: latest)
   --install-dir DIR    Install directory (default: ~/.local/bin)
   -h, --help           Show this help
 
 Environment:
-  MIGLENS_VERSION       Default value for --version
-  MIGLENS_INSTALL_DIR   Default value for --install-dir
+  LEVIATHAN_VERSION       Default value for --version
+  LEVIATHAN_INSTALL_DIR   Default value for --install-dir
 EOF
 }
 
 fail() {
-  printf 'miglens installer: %s\n' "$*" >&2
+  printf 'leviathan installer: %s\n' "$*" >&2
   exit 1
 }
+
+legacy_environment=$(
+  env | awk -F= '$1 ~ /^MIGLENS_/ { print $1; exit }'
+)
+if [ -n "$legacy_environment" ]; then
+  legacy_suffix=${legacy_environment#MIGLENS_}
+  fail "legacy environment variable $legacy_environment is no longer supported; rename it to LEVIATHAN_$legacy_suffix"
+fi
 
 cleanup() {
   if [ -n "$target_temporary" ] && [ -e "$target_temporary" ]; then
@@ -93,7 +101,7 @@ esac
 glibc_description=$(getconf GNU_LIBC_VERSION 2>/dev/null || true)
 case "$glibc_description" in
   glibc\ *) glibc_version=${glibc_description#glibc } ;;
-  *) fail "MIGLens requires glibc $minimum_glibc or newer; musl and unknown C libraries are unsupported" ;;
+  *) fail "Leviathan requires glibc $minimum_glibc or newer; musl and unknown C libraries are unsupported" ;;
 esac
 
 if ! awk -v have="$glibc_version" -v need="$minimum_glibc" 'BEGIN {
@@ -105,7 +113,7 @@ if ! awk -v have="$glibc_version" -v need="$minimum_glibc" 'BEGIN {
   }
   exit 0;
 }'; then
-  fail "MIGLens requires glibc $minimum_glibc or newer (found $glibc_version)"
+  fail "Leviathan requires glibc $minimum_glibc or newer (found $glibc_version)"
 fi
 
 if [ -z "$requested_version" ]; then
@@ -122,7 +130,7 @@ case "$requested_version" in
       v*) normalized_version=$requested_version ;;
       *) normalized_version="v$requested_version" ;;
     esac
-    printf '%s\n' "$normalized_version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z][0-9A-Za-z.+-]*)?$' ||
+    printf '%s\n' "$normalized_version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' ||
       fail "invalid version: $requested_version"
     release_path="download/$normalized_version"
     display_version=$normalized_version
@@ -134,9 +142,9 @@ if [ -z "$install_directory" ]; then
   install_directory="$HOME/.local/bin"
 fi
 
-archive_name="miglens_linux_${architecture}.tar.gz"
+archive_name="leviathan_linux_${architecture}.tar.gz"
 base_url="https://github.com/${repository}/releases/${release_path}"
-temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/miglens-install.XXXXXX")
+temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/leviathan-install.XXXXXX")
 archive_path="$temporary_directory/$archive_name"
 checksums_path="$temporary_directory/checksums.txt"
 extract_directory="$temporary_directory/extract"
@@ -166,21 +174,21 @@ fi
 
 mkdir -p "$extract_directory"
 tar -xzf "$archive_path" -C "$extract_directory"
-binary_paths=$(find "$extract_directory" -type f -name miglens -print)
+binary_paths=$(find "$extract_directory" -type f -name leviathan -print)
 binary_count=$(printf '%s\n' "$binary_paths" | awk 'NF { count++ } END { print count + 0 }')
-[ "$binary_count" -eq 1 ] || fail "$archive_name must contain exactly one miglens binary"
+[ "$binary_count" -eq 1 ] || fail "$archive_name must contain exactly one leviathan binary"
 binary_path=$binary_paths
 
 mkdir -p "$install_directory"
 install_directory=$(CDPATH=''; cd -P "$install_directory" && pwd)
-target_path="$install_directory/miglens"
-target_temporary=$(mktemp "$install_directory/.miglens.XXXXXX")
+target_path="$install_directory/leviathan"
+target_temporary=$(mktemp "$install_directory/.leviathan.XXXXXX")
 cp "$binary_path" "$target_temporary"
 chmod 0755 "$target_temporary"
 mv -f "$target_temporary" "$target_path"
 target_temporary=
 
-printf 'Installed MIGLens %s to %s\n' "$display_version" "$target_path"
+printf 'Installed Leviathan %s to %s\n' "$display_version" "$target_path"
 
 case ":${PATH:-}:" in
   *":$install_directory:"*) ;;

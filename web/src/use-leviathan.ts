@@ -177,7 +177,7 @@ export function shareStableSnapshot(
   };
 }
 
-export function useMIGLens() {
+export function useLeviathan() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [settings, setSettings] = useState<RuntimeSettings | null>(null);
   const [buildInfo, setBuildInfo] = useState<BuildInfo | null | undefined>(

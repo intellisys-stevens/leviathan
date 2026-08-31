@@ -13,15 +13,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/api"
-	"github.com/intellisys-stevens/miglens/internal/app"
-	"github.com/intellisys-stevens/miglens/internal/collector"
-	"github.com/intellisys-stevens/miglens/internal/config"
-	"github.com/intellisys-stevens/miglens/internal/doctor"
-	"github.com/intellisys-stevens/miglens/internal/model"
-	"github.com/intellisys-stevens/miglens/internal/render"
-	"github.com/intellisys-stevens/miglens/internal/tui"
-	"github.com/intellisys-stevens/miglens/internal/webui"
+	"github.com/intellisys-stevens/leviathan/internal/api"
+	"github.com/intellisys-stevens/leviathan/internal/app"
+	"github.com/intellisys-stevens/leviathan/internal/collector"
+	"github.com/intellisys-stevens/leviathan/internal/config"
+	"github.com/intellisys-stevens/leviathan/internal/doctor"
+	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/render"
+	"github.com/intellisys-stevens/leviathan/internal/tui"
+	"github.com/intellisys-stevens/leviathan/internal/webui"
 	"github.com/spf13/cobra"
 )
 
@@ -40,6 +40,9 @@ type application struct {
 }
 
 func Execute(ctx context.Context, stdout, stderr io.Writer, args []string) error {
+	if err := config.RejectLegacyEnv(); err != nil {
+		return err
+	}
 	application := &application{stdout: stdout, stderr: stderr, flags: config.Defaults()}
 	root := application.command()
 	root.SetArgs(args)
@@ -50,7 +53,7 @@ func Execute(ctx context.Context, stdout, stderr io.Writer, args []string) error
 
 func (a *application) command() *cobra.Command {
 	root := &cobra.Command{
-		Use:           "miglens",
+		Use:           "leviathan",
 		Short:         "MIG-first NVIDIA GPU monitoring",
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -74,7 +77,7 @@ func (a *application) command() *cobra.Command {
 	flags.BoolVar(&a.flags.NoColor, "no-color", a.flags.NoColor, "disable terminal colors")
 	flags.BoolVar(&a.flags.ASCII, "ascii", a.flags.ASCII, "use ASCII terminal glyphs")
 	flags.StringVar(&a.flags.Fixture, "fixture", a.flags.Fixture, "use a deterministic fixture (see README for scenarios)")
-	flags.StringVar(&a.flags.AttributionSocket, "attribution-socket", a.flags.AttributionSocket, "optional MIGLens attribution bridge Unix socket")
+	flags.StringVar(&a.flags.AttributionSocket, "attribution-socket", a.flags.AttributionSocket, "optional Leviathan attribution bridge Unix socket")
 
 	root.AddCommand(a.tuiCommand(), a.snapshotCommand(), a.watchCommand(), a.serveCommand(), a.doctorCommand(), versionCommand(a.stdout))
 	return root
@@ -82,7 +85,7 @@ func (a *application) command() *cobra.Command {
 
 func (a *application) prepareConfig(command *cobra.Command) error {
 	path := config.DefaultPath()
-	if value := os.Getenv("MIGLENS_CONFIG"); value != "" {
+	if value := os.Getenv("LEVIATHAN_CONFIG"); value != "" {
 		path = value
 	}
 	if flagChanged(command, "config") {
@@ -288,7 +291,7 @@ func (a *application) serveCommand() *cobra.Command {
 				// to the command so an interrupt can drain Shutdown immediately.
 				BaseContext: func(net.Listener) context.Context { return command.Context() },
 			}
-			fmt.Fprintf(a.stderr, "MIGLens dashboard: http://%s\n", listener.Addr())
+			fmt.Fprintf(a.stderr, "Leviathan dashboard: http://%s\n", listener.Addr())
 			fmt.Fprintln(a.stderr, tunnelHint(listener.Addr()))
 			done := make(chan error, 1)
 			go func() { done <- server.Serve(listener) }()
@@ -375,7 +378,7 @@ func versionCommand(stdout io.Writer) *cobra.Command {
 			if format != "text" {
 				return fmt.Errorf("format must be text or json")
 			}
-			_, err := fmt.Fprintf(stdout, "miglens %s (%s, %s)\n", version, Commit, BuildDate)
+			_, err := fmt.Fprintf(stdout, "leviathan %s (%s, %s)\n", version, Commit, BuildDate)
 			return err
 		},
 	}

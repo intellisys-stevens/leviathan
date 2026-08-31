@@ -10,9 +10,9 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/intellisys-stevens/miglens/internal/history"
-	"github.com/intellisys-stevens/miglens/internal/model"
-	"github.com/intellisys-stevens/miglens/internal/provider/fake"
+	"github.com/intellisys-stevens/leviathan/internal/history"
+	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/provider/fake"
 )
 
 type tuiSource struct {
@@ -56,8 +56,8 @@ func TestViewSnapshots(t *testing.T) {
 		tab      int
 		expected string
 	}{
-		{name: "wide-details", width: 120, height: 36, tab: 0, expected: "38478a51d33d80f983693c1f24555de3e6762797348b31aaa2f7f94af0e851ec"},
-		{name: "narrow-processes", width: 64, height: 24, tab: 1, expected: "ae3c8b87081136f7216404441cb289ab2b85a0f9fa34758bd1ba6d96e8af5a89"},
+		{name: "wide-details", width: 120, height: 36, tab: 0, expected: "08bbcab21275705a79b6f9d9860159029ad4c34cca0ef7e52e651cfad7cc8589"},
+		{name: "narrow-processes", width: 64, height: 24, tab: 1, expected: "25d631f4b4f9ed4b1cdbba46ef95c9f116864bd3a70d83402705322859309954"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

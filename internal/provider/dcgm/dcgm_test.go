@@ -8,7 +8,7 @@ import (
 	"time"
 
 	ndcgm "github.com/NVIDIA/go-dcgm/pkg/dcgm"
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 func TestGPUActivityProfilingFieldIsCollected(t *testing.T) {

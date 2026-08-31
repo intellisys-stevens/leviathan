@@ -1,14 +1,14 @@
 [Unit]
-Description=MIGLens GPU monitoring dashboard for %i
-Documentation=https://github.com/intellisys-stevens/miglens
+Description=Leviathan GPU monitoring dashboard for %i
+Documentation=https://github.com/intellisys-stevens/leviathan
 Wants=nvidia-persistenced.service
 After=nvidia-persistenced.service
 
 [Service]
 Type=simple
 User=%i
-EnvironmentFile=-/etc/miglens/miglens.env
-ExecStart=/usr/local/bin/miglens --listen 127.0.0.1:1397 serve
+EnvironmentFile=-/etc/leviathan/leviathan.env
+ExecStart=/usr/local/bin/leviathan --listen 127.0.0.1:1397 serve
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=10s

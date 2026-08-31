@@ -9,9 +9,19 @@ fi
 archive=$1
 version=${2#v}
 architecture=$3
-expected_name="miglens_linux_${architecture}.tar.gz"
-archive_root="miglens_${version}_linux_${architecture}"
+[[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+  echo "archive version must be stable semver: ${2}" >&2
+  exit 1
+}
+case "${architecture}" in
+  amd64 | arm64) ;;
+  *) echo "unsupported release architecture: ${architecture}" >&2; exit 1 ;;
+esac
+expected_name="leviathan_linux_${architecture}.tar.gz"
+archive_root="leviathan_${version}_linux_${architecture}"
 temporary_directory="$(mktemp -d)"
+legacy_name='mig'
+legacy_name+='lens'
 
 cleanup() {
   rm -rf -- "${temporary_directory}"
@@ -26,38 +36,44 @@ trap cleanup EXIT
 
 archive_entries="$(tar -tzf "${archive}")"
 [[ -n "${archive_entries}" ]]
+if grep -Ei -- "${legacy_name}" <<<"${archive_entries}" >/dev/null; then
+  echo "archive contains a legacy-named path" >&2
+  exit 1
+fi
 if ! awk -v root="${archive_root}/" 'index($0, root) != 1 { exit 1 }' <<<"${archive_entries}"; then
   echo "archive contains an entry outside ${archive_root}" >&2
   exit 1
 fi
 
 for required_path in \
-  "${archive_root}/miglens" \
+  "${archive_root}/leviathan" \
   "${archive_root}/LICENSE" \
   "${archive_root}/NOTICE" \
   "${archive_root}/README.md" \
   "${archive_root}/CONTRIBUTING.md" \
   "${archive_root}/SECURITY.md" \
-  "${archive_root}/miglens@.service" \
-  "${archive_root}/miglens.env.example" \
-  "${archive_root}/miglens-attribution.env" \
-  "${archive_root}/miglens@root.service.d/10-hardening.conf" \
-  "${archive_root}/contrib/systemd/miglens@.service" \
-  "${archive_root}/contrib/systemd/miglens.env.example" \
-  "${archive_root}/contrib/systemd/miglens-attribution.env" \
-  "${archive_root}/contrib/systemd/miglens@root.service.d/10-hardening.conf" \
-  "${archive_root}/charts/miglens-attribution/Chart.yaml" \
-  "${archive_root}/charts/miglens-attribution/values.yaml" \
-  "${archive_root}/charts/miglens-attribution/values.schema.json" \
-  "${archive_root}/charts/miglens-attribution/templates/daemonset.yaml" \
-  "${archive_root}/charts/miglens-attribution/templates/rbac.yaml" \
+  "${archive_root}/leviathan@.service" \
+  "${archive_root}/leviathan.env.example" \
+  "${archive_root}/leviathan-attribution.env" \
+  "${archive_root}/leviathan@root.service.d/10-hardening.conf" \
+  "${archive_root}/contrib/systemd/leviathan@.service" \
+  "${archive_root}/contrib/systemd/leviathan.env.example" \
+  "${archive_root}/contrib/systemd/leviathan-attribution.env" \
+  "${archive_root}/contrib/systemd/leviathan@root.service.d/10-hardening.conf" \
+  "${archive_root}/charts/leviathan-attribution/Chart.yaml" \
+  "${archive_root}/charts/leviathan-attribution/values.yaml" \
+  "${archive_root}/charts/leviathan-attribution/values.schema.json" \
+  "${archive_root}/charts/leviathan-attribution/templates/daemonset.yaml" \
+  "${archive_root}/charts/leviathan-attribution/templates/rbac.yaml" \
   "${archive_root}/docs/architecture.md" \
   "${archive_root}/docs/assets/architecture.svg" \
   "${archive_root}/docs/config.example.toml" \
   "${archive_root}/docs/kubernetes-attribution.md" \
+  "${archive_root}/docs/migration-v0.3.md" \
   "${archive_root}/docs/permissions.md" \
+  "${archive_root}/docs/releasing.md" \
   "${archive_root}/api/openapi.yaml" \
-  "${archive_root}/web/public/miglens-mark.png" \
+  "${archive_root}/web/public/leviathan-mark.svg" \
   "${archive_root}/openapi.yaml" \
   "${archive_root}/licenses/OFL-1.1.txt" \
   "${archive_root}/licenses/SHADCN-MIT.txt" \
@@ -72,13 +88,25 @@ done
 
 tar -xzf "${archive}" -C "${temporary_directory}"
 root="${temporary_directory}/${archive_root}"
-[[ -x "${root}/miglens" ]] || { echo "miglens is not executable" >&2; exit 1; }
-grep -Fx 'User=%i' "${root}/miglens@.service" >/dev/null
-grep -Fx 'ExecStart=/usr/local/bin/miglens --listen 127.0.0.1:1397 serve' "${root}/miglens@.service" >/dev/null
-grep -Fx 'EnvironmentFile=-/etc/miglens/miglens.env' "${root}/miglens@.service" >/dev/null
-grep -Fx '# MIGLENS_ATTRIBUTION_SOCKET=/run/miglens/attribution.sock' "${root}/miglens.env.example" >/dev/null
-grep -Fx 'MIGLENS_ATTRIBUTION_SOCKET=/run/miglens/attribution.sock' "${root}/miglens-attribution.env" >/dev/null
-root_hardening="${root}/miglens@root.service.d/10-hardening.conf"
+
+while IFS= read -r -d '' file; do
+  relative=${file#"${root}/"}
+  case "${relative}" in
+    leviathan | LICENSE | NOTICE | docs/migration-v0.3.md | docs/releasing.md) continue ;;
+  esac
+  if grep -In -i -- "${legacy_name}" "${file}" >/dev/null 2>&1; then
+    echo "archive contains an unexpected legacy product reference: ${relative}" >&2
+    exit 1
+  fi
+done < <(find "${root}" -type f -print0)
+
+[[ -x "${root}/leviathan" ]] || { echo "leviathan is not executable" >&2; exit 1; }
+grep -Fx 'User=%i' "${root}/leviathan@.service" >/dev/null
+grep -Fx 'ExecStart=/usr/local/bin/leviathan --listen 127.0.0.1:1397 serve' "${root}/leviathan@.service" >/dev/null
+grep -Fx 'EnvironmentFile=-/etc/leviathan/leviathan.env' "${root}/leviathan@.service" >/dev/null
+grep -Fx '# LEVIATHAN_ATTRIBUTION_SOCKET=/run/leviathan/attribution.sock' "${root}/leviathan.env.example" >/dev/null
+grep -Fx 'LEVIATHAN_ATTRIBUTION_SOCKET=/run/leviathan/attribution.sock' "${root}/leviathan-attribution.env" >/dev/null
+root_hardening="${root}/leviathan@root.service.d/10-hardening.conf"
 for directive in \
   'CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_SYS_PTRACE' \
   'ProtectProc=default' \
@@ -94,16 +122,18 @@ if grep -F -- '--show-command-line' "${root_hardening}" >/dev/null; then
   exit 1
 fi
 grep -Fx 'MIT License' "${root}/LICENSE" >/dev/null
-grep -F 'Copyright 2026 MIGLens contributors' "${root}/NOTICE" >/dev/null
+grep -F 'Leviathan (formerly MIGLens)' "${root}/NOTICE" >/dev/null
+grep -F 'Copyright (c) 2026 MIGLens contributors' "${root}/LICENSE" >/dev/null
+grep -F 'frost rune-tech world-serpent mark' "${root}/NOTICE" >/dev/null
 cmp "${root}/openapi.yaml" "${root}/api/openapi.yaml" >/dev/null
 
-version_output="$("${root}/miglens" version --format json)"
+version_output="$("${root}/leviathan" version --format json)"
 grep -F "\"version\":\"${version}\"" <<<"${version_output}" >/dev/null
 grep -Fx "  version: ${version}" "${root}/openapi.yaml" >/dev/null
 grep -Fx -- "  --version ${version} \\" "${root}/README.md" >/dev/null
 grep -Fx -- "  --version ${version} \\" "${root}/docs/kubernetes-attribution.md" >/dev/null
 
-chart="${root}/charts/miglens-attribution/Chart.yaml"
+chart="${root}/charts/leviathan-attribution/Chart.yaml"
 grep -Fx "version: ${version}" "${chart}" >/dev/null || {
   echo "Helm chart version does not match archive version ${version}" >&2
   exit 1
@@ -113,12 +143,12 @@ grep -Fx "appVersion: \"${version}\"" "${chart}" >/dev/null || {
   exit 1
 }
 grep -Fx 'kubeVersion: ">=1.34.0-0"' "${chart}" >/dev/null
-grep -F 'workspaceNamespaces:' "${root}/charts/miglens-attribution/values.yaml" >/dev/null
-grep -F 'readOnlyRootFilesystem: true' "${root}/charts/miglens-attribution/values.yaml" >/dev/null
-grep -F 'resources: ["resourceslices"]' "${root}/charts/miglens-attribution/templates/rbac.yaml" >/dev/null
-grep -F 'resources: ["resourceclaims"]' "${root}/charts/miglens-attribution/templates/rbac.yaml" >/dev/null
+grep -F 'workspaceNamespaces:' "${root}/charts/leviathan-attribution/values.yaml" >/dev/null
+grep -F 'readOnlyRootFilesystem: true' "${root}/charts/leviathan-attribution/values.yaml" >/dev/null
+grep -F 'resources: ["resourceslices"]' "${root}/charts/leviathan-attribution/templates/rbac.yaml" >/dev/null
+grep -F 'resources: ["resourceclaims"]' "${root}/charts/leviathan-attribution/templates/rbac.yaml" >/dev/null
 
-if strings -a "${root}/miglens" | grep -Ei '(/home/[^/[:space:]]+/|/Users/[^/[:space:]]+/|(MIG-)?GPU-[0-9a-f]{8}-[0-9a-f-]{27})' >/dev/null; then
+if strings -a "${root}/leviathan" | grep -Ei '(/home/[^/[:space:]]+/|/Users/[^/[:space:]]+/|(MIG-)?GPU-[0-9a-f]{8}-[0-9a-f-]{27})' >/dev/null; then
   echo "binary contains a host path or hardware identifier" >&2
   exit 1
 fi

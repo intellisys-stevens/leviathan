@@ -4,21 +4,21 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: {{ include "miglens-attribution.fullname" . }}
+  name: {{ include "leviathan-attribution.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "miglens-attribution.labels" . | nindent 4 }}
+    {{- include "leviathan-attribution.labels" . | nindent 4 }}
 spec:
   revisionHistoryLimit: 2
   selector:
     matchLabels:
-      {{- include "miglens-attribution.selectorLabels" . | nindent 6 }}
+      {{- include "leviathan-attribution.selectorLabels" . | nindent 6 }}
   updateStrategy:
     {{- toYaml .Values.updateStrategy | nindent 4 }}
   template:
     metadata:
       labels:
-        {{- include "miglens-attribution.selectorLabels" . | nindent 8 }}
+        {{- include "leviathan-attribution.selectorLabels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -31,7 +31,7 @@ spec:
       hostNetwork: false
       hostPID: false
       enableServiceLinks: false
-      serviceAccountName: {{ include "miglens-attribution.serviceAccountName" . }}
+      serviceAccountName: {{ include "leviathan-attribution.serviceAccountName" . }}
       automountServiceAccountToken: true
       terminationGracePeriodSeconds: 10
       securityContext:
@@ -59,7 +59,7 @@ spec:
           livenessProbe:
             exec:
               command:
-                - /miglens-kubernetes-bridge
+                - /leviathan-kubernetes-bridge
                 - probe
                 - --socket={{ .Values.socketPath }}
             initialDelaySeconds: 5
@@ -68,7 +68,7 @@ spec:
           readinessProbe:
             exec:
               command:
-                - /miglens-kubernetes-bridge
+                - /leviathan-kubernetes-bridge
                 - probe
                 - --ready
                 - --socket={{ .Values.socketPath }}

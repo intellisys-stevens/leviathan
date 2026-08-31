@@ -1,5 +1,7 @@
-export const chartWindowStorageKey = 'miglens.chartWindow.v1';
-export const detailChartWindowStorageKey = 'miglens.detailChartWindow.v1';
+import { readBrowserSetting } from './browser-storage';
+
+export const chartWindowStorageKey = 'leviathan.chartWindow.v1';
+export const detailChartWindowStorageKey = 'leviathan.detailChartWindow.v1';
 export const defaultChartWindowMs = 30 * 60 * 1000;
 export const defaultHistoryWindowMs = 60 * 60 * 1000;
 
@@ -11,7 +13,7 @@ export const chartWindowPresets = [
 ] as const;
 
 function storedWindow(key: string): number {
-  const value = Number(localStorage.getItem(key));
+  const value = Number(readBrowserSetting(key));
   return chartWindowPresets.some(({ milliseconds }) => milliseconds === value)
     ? value
     : defaultChartWindowMs;

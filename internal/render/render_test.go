@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 func TestSnapshotTableIncludesGPUProcessesWithoutGPUAttribution(t *testing.T) {

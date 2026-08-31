@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/intellisys-stevens/miglens/internal/attribution"
-	"github.com/intellisys-stevens/miglens/internal/config"
+	"github.com/intellisys-stevens/leviathan/internal/attribution"
+	"github.com/intellisys-stevens/leviathan/internal/config"
 )
 
 func TestProviderWrapsFakeOnlyWhenAttributionIsConfigured(t *testing.T) {

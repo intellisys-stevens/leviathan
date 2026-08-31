@@ -149,7 +149,7 @@ describe('people resource view', () => {
     }
     for (const memoryBar of screen.getAllByLabelText('Memory used')) {
       expect(memoryBar).toHaveClass(
-        '[&_[data-slot=progress-indicator]]:bg-cyan-400',
+        '[&_[data-slot=progress-indicator]]:bg-primary',
       );
     }
 

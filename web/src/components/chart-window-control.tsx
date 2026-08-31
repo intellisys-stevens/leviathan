@@ -27,12 +27,12 @@ export function ChartWindowControl({
       <legend className="float-left font-mono text-[8px] uppercase tracking-[0.14em] text-muted-foreground">
         Window
       </legend>
-      <div className="flex rounded-md bg-muted/45 p-0.5">
+      <div className="flex rounded-md border border-input bg-popover p-0.5 shadow-sm">
         {chartWindowPresets.map(({ label, milliseconds }) => (
           <button
             key={label}
             type="button"
-            className={`h-6 rounded px-2 font-mono text-[9px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40 ${
+            className={`h-6 rounded px-2 font-mono text-[9px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40 ${
               chartWindowMs === milliseconds
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground'

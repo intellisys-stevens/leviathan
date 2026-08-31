@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/intellisys-stevens/miglens/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
 type Provider struct {
@@ -184,7 +184,7 @@ func (p *Provider) applyScenario(snapshot *model.Snapshot, sequence uint64, at t
 	case "permission-denied":
 		snapshot.Processes[0].User, snapshot.Processes[0].Executable, snapshot.Processes[0].CommandLine = "", "", ""
 		snapshot.Processes[0].Status, snapshot.Processes[0].Message = model.StatusPermissionDenied, "one or more /proc fields are not readable"
-		snapshot.Diagnostics = append(snapshot.Diagnostics, model.Diagnostic{Code: "gpu_process_fields", Severity: "warning", Component: "/proc", Summary: "1 GPU process record is incomplete", Detail: "permission denied", Remedy: "run MIGLens as the same workspace user", Status: model.StatusPermissionDenied})
+		snapshot.Diagnostics = append(snapshot.Diagnostics, model.Diagnostic{Code: "gpu_process_fields", Severity: "warning", Component: "/proc", Summary: "1 GPU process record is incomplete", Detail: "permission denied", Remedy: "run Leviathan as the same workspace user", Status: model.StatusPermissionDenied})
 	case "stale":
 		for gpuIndex := range snapshot.GPUs {
 			for giIndex := range snapshot.GPUs[gpuIndex].GPUInstances {

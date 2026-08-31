@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-chart="$repo_root/charts/miglens-attribution"
+chart="$repo_root/charts/leviathan-attribution"
 helm_command=${HELM:-helm}
 
 command -v "$helm_command" >/dev/null 2>&1 || {
@@ -52,17 +52,17 @@ grep -Eq 'allowPrivilegeEscalation: false' "$rendered"
 grep -Eq 'type: RuntimeDefault' "$rendered"
 grep -Eq 'drop:' "$rendered"
 grep -Eq -- '- ALL' "$rendered"
-grep -Eq -- '--socket=/run/miglens/attribution.sock' "$rendered"
+grep -Eq -- '--socket=/run/leviathan/attribution.sock' "$rendered"
 grep -Eq 'nvidia.com/gpu.present: "true"' "$rendered"
 grep -Eq 'hostNetwork: false' "$rendered"
 grep -Eq 'hostPID: false' "$rendered"
 grep -Eq 'hostIPC: false' "$rendered"
-if grep -E '^[[:space:]]*mountPath:' "$rendered" | grep -Ev '^[[:space:]]*mountPath: /run/miglens$'; then
+if grep -E '^[[:space:]]*mountPath:' "$rendered" | grep -Ev '^[[:space:]]*mountPath: /run/leviathan$'; then
   printf 'bridge chart mounts an unexpected writable path\n' >&2
   exit 1
 fi
-[[ $(grep -Ec '^[[:space:]]*mountPath: /run/miglens$' "$rendered") -eq 1 ]]
-[[ $(grep -Ec '^[[:space:]]*path: /run/miglens$' "$rendered") -eq 1 ]]
+[[ $(grep -Ec '^[[:space:]]*mountPath: /run/leviathan$' "$rendered") -eq 1 ]]
+[[ $(grep -Ec '^[[:space:]]*path: /run/leviathan$' "$rendered") -eq 1 ]]
 if grep -Eni '(/var/lib/kubelet|/(var/)?run/(containerd|docker|crio|k3s)|containerd\.sock|docker\.sock|crio\.sock)' "$rendered"; then
   printf 'bridge chart mounts a container-runtime path or socket\n' >&2
   exit 1

@@ -153,7 +153,7 @@ function AttributionSummaryComponent({
         className={`mt-2 inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[10px] ${
           available
             ? 'border-primary/20 bg-primary/[0.055] text-primary'
-            : 'border-amber-500/30 bg-amber-500/[0.06] text-amber-600 dark:text-amber-300'
+            : 'border-amber-500/30 bg-amber-500/[0.06] text-amber-700 dark:text-amber-300'
         }`}
         aria-label="Workspace attribution summary"
         title={observed ? `Observed ${observed}` : undefined}
@@ -167,7 +167,7 @@ function AttributionSummaryComponent({
       className={`group relative mt-2 w-fit max-w-full rounded-md border font-mono text-[10px] ${
         available
           ? 'border-primary/20 bg-primary/[0.055] text-primary'
-          : 'border-amber-500/30 bg-amber-500/[0.06] text-amber-600 dark:text-amber-300'
+          : 'border-amber-500/30 bg-amber-500/[0.06] text-amber-700 dark:text-amber-300'
       }`}
     >
       <summary
