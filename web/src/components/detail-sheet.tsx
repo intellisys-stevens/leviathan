@@ -6,7 +6,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { Activity, Database, Gauge, Layers3 } from 'lucide-react';
+import { Activity, Gauge, Layers3, XIcon } from 'lucide-react';
 import {
   CartesianGrid,
   Line,
@@ -21,11 +21,13 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import {
   Sheet,
+  SheetClose,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
+import { buildTrendRows, trendValueSummary } from '../chart-trend';
 import { durationQuery, formatDuration } from '../chart-window';
 import {
   clampRenderedPercent,
@@ -37,12 +39,7 @@ import {
   memoryPercent,
   metricValue,
 } from '../lib';
-import {
-  downsampleChartRows,
-  mergeOverviewPoints,
-  movingAverageChartRows,
-  type ChartRow,
-} from '../overview-history';
+import { mergeOverviewPoints, type ChartRow } from '../overview-history';
 import type {
   Attribution,
   GPU,
@@ -51,28 +48,30 @@ import type {
   Metric,
   Selection,
 } from '../types';
+import { useTrendCeiling } from '../use-trend-ceiling';
 import { ChartWindowControl } from './chart-window-control';
 import {
   ChartTooltipPortal,
   chartTooltipPortalWrapperStyle,
 } from './chart-tooltip-portal';
+import { MetricIcon, type MetricVisualKey } from './metric-icon';
 import { AttributionDetails } from './workspace-attribution';
 
 type MetricDescriptor = {
-  name: string;
+  name: MetricVisualKey;
   label: string;
 };
 
 type ChartDescriptor = MetricDescriptor & {
   key: string;
   color: string;
-  strokeWidth: number;
 };
 
 type DetailTooltipDatum = {
   color?: string;
   dataKey?: string | number | ((object: unknown) => unknown);
   name?: string | number;
+  payload?: ChartRow;
   value?: number | string | readonly (number | string)[];
 };
 
@@ -92,21 +91,18 @@ const instanceChartMetrics: readonly ChartDescriptor[] = [
     key: 'sm',
     label: 'SM activity',
     color: 'var(--primary)',
-    strokeWidth: 2,
   },
   {
     name: 'tensor_activity',
     key: 'tensor',
     label: 'Tensor',
     color: 'var(--chart-2)',
-    strokeWidth: 1.5,
   },
   {
     name: 'dram_activity',
     key: 'dram',
     label: 'DRAM',
     color: 'var(--chart-3)',
-    strokeWidth: 1.5,
   },
 ];
 
@@ -129,21 +125,18 @@ const physicalChartMetrics: readonly ChartDescriptor[] = [
     key: 'gpu',
     label: 'GPU activity',
     color: 'var(--primary)',
-    strokeWidth: 2,
   },
   {
     name: 'sm_activity',
     key: 'sm',
     label: 'SM activity',
     color: 'var(--chart-2)',
-    strokeWidth: 1.5,
   },
   {
     name: 'memory_activity',
     key: 'memory',
     label: 'Memory activity',
     color: 'var(--chart-3)',
-    strokeWidth: 1.5,
   },
 ];
 
@@ -153,14 +146,12 @@ const pcieChartMetrics: readonly ChartDescriptor[] = [
     key: 'pcie_rx',
     label: 'Host → GPU',
     color: 'var(--primary)',
-    strokeWidth: 2,
   },
   {
     name: 'pcie_tx_bytes_per_second',
     key: 'pcie_tx',
     label: 'GPU → Host',
     color: 'var(--chart-2)',
-    strokeWidth: 2,
   },
 ];
 const detailDashPatterns = ['', '7 3', '2 3'];
@@ -236,12 +227,26 @@ function MetricDataSummary({
           </thead>
           <tbody className="divide-y divide-border/60">
             {metrics.map((metric) => {
-              const values = rows.flatMap((row) => {
-                const value = row[metric.key];
-                return typeof value === 'number' && Number.isFinite(value)
-                  ? [value]
-                  : [];
-              });
+              const source = rows
+                .map((row) => trendValueSummary(row, metric.key))
+                .filter(({ count }) => count > 0);
+              const values =
+                source.length > 0
+                  ? source.flatMap(({ latest }) =>
+                      latest == null ? [] : [latest],
+                    )
+                  : rows.flatMap((row) => {
+                      const value = row[metric.key];
+                      return typeof value === 'number' && Number.isFinite(value)
+                        ? [value]
+                        : [];
+                    });
+              const minimum = source.flatMap((summary) =>
+                summary.minimum == null ? [] : [summary.minimum],
+              );
+              const maximum = source.flatMap((summary) =>
+                summary.maximum == null ? [] : [summary.maximum],
+              );
               const printable = (value: number | undefined) =>
                 value == null ? 'Unavailable' : format(value);
               return (
@@ -249,10 +254,22 @@ function MetricDataSummary({
                   <th className="py-1.5 pr-3 font-medium">{metric.label}</th>
                   <td className="px-3 py-1.5">{printable(values.at(-1))}</td>
                   <td className="px-3 py-1.5">
-                    {printable(values.length ? Math.min(...values) : undefined)}
+                    {printable(
+                      minimum.length
+                        ? Math.min(...minimum)
+                        : values.length
+                          ? Math.min(...values)
+                          : undefined,
+                    )}
                   </td>
                   <td className="pl-3 py-1.5">
-                    {printable(values.length ? Math.max(...values) : undefined)}
+                    {printable(
+                      maximum.length
+                        ? Math.max(...maximum)
+                        : values.length
+                          ? Math.max(...values)
+                          : undefined,
+                    )}
                   </td>
                 </tr>
               );
@@ -329,6 +346,7 @@ function currentHistoryPoint(
 function chartRowsForMetrics(
   series: HistorySeries | null,
   metrics: readonly ChartDescriptor[],
+  windowMilliseconds: number,
   percentage = false,
 ): ChartRow[] {
   const keys = metrics.map(({ key }) => key);
@@ -340,20 +358,23 @@ function chartRowsForMetrics(
       };
       for (const descriptor of metrics) {
         const value = point.values[descriptor.name];
-        row[descriptor.key] = Number.isFinite(value) ? value : null;
+        row[descriptor.key] = Number.isFinite(value)
+          ? percentage
+            ? clampRenderedPercent(value)
+            : value
+          : null;
       }
       return row;
     }) ?? [];
-  const averaged = movingAverageChartRows(rows, keys);
-  if (percentage) {
-    for (const row of averaged) {
-      for (const key of keys) {
-        const value = row[key];
-        if (typeof value === 'number') row[key] = clampRenderedPercent(value);
-      }
-    }
-  }
-  return downsampleChartRows(averaged, keys, 720);
+  return buildTrendRows(rows, keys, windowMilliseconds);
+}
+
+function chartTimeDomain(
+  rows: readonly ChartRow[],
+  windowMilliseconds: number,
+): readonly [number, number] {
+  const end = rows.at(-1)?.time ?? windowMilliseconds;
+  return [end - windowMilliseconds, end] as const;
 }
 
 function hasChartValues(
@@ -400,24 +421,51 @@ function DetailSeriesTooltip({
           {new Date(Number(label)).toLocaleTimeString()}
         </p>
         <div className="space-y-1">
-          {visible?.map((item) => (
-            <div
-              key={String(item.dataKey)}
-              className="flex min-w-40 items-center justify-between gap-4"
-            >
-              <span className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground">
-                <span
-                  aria-hidden="true"
-                  className="h-0.5 w-3 shrink-0 rounded-full"
-                  style={{ backgroundColor: item.color }}
-                />
-                <span className="truncate">{item.name}</span>
-              </span>
-              <span className="whitespace-nowrap text-right font-mono font-medium text-foreground">
-                {valueFormatter(Number(item.value))}
-              </span>
-            </div>
-          ))}
+          {visible?.map((item) => {
+            const dataKey =
+              typeof item.dataKey === 'string' ||
+              typeof item.dataKey === 'number'
+                ? String(item.dataKey)
+                : null;
+            const summary = dataKey
+              ? trendValueSummary(item.payload, dataKey)
+              : null;
+            const trendValue = summary?.trend ?? Number(item.value);
+            const statisticLabel = (value: number | null | undefined) =>
+              value == null ? 'Unavailable' : valueFormatter(value);
+            return (
+              <div
+                key={dataKey ?? String(item.name)}
+                className="flex min-w-40 items-start justify-between gap-4"
+              >
+                <span className="inline-flex min-w-0 items-center gap-1.5 pt-0.5 text-muted-foreground">
+                  <span
+                    aria-hidden="true"
+                    className="h-0.5 w-3 shrink-0 rounded-full"
+                    style={{ backgroundColor: item.color }}
+                  />
+                  <span className="truncate">{item.name}</span>
+                </span>
+                <span className="whitespace-nowrap text-right font-mono font-medium text-foreground">
+                  {summary?.count ? 'Trend ' : ''}
+                  {valueFormatter(trendValue)}
+                  {summary?.count ? (
+                    <span className="mt-0.5 block text-[13px] font-normal text-muted-foreground">
+                      Latest {statisticLabel(summary.latest)} · {summary.count}{' '}
+                      {summary.count === 1 ? 'sample' : 'samples'}
+                      {summary.partial ? ' · live bucket' : ''}
+                    </span>
+                  ) : null}
+                  {summary?.count ? (
+                    <span className="mt-0.5 block text-[13px] font-normal text-muted-foreground">
+                      Min {statisticLabel(summary.minimum)} · Max{' '}
+                      {statisticLabel(summary.maximum)}
+                    </span>
+                  ) : null}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
     </ChartTooltipPortal>
@@ -426,16 +474,22 @@ function DetailSeriesTooltip({
 
 function ActivityHistoryPlot({
   data,
+  xDomain,
   metrics,
   interactive = true,
 }: {
   data: ChartRow[];
+  xDomain: readonly [number, number];
   metrics: readonly ChartDescriptor[];
   interactive?: boolean;
 }) {
   const tooltipAnchorRef = useRef<HTMLDivElement>(null);
   return (
-    <div ref={tooltipAnchorRef} className="h-full w-full">
+    <div
+      ref={tooltipAnchorRef}
+      className="h-full w-full"
+      data-chart-curve="linear"
+    >
       <ResponsiveContainer
         width="100%"
         height="100%"
@@ -450,7 +504,8 @@ function ActivityHistoryPlot({
           <XAxis
             dataKey="time"
             type="number"
-            domain={['dataMin', 'dataMax']}
+            domain={[xDomain[0], xDomain[1]]}
+            allowDataOverflow
             tickFormatter={(value) =>
               new Date(value).toLocaleTimeString([], {
                 hour: '2-digit',
@@ -497,11 +552,11 @@ function ActivityHistoryPlot({
           {metrics.map((descriptor, index) => (
             <Line
               key={descriptor.key}
-              type="monotoneX"
+              type="linear"
               dataKey={descriptor.key}
               name={descriptor.label}
               stroke={descriptor.color}
-              strokeWidth={descriptor.strokeWidth}
+              strokeWidth={2}
               strokeDasharray={detailDashPatterns[index]}
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -518,14 +573,32 @@ function ActivityHistoryPlot({
 
 function PCIeHistoryPlot({
   data,
+  xDomain,
   interactive = true,
 }: {
   data: ChartRow[];
+  xDomain: readonly [number, number];
   interactive?: boolean;
 }) {
+  const maximum = Math.max(
+    0,
+    ...data.flatMap((row) =>
+      pcieChartMetrics.flatMap(({ key }) => {
+        const value = row[key];
+        return typeof value === 'number' && Number.isFinite(value)
+          ? [value]
+          : [];
+      }),
+    ),
+  );
+  const ceiling = useTrendCeiling(maximum);
   const tooltipAnchorRef = useRef<HTMLDivElement>(null);
   return (
-    <div ref={tooltipAnchorRef} className="h-full w-full">
+    <div
+      ref={tooltipAnchorRef}
+      className="h-full w-full"
+      data-chart-curve="linear"
+    >
       <ResponsiveContainer
         width="100%"
         height="100%"
@@ -540,7 +613,8 @@ function PCIeHistoryPlot({
           <XAxis
             dataKey="time"
             type="number"
-            domain={['dataMin', 'dataMax']}
+            domain={[xDomain[0], xDomain[1]]}
+            allowDataOverflow
             tickFormatter={(value) =>
               new Date(value).toLocaleTimeString([], {
                 hour: '2-digit',
@@ -552,11 +626,8 @@ function PCIeHistoryPlot({
             tickLine={false}
           />
           <YAxis
-            domain={[
-              0,
-              (maximum: number) =>
-                maximum > 0 ? Math.ceil(maximum * 1.08) : 1,
-            ]}
+            domain={[0, ceiling]}
+            allowDataOverflow
             tickFormatter={(value: number) => formatBytesPerSecond(value)}
             tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
             axisLine={false}
@@ -587,11 +658,11 @@ function PCIeHistoryPlot({
           {pcieChartMetrics.map((descriptor, index) => (
             <Line
               key={descriptor.key}
-              type="monotoneX"
+              type="linear"
               dataKey={descriptor.key}
               name={descriptor.label}
               stroke={descriptor.color}
-              strokeWidth={descriptor.strokeWidth}
+              strokeWidth={2}
               strokeDasharray={detailDashPatterns[index]}
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -629,6 +700,7 @@ type DetailHistoryState = {
   loadedWindowMilliseconds: number | null;
   series: HistorySeries | null;
   outgoingSeries: HistorySeries | null;
+  outgoingWindowMilliseconds: number | null;
   error: string | null;
   loading: boolean;
 };
@@ -641,6 +713,7 @@ class DetailHistoryStore {
     loadedWindowMilliseconds: null,
     series: null,
     outgoingSeries: null,
+    outgoingWindowMilliseconds: null,
     error: null,
     loading: false,
   };
@@ -667,6 +740,7 @@ class DetailHistoryStore {
         entity,
         series: this.state.entity === entity ? this.state.series : null,
         outgoingSeries: null,
+        outgoingWindowMilliseconds: null,
         error: null,
         loading: true,
       });
@@ -696,6 +770,9 @@ class DetailHistoryStore {
       this.state.series
         ? this.state.series
         : null;
+    const outgoingWindowMilliseconds = outgoingSeries
+      ? this.state.loadedWindowMilliseconds
+      : null;
     this.publish({
       key,
       entity: this.state.entity,
@@ -705,6 +782,7 @@ class DetailHistoryStore {
         ? appendHistoryPoint(series, this.latestPoint, windowMilliseconds)
         : series,
       outgoingSeries,
+      outgoingWindowMilliseconds,
       error: null,
       loading: false,
     });
@@ -712,7 +790,11 @@ class DetailHistoryStore {
       this.transitionTimer = setTimeout(() => {
         this.transitionTimer = null;
         if (this.state.outgoingSeries !== outgoingSeries) return;
-        this.publish({ ...this.state, outgoingSeries: null });
+        this.publish({
+          ...this.state,
+          outgoingSeries: null,
+          outgoingWindowMilliseconds: null,
+        });
       }, 140);
     }
   }
@@ -815,26 +897,61 @@ export default function DetailSheet({
     historyState.entity === historyEntity ? historyState.outgoingSeries : null;
   const historyError =
     historyState.key === historyKey ? historyState.error : null;
+  const visibleTrendWindow =
+    historyState.loadedWindowMilliseconds ?? chartWindowMs;
+  const outgoingTrendWindow =
+    historyState.outgoingWindowMilliseconds ?? visibleTrendWindow;
   const chartData = useMemo(() => {
-    return chartRowsForMetrics(series, chartMetrics, true);
-  }, [chartMetrics, series]);
+    return chartRowsForMetrics(series, chartMetrics, visibleTrendWindow, true);
+  }, [chartMetrics, series, visibleTrendWindow]);
   const pcieChartData = useMemo(
-    () => chartRowsForMetrics(series, pcieChartMetrics),
-    [series],
+    () => chartRowsForMetrics(series, pcieChartMetrics, visibleTrendWindow),
+    [series, visibleTrendWindow],
   );
   const outgoingChartData = useMemo(
     () =>
       outgoingSeries
-        ? chartRowsForMetrics(outgoingSeries, chartMetrics, true)
+        ? chartRowsForMetrics(
+            outgoingSeries,
+            chartMetrics,
+            outgoingTrendWindow,
+            true,
+          )
         : null,
-    [chartMetrics, outgoingSeries],
+    [chartMetrics, outgoingSeries, outgoingTrendWindow],
   );
   const outgoingPCIeChartData = useMemo(
     () =>
       outgoingSeries
-        ? chartRowsForMetrics(outgoingSeries, pcieChartMetrics)
+        ? chartRowsForMetrics(
+            outgoingSeries,
+            pcieChartMetrics,
+            outgoingTrendWindow,
+          )
         : null,
-    [outgoingSeries],
+    [outgoingSeries, outgoingTrendWindow],
+  );
+  const chartDomain = useMemo(
+    () => chartTimeDomain(chartData, visibleTrendWindow),
+    [chartData, visibleTrendWindow],
+  );
+  const pcieChartDomain = useMemo(
+    () => chartTimeDomain(pcieChartData, visibleTrendWindow),
+    [pcieChartData, visibleTrendWindow],
+  );
+  const outgoingChartDomain = useMemo(
+    () =>
+      outgoingChartData
+        ? chartTimeDomain(outgoingChartData, outgoingTrendWindow)
+        : null,
+    [outgoingChartData, outgoingTrendWindow],
+  );
+  const outgoingPCIeChartDomain = useMemo(
+    () =>
+      outgoingPCIeChartData
+        ? chartTimeDomain(outgoingPCIeChartData, outgoingTrendWindow)
+        : null,
+    [outgoingPCIeChartData, outgoingTrendWindow],
   );
   const pcieAvailable = hasChartValues(pcieChartData, pcieChartMetrics);
   const memory = memoryPercent(source.memory);
@@ -848,8 +965,9 @@ export default function DetailSheet({
       <SheetContent
         className="detail-sheet-surface mobile-detail-sheet frost-sheet w-full max-w-none overflow-y-auto border-input bg-popover"
         data-testid="detail-sheet"
+        showCloseButton={false}
       >
-        <SheetHeader className="mobile-detail-sheet-header border-b border-border px-5 py-5 pr-14">
+        <SheetHeader className="mobile-detail-sheet-header relative border-b border-border px-5 py-5 pr-14">
           <div className="flex min-w-0 items-start gap-3">
             <span
               className="grid size-9 shrink-0 place-items-center rounded-lg border border-primary/15 bg-primary/10 text-primary"
@@ -916,6 +1034,18 @@ export default function DetailSheet({
               )}
             </div>
           </div>
+          <SheetClose
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="absolute top-3 right-3 min-h-11 min-w-11"
+              />
+            }
+          >
+            <XIcon aria-hidden="true" />
+            <span className="sr-only">Close</span>
+          </SheetClose>
         </SheetHeader>
 
         <div className="space-y-5 px-5 pb-8">
@@ -932,7 +1062,7 @@ export default function DetailSheet({
               id="metrics-title"
               className="mb-2 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
             >
-              <Activity className="size-3.5" /> Live metrics
+              <Activity className="size-3.5" aria-hidden="true" /> Live metrics
             </h3>
             <div
               className={`detail-live-metrics grid grid-cols-2 gap-px border border-border bg-border sm:grid-cols-4 ${physical ? 'detail-live-metrics-physical lg:grid-cols-5' : 'detail-live-metrics-instance'}`}
@@ -942,7 +1072,8 @@ export default function DetailSheet({
                 const metric = liveMetric(source, name);
                 return (
                   <div key={name} className="bg-card p-3">
-                    <p className="text-[13px] uppercase tracking-[0.08em] text-muted-foreground">
+                    <p className="flex items-center gap-1.5 text-[13px] uppercase tracking-[0.08em] text-muted-foreground">
+                      <MetricIcon metric={name} className="size-3.5" />
                       {label}
                     </p>
                     <p className="mt-1 font-mono text-lg font-semibold text-primary">
@@ -960,12 +1091,12 @@ export default function DetailSheet({
           />
 
           <section aria-labelledby="history-title">
-            <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <h3
                 id="history-title"
                 className="text-[13px] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
               >
-                {formatDuration(chartWindowMs)} activity
+                History
               </h3>
               <ChartWindowControl
                 chartWindowMs={chartWindowMs}
@@ -975,137 +1106,163 @@ export default function DetailSheet({
                 className="shrink-0"
               />
             </div>
-            <MetricLegend
-              label="Activity chart series"
-              metrics={chartMetrics}
-            />
-            <div
-              className="detail-chart-frame chart-plot-frame h-[216px] p-2 md:h-56"
-              data-testid="detail-history-chart"
-              aria-busy={historyState.loading}
-            >
-              {chartData.length < 2 ? (
-                <div className="grid h-full place-items-center text-center text-[13px] text-amber-700 dark:text-amber-300">
-                  <span>
-                    {historyError ?? 'Collecting history…'}
-                    {historyError ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="mx-auto mt-3 flex"
-                        onClick={() => setHistoryRetry((value) => value + 1)}
-                      >
-                        Retry history
-                      </Button>
-                    ) : null}
-                  </span>
-                </div>
-              ) : (
-                <div className="relative h-full">
-                  <div
-                    className={`chart-plot-layer ${outgoingChartData ? 'chart-plot-incoming' : ''}`}
-                  >
-                    <ActivityHistoryPlot
-                      data={chartData}
-                      metrics={chartMetrics}
-                    />
-                  </div>
-                  {outgoingChartData ? (
-                    <div
-                      className="chart-plot-layer chart-plot-outgoing"
-                      aria-hidden="true"
-                    >
-                      <ActivityHistoryPlot
-                        data={outgoingChartData}
-                        metrics={chartMetrics}
-                        interactive={false}
-                      />
-                    </div>
-                  ) : null}
-                </div>
-              )}
-            </div>
-            {historyError && chartData.length >= 2 ? (
-              <output className="mt-2 flex items-center justify-between gap-3 border border-amber-500/25 bg-amber-500/[0.05] px-3 py-2 text-[13px] text-amber-700 dark:text-amber-300">
-                <span>{historyError}. Last complete history retained.</span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setHistoryRetry((value) => value + 1)}
+            <div className="space-y-5">
+              <section aria-labelledby="activity-history-title">
+                <h4
+                  id="activity-history-title"
+                  className="mb-2 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
                 >
-                  Retry
-                </Button>
-              </output>
-            ) : null}
-            <MetricDataSummary
-              title="Activity history"
-              rows={chartData}
-              metrics={chartMetrics}
-              format={formatRoundedPercent}
-            />
-          </section>
-
-          <section aria-labelledby="pcie-history-title">
-            <div className="mb-2">
-              <h3
-                id="pcie-history-title"
-                className="text-[13px] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
-              >
-                {formatDuration(chartWindowMs)} PCIe transfer
-              </h3>
-            </div>
-            <MetricLegend
-              label="PCIe transfer chart series"
-              metrics={pcieChartMetrics}
-            />
-            <div
-              className="detail-chart-frame chart-plot-frame h-[216px] p-2 md:h-56"
-              data-testid="detail-pcie-chart"
-              aria-busy={historyState.loading}
-            >
-              {pcieChartData.length < 2 ? (
-                <div className="grid h-full place-items-center text-sm text-muted-foreground">
-                  {historyError ?? 'Collecting history…'}
-                </div>
-              ) : !pcieAvailable ? (
-                <div className="grid h-full place-items-center text-[13px] text-muted-foreground">
-                  PCIe transfer metrics unavailable.
-                </div>
-              ) : (
-                <div className="relative h-full">
-                  <div
-                    className={`chart-plot-layer ${outgoingPCIeChartData ? 'chart-plot-incoming' : ''}`}
-                  >
-                    <PCIeHistoryPlot data={pcieChartData} />
-                  </div>
-                  {outgoingPCIeChartData ? (
-                    <div
-                      className="chart-plot-layer chart-plot-outgoing"
-                      aria-hidden="true"
-                    >
-                      <PCIeHistoryPlot
-                        data={outgoingPCIeChartData}
-                        interactive={false}
-                      />
+                  <MetricIcon
+                    metric={physical ? 'gpu_activity' : 'sm_activity'}
+                    className="size-3.5 text-primary"
+                  />
+                  Activity
+                </h4>
+                <MetricLegend
+                  label="Activity chart series"
+                  metrics={chartMetrics}
+                />
+                <figure
+                  className="detail-chart-frame chart-plot-frame h-[216px] p-2 md:h-56"
+                  data-testid="detail-history-chart"
+                  aria-busy={historyState.loading}
+                  aria-label={`${formatDuration(chartWindowMs)} activity history`}
+                >
+                  {chartData.length < 2 ? (
+                    <div className="grid h-full place-items-center text-center text-[13px] text-amber-700 dark:text-amber-300">
+                      <span>
+                        {historyError ?? 'Collecting history…'}
+                        {historyError ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="mx-auto mt-3 flex"
+                            onClick={() =>
+                              setHistoryRetry((value) => value + 1)
+                            }
+                          >
+                            Retry history
+                          </Button>
+                        ) : null}
+                      </span>
                     </div>
-                  ) : null}
-                </div>
-              )}
+                  ) : (
+                    <div className="relative h-full">
+                      <div
+                        className={`chart-plot-layer ${outgoingChartData ? 'chart-plot-incoming' : ''}`}
+                      >
+                        <ActivityHistoryPlot
+                          data={chartData}
+                          xDomain={chartDomain}
+                          metrics={chartMetrics}
+                        />
+                      </div>
+                      {outgoingChartData && outgoingChartDomain ? (
+                        <div
+                          className="chart-plot-layer chart-plot-outgoing"
+                          aria-hidden="true"
+                        >
+                          <ActivityHistoryPlot
+                            data={outgoingChartData}
+                            xDomain={outgoingChartDomain}
+                            metrics={chartMetrics}
+                            interactive={false}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </figure>
+                {historyError && chartData.length >= 2 ? (
+                  <output className="mt-2 flex items-center justify-between gap-3 border border-amber-500/25 bg-amber-500/[0.05] px-3 py-2 text-[13px] text-amber-700 dark:text-amber-300">
+                    <span>{historyError}. Last complete history retained.</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setHistoryRetry((value) => value + 1)}
+                    >
+                      Retry
+                    </Button>
+                  </output>
+                ) : null}
+                <MetricDataSummary
+                  title={`${formatDuration(chartWindowMs)} activity history`}
+                  rows={chartData}
+                  metrics={chartMetrics}
+                  format={formatRoundedPercent}
+                />
+              </section>
+
+              <section aria-labelledby="pcie-history-title">
+                <h4
+                  id="pcie-history-title"
+                  className="mb-2 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
+                >
+                  <MetricIcon
+                    metric="pcie_total_bytes_per_second"
+                    className="size-3.5 text-primary"
+                  />
+                  PCIe transfer
+                </h4>
+                <MetricLegend
+                  label="PCIe transfer chart series"
+                  metrics={pcieChartMetrics}
+                />
+                <figure
+                  className="detail-chart-frame chart-plot-frame h-[216px] p-2 md:h-56"
+                  data-testid="detail-pcie-chart"
+                  aria-busy={historyState.loading}
+                  aria-label={`${formatDuration(chartWindowMs)} PCIe transfer history`}
+                >
+                  {pcieChartData.length < 2 ? (
+                    <div className="grid h-full place-items-center text-sm text-muted-foreground">
+                      {historyError ?? 'Collecting history…'}
+                    </div>
+                  ) : !pcieAvailable ? (
+                    <div className="grid h-full place-items-center text-[13px] text-muted-foreground">
+                      PCIe transfer metrics unavailable.
+                    </div>
+                  ) : (
+                    <div className="relative h-full">
+                      <div
+                        className={`chart-plot-layer ${outgoingPCIeChartData ? 'chart-plot-incoming' : ''}`}
+                      >
+                        <PCIeHistoryPlot
+                          data={pcieChartData}
+                          xDomain={pcieChartDomain}
+                        />
+                      </div>
+                      {outgoingPCIeChartData && outgoingPCIeChartDomain ? (
+                        <div
+                          className="chart-plot-layer chart-plot-outgoing"
+                          aria-hidden="true"
+                        >
+                          <PCIeHistoryPlot
+                            data={outgoingPCIeChartData}
+                            xDomain={outgoingPCIeChartDomain}
+                            interactive={false}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </figure>
+                <MetricDataSummary
+                  title={`${formatDuration(chartWindowMs)} PCIe transfer history`}
+                  rows={pcieChartData}
+                  metrics={pcieChartMetrics}
+                  format={formatBytesPerSecond}
+                />
+              </section>
             </div>
-            <MetricDataSummary
-              title="PCIe transfer history"
-              rows={pcieChartData}
-              metrics={pcieChartMetrics}
-              format={formatBytesPerSecond}
-            />
           </section>
 
           <section aria-label={physical ? 'GPU memory' : 'Instance memory'}>
             <div className="border border-border bg-card p-3">
               <p className="mb-2 flex items-center gap-2 text-[13px] uppercase tracking-[0.08em] text-muted-foreground">
-                <Database className="size-3" />{' '}
+                <MetricIcon metric="memory" className="size-3" />{' '}
                 {physical ? 'Full GPU memory' : 'GI memory'}
               </p>
               <div className="flex items-end justify-between gap-2">

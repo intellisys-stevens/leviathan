@@ -10,6 +10,11 @@ import {
 } from 'recharts';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  buildTrendRows,
+  trendTimeDomain,
+  trendValueSummary,
+} from '../chart-trend';
 import { formatDuration } from '../chart-window';
 import {
   clampRenderedPercent,
@@ -19,8 +24,6 @@ import {
 } from '../lib';
 import {
   buildOverviewEntities,
-  downsampleChartRows,
-  movingAverageChartRows,
   type AlignedHistorySeriesDescriptor,
   type ChartRow,
   type LoadAlignedHistory,
@@ -30,10 +33,12 @@ import {
 } from '../overview-history';
 import type { Snapshot } from '../types';
 import type { ConnectionState } from '../use-leviathan';
+import { useTrendCeiling } from '../use-trend-ceiling';
 import {
   ChartTooltipPortal,
   chartTooltipPortalWrapperStyle,
 } from './chart-tooltip-portal';
+import { MetricIcon, type MetricVisualKey } from './metric-icon';
 
 const colors = [
   'var(--chart-1)',
@@ -45,8 +50,6 @@ const colors = [
 ];
 const dashPatterns = ['', '7 3', '2 3', '10 3 2 3', '5 3 1 3', '1 3'];
 const percentageTicks = [0, 25, 50, 75, 100];
-export { movingAverageChartRows } from '../overview-history';
-
 type ChartMetric =
   | 'temperature'
   | 'utilization'
@@ -59,6 +62,7 @@ type ChartUnit = '°C' | '%' | 'bytes_per_second';
 type PanelDefinition = {
   id: string;
   title: string;
+  icon: MetricVisualKey;
   metric: ChartMetric;
   description: string;
   unit: ChartUnit;
@@ -120,6 +124,22 @@ export function summarizeSeries(
   rows: ChartRow[],
   valueKey: string,
 ): { current: number | null; minimum: number | null; maximum: number | null } {
+  const source = rows
+    .map((row) => trendValueSummary(row, valueKey))
+    .filter(({ count }) => count > 0);
+  if (source.length > 0) {
+    const minimum = source.flatMap(({ minimum }) =>
+      minimum == null ? [] : [minimum],
+    );
+    const maximum = source.flatMap(({ maximum }) =>
+      maximum == null ? [] : [maximum],
+    );
+    return {
+      current: source.at(-1)?.latest ?? null,
+      minimum: minimum.length > 0 ? Math.min(...minimum) : null,
+      maximum: maximum.length > 0 ? Math.max(...maximum) : null,
+    };
+  }
   const values = rows.flatMap((row) => {
     const value = row[valueKey];
     return typeof value === 'number' && Number.isFinite(value) ? [value] : [];
@@ -175,6 +195,13 @@ export function SeriesTooltip({
             typeof item.dataKey === 'string' || typeof item.dataKey === 'number'
               ? String(item.dataKey)
               : null;
+          const summary = dataKey
+            ? trendValueSummary(item.payload, dataKey)
+            : null;
+          const trendValue = summary?.trend ?? Number(item.value);
+          const hasStatistics = Boolean(summary && summary.count > 0);
+          const statisticLabel = (value: number | null | undefined) =>
+            value == null ? 'Unavailable' : chartValueLabel(value, unit);
           return (
             <div
               key={dataKey ?? String(item.name)}
@@ -191,7 +218,21 @@ export function SeriesTooltip({
                 </span>
               </span>
               <span className="text-right font-mono font-medium text-foreground">
-                {chartValueLabel(Number(item.value), unit)}
+                {hasStatistics ? 'Trend ' : ''}
+                {chartValueLabel(trendValue, unit)}
+                {hasStatistics ? (
+                  <span className="mt-0.5 block whitespace-nowrap text-[13px] font-normal text-muted-foreground">
+                    Latest {statisticLabel(summary?.latest)} · {summary?.count}{' '}
+                    {summary?.count === 1 ? 'sample' : 'samples'}
+                    {summary?.partial ? ' · live bucket' : ''}
+                  </span>
+                ) : null}
+                {hasStatistics ? (
+                  <span className="mt-0.5 block whitespace-nowrap text-[13px] font-normal text-muted-foreground">
+                    Min {statisticLabel(summary?.minimum)} · Max{' '}
+                    {statisticLabel(summary?.maximum)}
+                  </span>
+                ) : null}
                 {unit === 'bytes_per_second' && dataKey ? (
                   <span className="mt-0.5 block whitespace-nowrap text-[13px] font-normal text-muted-foreground">
                     RX{' '}
@@ -247,7 +288,13 @@ export function chartRows(
   entities: OverviewEntity[],
   points: Record<string, OverviewPoint[]>,
   metric: ChartMetric,
-): { rows: ChartRow[]; valueKeys: string[]; availableSeries: number } {
+  windowMilliseconds = 30 * 60 * 1000,
+): {
+  rows: ChartRow[];
+  valueKeys: string[];
+  availableSeries: number;
+  xDomain: readonly [number, number];
+} {
   const valueKeys = entities.map((_, index) => `series_${index}`);
   const rowsByTime = new Map<number, ChartRow>();
   const seriesWithValues = new Set<number>();
@@ -268,11 +315,21 @@ export function chartRows(
         const tx = point.values.pcie_tx_bytes_per_second;
         row[`${valueKey}_rx`] = Number.isFinite(rx) ? Math.max(0, rx) : null;
         row[`${valueKey}_tx`] = Number.isFinite(tx) ? Math.max(0, tx) : null;
+        row[valueKey] =
+          Number.isFinite(rx) && Number.isFinite(tx)
+            ? Math.max(0, rx) + Math.max(0, tx)
+            : null;
         if (Number.isFinite(rx) && Number.isFinite(tx))
           seriesWithValues.add(index);
       } else {
         const value = overviewMetricValue(point, metric, entity.scope);
-        row[valueKey] = value;
+        row[valueKey] =
+          value != null &&
+          (metric === 'utilization' ||
+            metric === 'memory_percent' ||
+            metric === 'memory_activity')
+            ? clampRenderedPercent(value)
+            : value;
         if (value != null) seriesWithValues.add(index);
       }
     }
@@ -281,36 +338,16 @@ export function chartRows(
   const rows = [...rowsByTime.values()].sort(
     (left, right) => left.time - right.time,
   );
-  const smoothingKeys =
+  const trendKeys =
     metric === 'pcie_total'
-      ? valueKeys.flatMap((key) => [`${key}_rx`, `${key}_tx`])
+      ? valueKeys.flatMap((key) => [key, `${key}_rx`, `${key}_tx`])
       : valueKeys;
-  const averagedRows = movingAverageChartRows(rows, smoothingKeys);
-  if (metric === 'pcie_total') {
-    for (const row of averagedRows) {
-      for (const key of valueKeys) {
-        const rx = row[`${key}_rx`];
-        const tx = row[`${key}_tx`];
-        row[key] =
-          typeof rx === 'number' && typeof tx === 'number' ? rx + tx : null;
-      }
-    }
-  } else if (
-    metric === 'utilization' ||
-    metric === 'memory_percent' ||
-    metric === 'memory_activity'
-  ) {
-    for (const row of averagedRows) {
-      for (const key of valueKeys) {
-        const value = row[key];
-        if (typeof value === 'number') row[key] = clampRenderedPercent(value);
-      }
-    }
-  }
+  const latestTime = rows.at(-1)?.time ?? 0;
   return {
-    rows: downsampleChartRows(averagedRows, valueKeys, 720),
+    rows: buildTrendRows(rows, trendKeys, windowMilliseconds),
     valueKeys,
     availableSeries: seriesWithValues.size,
+    xDomain: trendTimeDomain(latestTime, windowMilliseconds),
   };
 }
 
@@ -391,6 +428,7 @@ function ChartLegend({
 
 function HistoryLinePlot({
   rows,
+  xDomain,
   orderedSeries,
   activeKey,
   activeDataKey,
@@ -399,6 +437,7 @@ function HistoryLinePlot({
   interactive = true,
 }: {
   rows: ChartRow[];
+  xDomain: readonly [number, number];
   orderedSeries: SeriesDescriptor[];
   activeKey: string | null;
   activeDataKey: string | null;
@@ -407,10 +446,27 @@ function HistoryLinePlot({
   interactive?: boolean;
 }) {
   const percent = unit === '%';
+  const bounded = percent || unit === '°C';
   const throughput = unit === 'bytes_per_second';
+  const throughputMaximum = Math.max(
+    0,
+    ...rows.flatMap((row) =>
+      orderedSeries.flatMap(({ valueKey }) => {
+        const value = row[valueKey];
+        return typeof value === 'number' && Number.isFinite(value)
+          ? [value]
+          : [];
+      }),
+    ),
+  );
+  const throughputCeiling = useTrendCeiling(throughput ? throughputMaximum : 0);
   const tooltipAnchorRef = useRef<HTMLDivElement>(null);
   return (
-    <div ref={tooltipAnchorRef} className="h-full w-full">
+    <div
+      ref={tooltipAnchorRef}
+      className="h-full w-full"
+      data-chart-curve="linear"
+    >
       <ResponsiveContainer
         width="100%"
         height="100%"
@@ -425,7 +481,8 @@ function HistoryLinePlot({
           <XAxis
             dataKey="time"
             type="number"
-            domain={['dataMin', 'dataMax']}
+            domain={[xDomain[0], xDomain[1]]}
+            allowDataOverflow
             tickCount={4}
             tickFormatter={(value) =>
               new Date(value).toLocaleTimeString([], {
@@ -439,22 +496,18 @@ function HistoryLinePlot({
           />
           <YAxis
             domain={
-              percent
+              bounded
                 ? [0, 100]
                 : throughput
-                  ? [
-                      0,
-                      (maximum: number) =>
-                        maximum > 0 ? Math.ceil(maximum * 1.08) : 1,
-                    ]
+                  ? [0, throughputCeiling]
                   : [
                       (minimum: number) => Math.max(0, Math.floor(minimum - 5)),
                       (maximum: number) => Math.ceil(maximum + 5),
                     ]
             }
-            allowDataOverflow={percent}
-            interval={percent ? 0 : undefined}
-            ticks={percent ? percentageTicks : undefined}
+            allowDataOverflow={bounded || throughput}
+            interval={bounded ? 0 : undefined}
+            ticks={bounded ? percentageTicks : undefined}
             tickFormatter={(value) =>
               throughput
                 ? formatBytesPerSecond(Number(value))
@@ -466,8 +519,8 @@ function HistoryLinePlot({
             axisLine={false}
             tickLine={false}
             tickMargin={4}
-            padding={percent ? { top: 6, bottom: 4 } : undefined}
-            width={throughput ? 72 : percent ? 44 : 52}
+            padding={bounded ? { top: 6, bottom: 4 } : undefined}
+            width={throughput ? 72 : bounded ? 44 : 52}
           />
           {interactive ? (
             <Tooltip
@@ -507,11 +560,11 @@ function HistoryLinePlot({
                       ? 'overview-series-muted'
                       : 'overview-series-default'
                 }`}
-                type="monotoneX"
+                type="linear"
                 dataKey={valueKey}
                 name={entity.label}
                 stroke={colors[entity.colorIndex % colors.length]}
-                strokeWidth={focused ? 3 : muted ? 1.5 : 2.25}
+                strokeWidth={2}
                 strokeOpacity={muted ? 0.18 : focused ? 1 : 0.9}
                 strokeDasharray={seriesDashPattern(entity.colorIndex)}
                 strokeLinecap="round"
@@ -556,27 +609,50 @@ function ChartPanel({
       })),
     [entities, metric],
   );
-  const { points, loading, outgoingPoints, failedEntities, error, retry } =
-    useOverviewHistory(
-      snapshot,
-      definition.id,
-      entities,
-      descriptors,
-      loadHistory,
-      chartWindowMs,
-      retentionMs,
-    );
+  const {
+    points,
+    loading,
+    loadedWindowMilliseconds,
+    outgoingPoints,
+    outgoingWindowMilliseconds,
+    failedEntities,
+    error,
+    retry,
+  } = useOverviewHistory(
+    snapshot,
+    definition.id,
+    entities,
+    descriptors,
+    loadHistory,
+    chartWindowMs,
+    retentionMs,
+  );
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   const [pinnedKey, setPinnedKey] = useState<string | null>(null);
+  const visibleTrendWindow = loadedWindowMilliseconds ?? chartWindowMs;
   const retainedData = useMemo(
-    () => chartRows(entities, points, metric),
-    [entities, metric, points],
+    () => chartRows(entities, points, metric, visibleTrendWindow),
+    [entities, metric, points, visibleTrendWindow],
   );
   const outgoingData = useMemo(
-    () => (outgoingPoints ? chartRows(entities, outgoingPoints, metric) : null),
-    [entities, metric, outgoingPoints],
+    () =>
+      outgoingPoints
+        ? chartRows(
+            entities,
+            outgoingPoints,
+            metric,
+            outgoingWindowMilliseconds ?? visibleTrendWindow,
+          )
+        : null,
+    [
+      entities,
+      metric,
+      outgoingPoints,
+      outgoingWindowMilliseconds,
+      visibleTrendWindow,
+    ],
   );
-  const { rows, valueKeys, availableSeries } = retainedData;
+  const { rows, valueKeys, availableSeries, xDomain } = retainedData;
   const timestampsWithValues = useMemo(() => {
     let count = 0;
     for (const row of rows) {
@@ -655,8 +731,12 @@ function ChartPanel({
         <div>
           <h3
             id={`${definition.id}-heading`}
-            className="text-[17px] font-semibold"
+            className="flex items-center gap-2 text-[17px] font-semibold"
           >
+            <MetricIcon
+              metric={definition.icon}
+              className="size-4 text-primary"
+            />
             {title}
           </h3>
           <p className="mt-0.5 text-[13px] text-muted-foreground">
@@ -719,6 +799,7 @@ function ChartPanel({
             >
               <HistoryLinePlot
                 rows={rows}
+                xDomain={xDomain}
                 orderedSeries={orderedSeries}
                 activeKey={activeKey}
                 activeDataKey={activeDataKey}
@@ -733,6 +814,7 @@ function ChartPanel({
               >
                 <HistoryLinePlot
                   rows={outgoingData.rows}
+                  xDomain={outgoingData.xDomain}
                   orderedSeries={orderedSeries}
                   activeKey={null}
                   activeDataKey={null}
@@ -826,6 +908,7 @@ export function OverviewCharts({
       {
         id: 'utilization-chart',
         title: 'Utilization',
+        icon: 'gpu_activity',
         metric: 'utilization',
         description: `SM activity · ${rangeLabel}`,
         unit: '%',
@@ -834,6 +917,7 @@ export function OverviewCharts({
       {
         id: 'memory-chart',
         title: 'Memory',
+        icon: 'memory',
         metric: 'memory_percent',
         description: `Memory used · ${rangeLabel}`,
         unit: '%',
@@ -842,6 +926,7 @@ export function OverviewCharts({
       {
         id: 'temperature-chart',
         title: 'Temperature',
+        icon: 'temperature',
         metric: 'temperature',
         description: `Physical GPUs · ${rangeLabel}`,
         unit: '°C',
@@ -850,6 +935,7 @@ export function OverviewCharts({
       {
         id: 'memory-activity-chart',
         title: 'Memory Activity',
+        icon: 'memory_activity',
         metric: 'memory_activity',
         description: `Memory activity · ${rangeLabel}`,
         unit: '%',
@@ -858,6 +944,7 @@ export function OverviewCharts({
       {
         id: 'pcie-throughput-chart',
         title: 'PCIe Transfer',
+        icon: 'pcie_total_bytes_per_second',
         metric: 'pcie_total',
         description: `Host ↔ GPU · ${rangeLabel}`,
         unit: 'bytes_per_second',

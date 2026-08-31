@@ -18,11 +18,13 @@ import {
   RefreshCw,
   Server,
   Users,
+  XIcon,
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
+  SheetClose,
   SheetContent,
   SheetDescription,
   SheetHeader,
@@ -390,8 +392,21 @@ export function DetailSheetFallback({
       <SheetContent
         className="detail-sheet-surface mobile-detail-sheet frost-sheet w-full max-w-none overflow-y-auto border-input bg-popover p-6"
         data-testid="detail-sheet-fallback"
+        showCloseButton={false}
       >
-        <SheetHeader className="mobile-detail-sheet-header p-0 pr-10 text-left">
+        <SheetHeader className="mobile-detail-sheet-header relative p-0 pr-12 text-left">
+          <SheetClose
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="absolute -top-1 right-0 min-h-11 min-w-11"
+              />
+            }
+          >
+            <XIcon aria-hidden="true" />
+            <span className="sr-only">Close</span>
+          </SheetClose>
           <p className="eyebrow">Resource inspection</p>
           <SheetTitle className="mt-2 text-lg font-semibold">
             Loading resource details
@@ -443,6 +458,9 @@ export function App() {
     operationsFocus?: OperationsFocus | null;
   } | null>(null);
   const [processQuery, setProcessQuery] = useState('');
+  const [selectedPersonKey, setSelectedPersonKey] = useState<string | null>(
+    null,
+  );
   const [requestedChartWindowMs, setRequestedChartWindowMs] =
     useState(storedChartWindow);
   const [requestedDetailChartWindowMs, setRequestedDetailChartWindowMs] =
@@ -889,7 +907,16 @@ export function App() {
                   attribution={snapshot.attribution}
                   snapshot={snapshot}
                 />
-                <PeopleView snapshot={snapshot} onSelect={openSelection} />
+                <PeopleView
+                  snapshot={snapshot}
+                  onSelect={openSelection}
+                  selectedPersonKey={selectedPersonKey}
+                  onSelectedPersonChange={setSelectedPersonKey}
+                  loadHistory={alignedHistory}
+                  chartWindowMs={chartWindowMs}
+                  retentionMs={retentionMs}
+                  onChartWindowChange={selectChartWindow}
+                />
               </section>
             ) : null}
 

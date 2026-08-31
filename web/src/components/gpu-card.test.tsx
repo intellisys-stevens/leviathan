@@ -143,6 +143,16 @@ describe('GPU resource interactions', () => {
     const telemetry = screen.getByRole('region', {
       name: 'GPU 0 live telemetry',
     });
+    expect(
+      telemetry
+        .closest('.gpu-card')
+        ?.querySelector('[data-metric-icon="temperature"]'),
+    ).toBeInTheDocument();
+    expect(
+      telemetry
+        .closest('.gpu-card')
+        ?.querySelector('[data-metric-icon="power"]'),
+    ).toBeInTheDocument();
     const tiles = telemetry.querySelectorAll<HTMLElement>(
       '.full-gpu-metric-tile',
     );
@@ -212,6 +222,18 @@ describe('GPU resource interactions', () => {
         '[data-metric="memory-activity"] .lucide-activity',
       ),
     ).toBeInTheDocument();
+    for (const metric of [
+      'gpu_activity',
+      'sm_activity',
+      'memory_activity',
+      'memory',
+      'pcie_total_bytes_per_second',
+      'clocks',
+    ]) {
+      expect(
+        telemetry.querySelector(`[data-metric-icon="${metric}"]`),
+      ).toHaveAttribute('aria-hidden', 'true');
+    }
     expect(
       within(telemetry).getByLabelText('GPU 0 memory used'),
     ).toHaveAttribute('aria-valuenow', '40');
@@ -325,6 +347,12 @@ describe('GPU resource interactions', () => {
     expect(screen.getByText('GI 1 / CI 2')).toBeInTheDocument();
     expect(screen.getByText('2g.synthetic.1')).toBeInTheDocument();
     expect(screen.queryByText('CI 2 · 1c.synthetic.2')).toBeNull();
+    expect(
+      button.parentElement?.querySelector('[data-metric-icon="memory"]'),
+    ).toBeInTheDocument();
+    expect(
+      button.parentElement?.querySelector('[data-metric-icon="sm_activity"]'),
+    ).toBeInTheDocument();
     for (const progress of screen.getAllByRole('progressbar')) {
       expect(progress.closest('button')).toBeNull();
     }

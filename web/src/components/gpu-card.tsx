@@ -1,16 +1,5 @@
 import { memo, type ReactNode } from 'react';
-import {
-  Activity,
-  ArrowLeftRight,
-  Box,
-  ChevronRight,
-  Clock,
-  Cpu,
-  Gauge,
-  HardDrive,
-  Thermometer,
-  Zap,
-} from 'lucide-react';
+import { Activity, Box, ChevronRight, Cpu, Gauge } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
   Card,
@@ -33,6 +22,7 @@ import {
 } from '../lib';
 import { gpuAttributionTargets } from '../attribution';
 import type { Attribution, GPU, GpuInstance, Selection } from '../types';
+import { MetricIcon } from './metric-icon';
 import { WorkspaceBadges } from './workspace-attribution';
 
 type Props = {
@@ -88,7 +78,7 @@ function TemperatureChip({ gpu }: { gpu: GPU }) {
       className={`flex min-w-[4.7rem] items-center justify-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[13px] tabular-nums ${temperatureTone[level]}`}
       title={`Physical GPU temperature · ${level}`}
     >
-      <Thermometer className="size-3.5" aria-hidden="true" /> {formatted}
+      <MetricIcon metric="temperature" className="size-3.5" /> {formatted}
       <span className="sr-only">, Physical GPU temperature, {level}</span>
     </span>
   );
@@ -114,7 +104,7 @@ function PowerChip({ gpu }: { gpu: GPU }) {
       className={`flex min-w-[4.7rem] items-center justify-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[13px] tabular-nums ${powerTone[level]}`}
       title={`Physical GPU power · ${context}`}
     >
-      <Zap className="size-3.5" aria-hidden="true" /> {formatted}
+      <MetricIcon metric="power" className="size-3.5" /> {formatted}
       <span className="sr-only">, Physical GPU power, {context}</span>
     </span>
   );
@@ -262,21 +252,21 @@ function FullGPUResource({
         <PercentMetricTile
           metric="gpu-activity"
           label="GPU active"
-          icon={<Gauge className="size-3.5" aria-hidden="true" />}
+          icon={<MetricIcon metric="gpu_activity" className="size-3.5" />}
           value={gpuActivity}
           accessibleLabel={`GPU ${gpu.index} GPU activity`}
         />
         <PercentMetricTile
           metric="sm-activity"
           label="SM active"
-          icon={<Cpu className="size-3.5" aria-hidden="true" />}
+          icon={<MetricIcon metric="sm_activity" className="size-3.5" />}
           value={sm}
           accessibleLabel={`GPU ${gpu.index} SM activity`}
         />
         <PercentMetricTile
           metric="memory-activity"
           label="Memory active"
-          icon={<Activity className="size-3.5" aria-hidden="true" />}
+          icon={<MetricIcon metric="memory_activity" className="size-3.5" />}
           value={memoryActivity}
           accessibleLabel={`GPU ${gpu.index} memory activity`}
         />
@@ -287,7 +277,7 @@ function FullGPUResource({
         >
           <div className="full-gpu-metric-heading flex flex-col items-start gap-1 text-[13px] uppercase tracking-[0.11em] text-muted-foreground md:flex-row md:items-center md:justify-between md:gap-2">
             <span className="full-gpu-metric-label inline-flex items-start gap-1.5 leading-tight md:items-center">
-              <HardDrive className="size-3.5" aria-hidden="true" /> Memory
+              <MetricIcon metric="memory" className="size-3.5" /> Memory
             </span>
             <span className="full-gpu-metric-value whitespace-nowrap font-mono text-foreground">
               {memory == null ? '—' : formatPercent(memory)}
@@ -315,7 +305,11 @@ function FullGPUResource({
           data-metric="pcie"
         >
           <div className="flex items-center gap-1.5 text-[13px] uppercase tracking-[0.11em] text-muted-foreground">
-            <ArrowLeftRight className="size-3.5" aria-hidden="true" /> PCIe
+            <MetricIcon
+              metric="pcie_total_bytes_per_second"
+              className="size-3.5"
+            />{' '}
+            PCIe
           </div>
           <p className="full-gpu-pcie-value mt-auto pt-2 font-mono text-[15px] font-semibold tabular-nums text-foreground">
             {pcie.value}
@@ -334,7 +328,7 @@ function FullGPUResource({
           data-metric="clocks"
         >
           <div className="mb-1.5 flex items-center gap-1.5 text-[13px] uppercase tracking-[0.11em] text-muted-foreground">
-            <Clock className="size-3.5" aria-hidden="true" /> Clocks
+            <MetricIcon metric="clocks" className="size-3.5" /> Clocks
           </div>
           <p
             className="full-gpu-clock-row mt-auto flex flex-col items-start gap-0.5 font-mono text-[13px] text-muted-foreground md:flex-row md:items-center md:justify-between md:gap-2"
@@ -435,8 +429,11 @@ function MigBlock({
       <div className="pointer-events-none relative z-0 mt-4 grid grid-cols-2 gap-3">
         <div>
           <div className="mb-1.5 flex justify-between text-[13px] uppercase tracking-[0.11em] text-muted-foreground">
-            <span className="mobile-only-label">Mem</span>
-            <span className="desktop-only-label">Memory</span>
+            <span className="inline-flex items-center gap-1.5">
+              <MetricIcon metric="memory" className="size-3.5" />
+              <span className="mobile-only-label">Mem</span>
+              <span className="desktop-only-label">Memory</span>
+            </span>
             <span className="font-mono text-foreground">
               {memory == null ? '—' : formatPercent(memory)}
             </span>
@@ -453,8 +450,11 @@ function MigBlock({
         </div>
         <div>
           <div className="mb-1.5 flex justify-between text-[13px] uppercase tracking-[0.11em] text-muted-foreground">
-            <span className="mobile-only-label">SM</span>
-            <span className="desktop-only-label">SM active</span>
+            <span className="inline-flex items-center gap-1.5">
+              <MetricIcon metric="sm_activity" className="size-3.5" />
+              <span className="mobile-only-label">SM</span>
+              <span className="desktop-only-label">SM active</span>
+            </span>
             <span className="font-mono text-foreground">
               {sm == null ? '—' : formatPercent(sm)}
             </span>

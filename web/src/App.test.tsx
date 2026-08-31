@@ -14,6 +14,7 @@ import {
   parseWorkbenchHash,
   resolveInitialWorkbenchView,
 } from './App';
+import { clearWorkloadHistoryCache } from './components/workload-telemetry-chart';
 import type {
   Attribution,
   Capabilities,
@@ -434,6 +435,7 @@ function result(
 describe('Leviathan dashboard states', () => {
   beforeEach(() => {
     mockUseLeviathan.mockReset();
+    clearWorkloadHistoryCache();
     scrollIntoViewMock.mockClear();
     localStorage.clear();
     window.history.replaceState(null, '', '#overview');
@@ -995,10 +997,14 @@ describe('Leviathan dashboard states', () => {
     openView('Workloads');
 
     expect(await screen.findByTestId('people-view')).toBeInTheDocument();
-    expect(screen.getByText('alice')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'alice', level: 3 }),
+    ).toBeInTheDocument();
     expect(screen.getByText('training-lab')).toBeInTheDocument();
     expect(screen.queryByTestId('process-section')).toBeNull();
-    expect(dashboard.alignedHistory).toHaveBeenCalledTimes(5);
+    await waitFor(() =>
+      expect(dashboard.alignedHistory).toHaveBeenCalledTimes(6),
+    );
 
     openView('Operations');
     expect(screen.getByLabelText('Filter GPU processes')).toHaveValue(
@@ -1291,7 +1297,12 @@ describe('Leviathan dashboard states', () => {
 
     openView('Resources');
     fireEvent.click(screen.getByRole('button', { name: /GI 1 \/ CI 0/ }));
-    expect(await screen.findByText('30m activity')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: 'Activity', level: 4 }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('figure', { name: '30m activity history' }),
+    ).toBeInTheDocument();
     const detailWindow = screen.getByRole('radiogroup', {
       name: 'Detail chart window',
     });
@@ -1299,7 +1310,9 @@ describe('Leviathan dashboard states', () => {
     expect(localStorage.getItem('leviathan.detailChartWindow.v1')).toBe(
       String(5 * 60 * 1000),
     );
-    expect(await screen.findByText('5m activity')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('figure', { name: '5m activity history' }),
+    ).toBeInTheDocument();
     expect(screen.queryByText('Physical GPUs · 15m')).toBeNull();
     await waitFor(() =>
       expect(dashboard.history).toHaveBeenCalledWith(
@@ -1359,7 +1372,9 @@ describe('Leviathan dashboard states', () => {
     );
     openView('Resources');
     fireEvent.click(screen.getByRole('button', { name: /GI 1 \/ CI 0/ }));
-    expect(await screen.findByText('4m activity')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('figure', { name: '4m activity history' }),
+    ).toBeInTheDocument();
     const detailWindow = screen.getByRole('radiogroup', {
       name: 'Detail chart window',
     });
