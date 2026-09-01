@@ -128,7 +128,7 @@ uplink_units=(
 for uplink_unit in "${uplink_units[@]}"; do
   grep -Fx 'User=%i' "${uplink_unit}" >/dev/null
   grep -Fx 'EnvironmentFile=/etc/leviathan/uplink-%i.env' "${uplink_unit}" >/dev/null
-  grep -Fx "ExecStart=/usr/local/bin/leviathan uplink --hub-url=\${LEVIATHAN_HUB_URL} --token-env=LEVIATHAN_UPLINK_TOKEN --uplink-interval=15s" "${uplink_unit}" >/dev/null
+  grep -Fx "ExecStart=/usr/local/bin/leviathan --interval=500ms uplink --hub-url=\${LEVIATHAN_HUB_URL} --token-env=LEVIATHAN_UPLINK_TOKEN --uplink-interval=500ms" "${uplink_unit}" >/dev/null
   for directive in User EnvironmentFile ExecStart; do
     [[ "$(grep -c "^${directive}=" "${uplink_unit}")" -eq 1 ]] || {
       echo "uplink systemd unit must contain exactly one ${directive} directive" >&2

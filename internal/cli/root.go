@@ -24,6 +24,7 @@ import (
 	"github.com/intellisys-stevens/leviathan/internal/render"
 	"github.com/intellisys-stevens/leviathan/internal/tui"
 	"github.com/intellisys-stevens/leviathan/internal/uplinkclient"
+	"github.com/intellisys-stevens/leviathan/internal/uplinkstream"
 	"github.com/intellisys-stevens/leviathan/internal/webui"
 	"github.com/spf13/cobra"
 )
@@ -326,8 +327,8 @@ func (a *application) uplinkCommand() *cobra.Command {
 		Short: "Continuously push local telemetry to an authenticated Leviathan Hub",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			if pushInterval < 5*time.Second || pushInterval > 5*time.Minute {
-				return errors.New("uplink interval must be between 5s and 5m")
+			if pushInterval < 500*time.Millisecond || pushInterval > 5*time.Minute {
+				return errors.New("uplink interval must be between 500ms and 5m")
 			}
 			if !uplinkEnvironmentName.MatchString(tokenEnvironment) {
 				return errors.New("uplink token environment variable name is invalid")
@@ -361,46 +362,17 @@ func (a *application) uplinkCommand() *cobra.Command {
 			defer engine.Stop()
 
 			info := buildInfo()
-			ticker := time.NewTicker(pushInterval)
-			defer ticker.Stop()
-			failed := false
-			connected := false
-			for {
-				snapshot, available := engine.Current()
-				if !available {
-					return errors.New("uplink snapshot is not available")
-				}
-				sendErr := client.Send(command.Context(), instanceUUID, snapshot, &info)
-				if sendErr != nil {
-					if command.Context().Err() != nil {
-						return nil
-					}
-					if !failed {
-						fmt.Fprintln(a.stderr, "Leviathan uplink is unavailable; retrying without a local queue.")
-					}
-					failed = true
-				} else {
-					if failed {
-						fmt.Fprintln(a.stderr, "Leviathan uplink recovered.")
-					} else if !connected {
-						fmt.Fprintln(a.stderr, "Leviathan uplink connected.")
-					}
-					failed = false
-					connected = true
-				}
-
-				select {
-				case <-command.Context().Done():
-					return nil
-				case <-ticker.C:
-				}
-			}
+			updates, unsubscribe := engine.Subscribe()
+			defer unsubscribe()
+			return uplinkstream.Run(command.Context(), updates, pushInterval, func(ctx context.Context, snapshot model.Snapshot) error {
+				return client.Send(ctx, instanceUUID, snapshot, &info)
+			}, a.stderr)
 		},
 	}
 	command.Flags().StringVar(&hubURL, "hub-url", "", "required credential-free HTTPS Leviathan Hub origin")
 	command.Flags().StringVar(&instanceUUID, "instance-uuid", "", "OpenStack instance UUID (default: discover from link-local metadata)")
 	command.Flags().StringVar(&tokenEnvironment, "token-env", "LEVIATHAN_UPLINK_TOKEN", "environment variable containing the creator-scoped bearer token")
-	command.Flags().DurationVar(&pushInterval, "uplink-interval", 15*time.Second, "telemetry push interval (5s–5m)")
+	command.Flags().DurationVar(&pushInterval, "uplink-interval", 500*time.Millisecond, "telemetry push interval (500ms–5m)")
 	_ = command.MarkFlagRequired("hub-url")
 	return command
 }

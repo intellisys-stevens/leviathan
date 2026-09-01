@@ -38,7 +38,7 @@ grep -Fx '  title: Leviathan fleet API' api/fleet-openapi.yaml >/dev/null
 grep -F 'operationId: getFleetState' api/fleet-openapi.yaml >/dev/null
 grep -F 'operationId: putFleetUplinkSnapshot' api/fleet-openapi.yaml >/dev/null
 grep -Fx 'EnvironmentFile=/etc/leviathan/uplink-%i.env' contrib/systemd/leviathan-uplink@.service >/dev/null
-grep -Fx "ExecStart=/usr/local/bin/leviathan uplink --hub-url=\${LEVIATHAN_HUB_URL} --token-env=LEVIATHAN_UPLINK_TOKEN --uplink-interval=15s" contrib/systemd/leviathan-uplink@.service >/dev/null
+grep -Fx "ExecStart=/usr/local/bin/leviathan --interval=500ms uplink --hub-url=\${LEVIATHAN_HUB_URL} --token-env=LEVIATHAN_UPLINK_TOKEN --uplink-interval=500ms" contrib/systemd/leviathan-uplink@.service >/dev/null
 grep -Fx 'LEVIATHAN_HUB_URL=https://leviathan-hub.example.test' contrib/systemd/leviathan-uplink.env.example >/dev/null
 grep -Fx 'LEVIATHAN_UPLINK_TOKEN=' contrib/systemd/leviathan-uplink.env.example >/dev/null
 [[ -f cmd/leviathan-hub/main.go ]]

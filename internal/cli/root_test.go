@@ -77,7 +77,7 @@ func TestUplinkRejectsUnsafeInputsBeforeStartingCollector(t *testing.T) {
 		args []string
 		want string
 	}{
-		{name: "interval", args: []string{"uplink", "--hub-url", "https://hub.example.test", "--uplink-interval", "1s"}, want: "between 5s and 5m"},
+		{name: "interval", args: []string{"uplink", "--hub-url", "https://hub.example.test", "--uplink-interval", "250ms"}, want: "between 500ms and 5m"},
 		{name: "token environment", args: []string{"uplink", "--hub-url", "https://hub.example.test", "--token-env", "bad-name"}, want: "environment variable name"},
 		{name: "instance UUID", args: []string{"uplink", "--hub-url", "https://hub.example.test", "--instance-uuid", "not-a-uuid", "--token-env", "LEVIATHAN_TEST_UPLINK_TOKEN"}, want: "canonical lowercase UUID"},
 		{name: "HTTP Hub", args: []string{"uplink", "--hub-url", "http://hub.example.test", "--instance-uuid", "11111111-1111-4111-8111-111111111111", "--token-env", "LEVIATHAN_TEST_UPLINK_TOKEN"}, want: "base URL is invalid"},

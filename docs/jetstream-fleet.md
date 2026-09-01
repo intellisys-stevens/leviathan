@@ -252,9 +252,10 @@ token, and start:
 ```bash
 export LEVIATHAN_UPLINK_TOKEN
 leviathan uplink \
+  --interval 500ms \
   --hub-url "https://leviathan-hub.example.test" \
   --token-env LEVIATHAN_UPLINK_TOKEN \
-  --uplink-interval 15s
+  --uplink-interval 500ms
 ```
 
 By default the command obtains the UUID from exactly
@@ -264,10 +265,11 @@ non-canonical UUIDs are rejected. This discovery prevents accidental routing
 mistakes but does not attest the calling VM. `--instance-uuid` is available for
 a controlled diagnostic override.
 
-The sender accepts only a credential-free HTTPS origin, never follows a
-redirect, carries no cookies, performs one bounded request per interval, and
-keeps no local retry queue. On a transient failure it continues local
-collection and retries with the next newest snapshot.
+The production unit samples and uploads at a 500 ms cadence. The sender accepts
+only a credential-free HTTPS origin, never follows a redirect, carries no
+cookies, performs at most one bounded request per interval, and keeps no local
+retry queue. Duplicate sequences are skipped; if collection or transport falls
+behind, superseded snapshots are coalesced and the next newest snapshot is sent.
 
 ## Bootstrap a discovered instance over SSH
 
