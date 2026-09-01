@@ -104,6 +104,12 @@ describe('GPU resource interactions', () => {
       'inset-0',
     );
     expect(button.parentElement).toHaveClass('interactive-resource');
+    expect(button.parentElement).toHaveClass('flowing-surface');
+    expect(
+      button.parentElement?.querySelector(
+        ':scope > [data-slot="perimeter-light"]',
+      ),
+    ).toHaveAttribute('aria-hidden', 'true');
     expect(
       button.parentElement?.querySelector('.resource-chevron'),
     ).toBeInTheDocument();

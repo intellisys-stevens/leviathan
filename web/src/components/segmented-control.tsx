@@ -1,4 +1,5 @@
 import { useId, type CSSProperties, type ReactNode } from 'react';
+import { PerimeterLight } from './perimeter-light';
 
 export type SegmentedControlOption<T extends string | number> = {
   value: T;
@@ -43,9 +44,10 @@ export function SegmentedControl<T extends string | number>({
       role="radiogroup"
       aria-label={ariaLabel}
       aria-busy={ariaBusy}
-      className={`segmented-control ${className}`}
+      className={`segmented-control flowing-surface ${className}`}
       style={style}
     >
+      <PerimeterLight />
       {selectedIndex >= 0 ? (
         <span
           className="segmented-thumb transition-transform duration-200 ease-[var(--ease-onscreen)] motion-reduce:transition-none"

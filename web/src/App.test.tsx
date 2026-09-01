@@ -756,6 +756,12 @@ describe('Leviathan dashboard states', () => {
         screen.queryByRole('navigation', { name: 'Workbench views' }),
       ).toBeNull();
       expect(within(navigation).getAllByRole('link')).toHaveLength(4);
+      for (const link of within(navigation).getAllByRole('link')) {
+        expect(link).toHaveClass('flowing-surface');
+        expect(
+          link.querySelector(':scope > [data-slot="perimeter-light"]'),
+        ).toHaveAttribute('aria-hidden', 'true');
+      }
       expect(
         within(navigation).getByRole('link', { name: 'Overview' }),
       ).toHaveAttribute('aria-current', 'page');
@@ -817,6 +823,12 @@ describe('Leviathan dashboard states', () => {
 
     const summary = screen.getByLabelText('Host summary');
     expect(summary.querySelectorAll('.summary-link')).toHaveLength(3);
+    for (const link of summary.querySelectorAll('.summary-link')) {
+      expect(link).toHaveClass('flowing-surface');
+      expect(
+        link.querySelector(':scope > [data-slot="perimeter-light"]'),
+      ).toHaveAttribute('aria-hidden', 'true');
+    }
     expect(within(summary).getAllByText('Resources')).toHaveLength(2);
     expect(within(summary).getByText('1 GPU · 1 instance')).toBeInTheDocument();
     expect(within(summary).getByText('Assigned workloads')).toBeInTheDocument();

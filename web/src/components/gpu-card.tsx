@@ -23,6 +23,7 @@ import {
 import { gpuAttributionTargets } from '../attribution';
 import type { Attribution, GPU, GpuInstance, Selection } from '../types';
 import { MetricIcon } from './metric-icon';
+import { PerimeterLight } from './perimeter-light';
 import { WorkspaceBadges } from './workspace-attribution';
 
 type Props = {
@@ -226,9 +227,10 @@ function FullGPUResource({
 
   return (
     <section
-      className="full-gpu-resource mobile-resource-surface interactive-resource relative flex min-h-[9rem] flex-1 flex-col border border-border/80 bg-instance p-3"
+      className="full-gpu-resource mobile-resource-surface interactive-resource flowing-surface relative flex min-h-[9rem] flex-1 flex-col rounded-lg border border-border/80 bg-instance p-3"
       aria-label={`GPU ${gpu.index} live telemetry`}
     >
+      <PerimeterLight />
       <button
         type="button"
         className="interactive-resource-button absolute inset-0 z-10 rounded-[inherit] text-left outline-none"
@@ -410,19 +412,22 @@ function MigBlock({
   const content = (
     <>
       {singleCI ? (
-        <button
-          type="button"
-          className="interactive-resource-button absolute inset-0 z-10 rounded-[inherit] text-left outline-none"
-          aria-label={`Open GPU ${gpu.index} · GI ${gi.id} / CI ${singleCI.id} details`}
-          onClick={() =>
-            onSelect({
-              kind: 'compute_instance',
-              gpu,
-              gi,
-              ci: singleCI,
-            })
-          }
-        />
+        <>
+          <PerimeterLight />
+          <button
+            type="button"
+            className="interactive-resource-button absolute inset-0 z-10 rounded-[inherit] text-left outline-none"
+            aria-label={`Open GPU ${gpu.index} · GI ${gi.id} / CI ${singleCI.id} details`}
+            onClick={() =>
+              onSelect({
+                kind: 'compute_instance',
+                gpu,
+                gi,
+                ci: singleCI,
+              })
+            }
+          />
+        </>
       ) : null}
       {identity}
 
@@ -494,8 +499,9 @@ function MigBlock({
           {gi.computeInstances.map((ci) => (
             <div
               key={ci.uuid}
-              className="mobile-ci-card interactive-resource relative flex w-full items-center justify-between gap-3 rounded border border-transparent px-2 py-2 text-left"
+              className="mobile-ci-card interactive-resource flowing-surface relative flex w-full items-center justify-between gap-3 rounded border border-transparent px-2 py-2 text-left"
             >
+              <PerimeterLight />
               <button
                 type="button"
                 className="interactive-resource-button absolute inset-0 z-10 rounded-[inherit] text-left outline-none"
@@ -536,7 +542,7 @@ function MigBlock({
     </>
   );
 
-  const className = `min-w-0 border p-3 text-left ${single ? 'interactive-resource relative' : ''} ${status === 'error' ? 'border-destructive/60 bg-destructive/5' : status === 'warning' ? 'border-amber-500/35 bg-amber-500/[0.035]' : 'border-border/80 bg-instance'}`;
+  const className = `min-w-0 rounded-lg border p-3 text-left ${single ? 'interactive-resource flowing-surface relative' : ''} ${status === 'error' ? 'border-destructive/60 bg-destructive/5' : status === 'warning' ? 'border-amber-500/35 bg-amber-500/[0.035]' : 'border-border/80 bg-instance'}`;
   return (
     <div className="mobile-mig-block min-w-0">
       <div className={`${className} h-full`}>{content}</div>

@@ -302,6 +302,12 @@ describe('people resource view', () => {
         'inset-0',
       );
       expect(button.parentElement).toHaveClass('interactive-resource');
+      expect(button.parentElement).toHaveClass('flowing-surface');
+      expect(
+        button.parentElement?.querySelector(
+          ':scope > [data-slot="perimeter-light"]',
+        ),
+      ).toHaveAttribute('aria-hidden', 'true');
       expect(
         button.parentElement?.querySelector('.resource-chevron'),
       ).toBeInTheDocument();
@@ -515,6 +521,12 @@ describe('people resource view', () => {
     const secondTab = screen.getByRole('tab', {
       name: /^second-synthetic-owner/u,
     });
+    for (const tab of [firstTab, secondTab]) {
+      expect(tab).toHaveClass('flowing-surface');
+      expect(
+        tab.querySelector(':scope > [data-slot="perimeter-light"]'),
+      ).toHaveAttribute('aria-hidden', 'true');
+    }
     firstTab.focus();
     fireEvent.keyDown(firstTab, { key: 'ArrowDown' });
     expect(secondTab).toHaveFocus();

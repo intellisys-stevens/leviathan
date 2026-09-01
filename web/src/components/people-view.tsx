@@ -17,6 +17,7 @@ import type { LoadAlignedHistory } from '../overview-history';
 import type { Selection, Snapshot } from '../types';
 import { buildWorkloadTelemetryEntities } from '../workload-history';
 import { MetricIcon } from './metric-icon';
+import { PerimeterLight } from './perimeter-light';
 
 const WorkloadTelemetryChart = lazy(() => import('./workload-telemetry-chart'));
 
@@ -62,7 +63,8 @@ function ResourceRow({
     : `, shared by ${countLabel(selection.gi.computeInstances.length, 'CI')}`;
 
   return (
-    <li className="mobile-workload-resource interactive-resource group relative grid min-w-0 gap-3 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,0.8fr)]">
+    <li className="mobile-workload-resource interactive-resource flowing-surface group relative grid min-w-0 gap-3 rounded-lg px-3 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,0.8fr)]">
+      <PerimeterLight />
       <button
         type="button"
         className="interactive-resource-button absolute inset-0 z-10 text-left outline-none"
@@ -308,7 +310,7 @@ function PeopleViewComponent({
                   aria-selected={selected}
                   aria-controls="workload-owner-panel"
                   tabIndex={selected ? 0 : -1}
-                  className={`workload-owner-tab rounded-lg border px-3 py-3 text-left outline-none transition-[color,background-color,border-color] duration-[var(--duration-feedback)] focus-visible:ring-2 focus-visible:ring-ring ${
+                  className={`workload-owner-tab flowing-surface rounded-lg border px-3 py-3 text-left outline-none transition-[color,background-color,border-color] duration-[var(--duration-feedback)] focus-visible:ring-2 focus-visible:ring-ring ${
                     selected
                       ? 'border-primary/35 bg-primary/10 text-foreground'
                       : 'border-transparent text-muted-foreground hover:border-border hover:bg-card/70 hover:text-foreground'
@@ -329,6 +331,7 @@ function PeopleViewComponent({
                     selectAndFocusPerson(nextIndex);
                   }}
                 >
+                  <PerimeterLight />
                   <span className="block truncate text-[15px] font-semibold">
                     {person.ownerName}
                   </span>
