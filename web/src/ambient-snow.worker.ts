@@ -18,7 +18,7 @@ import {
 
 const workerScope: DedicatedWorkerGlobalScope =
   self as DedicatedWorkerGlobalScope;
-const heartbeatInterval = 30;
+const heartbeatInterval = 15;
 
 let canvas: OffscreenCanvas | null = null;
 let context: OffscreenCanvasRenderingContext2D | null = null;
@@ -135,7 +135,7 @@ function frame(timestamp: number) {
   advanceSnowParticles(particles, width, height, delta);
   draw();
   frameSequence += 1;
-  if (frameSequence % heartbeatInterval === 0)
+  if (frameSequence === 1 || frameSequence % heartbeatInterval === 0)
     post({ type: 'frame', sequence: frameSequence });
   animationFrame = workerScope.requestAnimationFrame(frame);
 }

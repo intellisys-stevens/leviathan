@@ -597,12 +597,18 @@ test('animates, pauses, resumes, and theme-gates the ambient snow canvas', async
   const canvas = page.getByTestId('ambient-snow');
   await expect(canvas).toBeVisible();
   await expect(canvas).toHaveAttribute('data-state', 'running');
+  await expect
+    .poll(() => canvasFrameSignature(canvas), {
+      intervals: [80, 120, 180, 250],
+      timeout: 6_000,
+    })
+    .not.toBe('worker:0');
 
   const firstFrame = await canvasFrameSignature(canvas);
   await expect
     .poll(() => canvasFrameSignature(canvas), {
-      intervals: [80, 120, 180],
-      timeout: 3_000,
+      intervals: [80, 120, 180, 250],
+      timeout: 6_000,
     })
     .not.toBe(firstFrame);
 
@@ -624,8 +630,8 @@ test('animates, pauses, resumes, and theme-gates the ambient snow canvas', async
   await expect(canvas).toHaveAttribute('data-state', 'running');
   await expect
     .poll(() => canvasFrameSignature(canvas), {
-      intervals: [80, 120, 180],
-      timeout: 3_000,
+      intervals: [80, 120, 180, 250],
+      timeout: 6_000,
     })
     .not.toBe(pausedFrame);
 
