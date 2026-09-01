@@ -197,6 +197,13 @@ type Host struct {
 	Arch     string `json:"arch"`
 }
 
+// HostTelemetry is optional so Snapshot v1 remains compatible with agents
+// released before aggregate guest CPU and memory collection was added.
+type HostTelemetry struct {
+	Metrics MetricSet `json:"metrics"`
+	Memory  Memory    `json:"memory"`
+}
+
 // RuntimeSettings are process-local controls exposed by the dashboard. They
 // are intentionally separate from persisted configuration.
 type RuntimeSettings struct {
@@ -216,15 +223,16 @@ type BuildInfo struct {
 }
 
 type Snapshot struct {
-	SchemaVersion string       `json:"schemaVersion"`
-	Sequence      uint64       `json:"sequence"`
-	SampledAt     time.Time    `json:"sampledAt"`
-	Host          Host         `json:"host"`
-	GPUs          []GPU        `json:"gpus"`
-	Processes     []Process    `json:"processes"`
-	Attribution   *Attribution `json:"attribution,omitempty"`
-	Capabilities  Capabilities `json:"capabilities"`
-	Diagnostics   []Diagnostic `json:"diagnostics"`
+	SchemaVersion string         `json:"schemaVersion"`
+	Sequence      uint64         `json:"sequence"`
+	SampledAt     time.Time      `json:"sampledAt"`
+	Host          Host           `json:"host"`
+	HostTelemetry *HostTelemetry `json:"hostTelemetry,omitempty"`
+	GPUs          []GPU          `json:"gpus"`
+	Processes     []Process      `json:"processes"`
+	Attribution   *Attribution   `json:"attribution,omitempty"`
+	Capabilities  Capabilities   `json:"capabilities"`
+	Diagnostics   []Diagnostic   `json:"diagnostics"`
 }
 
 func Float(value float64) *float64 { return &value }

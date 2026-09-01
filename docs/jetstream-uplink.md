@@ -18,6 +18,11 @@ The client performs one synchronous request per interval. It has no durable
 queue and never accepts commands from the receiver. A failed request is retried
 at the next interval, while the local collector continues to sample normally.
 
+On Linux, the Uplink adds optional aggregate guest CPU activity and system
+memory usage read from `/proc/stat` and `/proc/meminfo`. These host fields are
+best-effort: an unavailable host sample never blocks GPU/MIG telemetry, and old
+agents that omit the optional fields remain wire-compatible.
+
 ## Run directly
 
 Provide the token through an environment variable rather than a command-line

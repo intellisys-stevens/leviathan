@@ -342,7 +342,7 @@ type ComputeInstance struct {
 	Id          uint32        `json:"id"`
 	Memory      Memory        `json:"memory"`
 
-	// Metrics Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts.
+	// Metrics Canonical metrics keyed by name. cpu_activity is aggregate guest CPU busy time; gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts.
 	Metrics MetricSet `json:"metrics"`
 	Profile string    `json:"profile"`
 	Uuid    string    `json:"uuid"`
@@ -374,7 +374,7 @@ type GPU struct {
 	MaxMigDevices int           `json:"maxMigDevices"`
 	Memory        Memory        `json:"memory"`
 
-	// Metrics Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts.
+	// Metrics Canonical metrics keyed by name. cpu_activity is aggregate guest CPU busy time; gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts.
 	Metrics    MetricSet `json:"metrics"`
 	MigEnabled bool      `json:"migEnabled"`
 	Name       string    `json:"name"`
@@ -389,7 +389,7 @@ type GpuInstance struct {
 	Id               uint32            `json:"id"`
 	Memory           Memory            `json:"memory"`
 
-	// Metrics Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts.
+	// Metrics Canonical metrics keyed by name. cpu_activity is aggregate guest CPU busy time; gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts.
 	Metrics MetricSet `json:"metrics"`
 	Profile string    `json:"profile"`
 	Uuid    string    `json:"uuid"`
@@ -425,6 +425,14 @@ type Host struct {
 	Os       string `json:"os"`
 }
 
+// HostTelemetry defines model for HostTelemetry.
+type HostTelemetry struct {
+	Memory Memory `json:"memory"`
+
+	// Metrics Canonical metrics keyed by name. cpu_activity is aggregate guest CPU busy time; gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts.
+	Metrics MetricSet `json:"metrics"`
+}
+
 // Memory defines model for Memory.
 type Memory struct {
 	FreeBytes  *uint64      `json:"freeBytes"`
@@ -451,7 +459,7 @@ type Metric struct {
 // MetricScope defines model for MetricScope.
 type MetricScope string
 
-// MetricSet Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts.
+// MetricSet Canonical metrics keyed by name. cpu_activity is aggregate guest CPU busy time; gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts.
 type MetricSet map[string]Metric
 
 // MetricSource defines model for MetricSource.
@@ -523,11 +531,12 @@ type RuntimeSettingsPatchSamplingIntervalMs int64
 
 // Snapshot defines model for Snapshot.
 type Snapshot struct {
-	Attribution  *Attribution `json:"attribution,omitempty"`
-	Capabilities Capabilities `json:"capabilities"`
-	Diagnostics  []Diagnostic `json:"diagnostics"`
-	Gpus         []GPU        `json:"gpus"`
-	Host         Host         `json:"host"`
+	Attribution   *Attribution   `json:"attribution,omitempty"`
+	Capabilities  Capabilities   `json:"capabilities"`
+	Diagnostics   []Diagnostic   `json:"diagnostics"`
+	Gpus          []GPU          `json:"gpus"`
+	Host          Host           `json:"host"`
+	HostTelemetry *HostTelemetry `json:"hostTelemetry,omitempty"`
 
 	// Processes GPU-connected processes detected through open NVIDIA UVM device handles in the current PID namespace. Leviathan itself is excluded.
 	Processes     []Process             `json:"processes"`

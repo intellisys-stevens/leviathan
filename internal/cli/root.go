@@ -19,6 +19,7 @@ import (
 	"github.com/intellisys-stevens/leviathan/internal/collector"
 	"github.com/intellisys-stevens/leviathan/internal/config"
 	"github.com/intellisys-stevens/leviathan/internal/doctor"
+	"github.com/intellisys-stevens/leviathan/internal/hostmetrics"
 	"github.com/intellisys-stevens/leviathan/internal/model"
 	"github.com/intellisys-stevens/leviathan/internal/openstackmetadata"
 	"github.com/intellisys-stevens/leviathan/internal/render"
@@ -371,6 +372,7 @@ func (a *application) uplinkCommand() *cobra.Command {
 			defer engine.Stop()
 
 			info := buildInfo()
+			hostTelemetry := hostmetrics.New(hostmetrics.Options{})
 			ticker := time.NewTicker(pushInterval)
 			defer ticker.Stop()
 			failed := false
@@ -380,6 +382,7 @@ func (a *application) uplinkCommand() *cobra.Command {
 				if !available {
 					return errors.New("uplink snapshot is not available")
 				}
+				hostTelemetry.Enrich(&snapshot)
 				sendErr := client.Send(command.Context(), instanceUUID, snapshot, &info)
 				if sendErr != nil {
 					if command.Context().Err() != nil {

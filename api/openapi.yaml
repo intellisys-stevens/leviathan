@@ -177,7 +177,7 @@ components:
         message: { type: string }
     MetricSet:
       type: object
-      description: Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts.
+      description: Canonical metrics keyed by name. cpu_activity is aggregate guest CPU busy time; gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts.
       additionalProperties: { $ref: "#/components/schemas/Metric" }
     Memory:
       type: object
@@ -372,6 +372,12 @@ components:
         hostname: { type: string }
         os: { type: string }
         arch: { type: string }
+    HostTelemetry:
+      type: object
+      required: [metrics, memory]
+      properties:
+        metrics: { $ref: "#/components/schemas/MetricSet" }
+        memory: { $ref: "#/components/schemas/Memory" }
     Snapshot:
       type: object
       required: [schemaVersion, sequence, sampledAt, host, gpus, processes, capabilities, diagnostics]
@@ -380,6 +386,7 @@ components:
         sequence: { type: integer, format: uint64, minimum: 0 }
         sampledAt: { type: string, format: date-time }
         host: { $ref: "#/components/schemas/Host" }
+        hostTelemetry: { $ref: "#/components/schemas/HostTelemetry" }
         gpus: { type: array, items: { $ref: "#/components/schemas/GPU" } }
         processes:
           type: array

@@ -161,7 +161,7 @@ export interface components {
             status: components["schemas"]["MetricStatus"];
             message?: string;
         };
-        /** @description Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts. */
+        /** @description Canonical metrics keyed by name. cpu_activity is aggregate guest CPU busy time; gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts. */
         MetricSet: {
             [key: string]: components["schemas"]["Metric"];
         };
@@ -325,6 +325,10 @@ export interface components {
             os: string;
             arch: string;
         };
+        HostTelemetry: {
+            metrics: components["schemas"]["MetricSet"];
+            memory: components["schemas"]["Memory"];
+        };
         Snapshot: {
             /** @constant */
             schemaVersion: "v1";
@@ -333,6 +337,7 @@ export interface components {
             /** Format: date-time */
             sampledAt: string;
             host: components["schemas"]["Host"];
+            hostTelemetry?: components["schemas"]["HostTelemetry"];
             gpus: components["schemas"]["GPU"][];
             /** @description GPU-connected processes detected through open NVIDIA UVM device handles in the current PID namespace. Leviathan itself is excluded. */
             processes: components["schemas"]["Process"][];

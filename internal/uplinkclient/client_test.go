@@ -26,6 +26,18 @@ const (
 
 func TestSendPostsExactEnvelope(t *testing.T) {
 	snapshot := validSnapshot()
+	snapshot.HostTelemetry = &model.HostTelemetry{
+		Metrics: model.MetricSet{"cpu_activity": model.AvailableMetric(27.5, "percent", model.SourceProc, model.ScopeHost, snapshot.SampledAt)},
+		Memory: model.Memory{
+			TotalBytes: model.Uint64(16 << 30),
+			UsedBytes:  model.Uint64(6 << 30),
+			FreeBytes:  model.Uint64(10 << 30),
+			Source:     model.SourceProc,
+			Scope:      model.ScopeHost,
+			SampledAt:  snapshot.SampledAt,
+			Status:     model.StatusAvailable,
+		},
+	}
 	buildInfo := &model.BuildInfo{Version: "0.3.0", Commit: "abc123", BuildDate: "2026-08-30T20:00:00Z"}
 	var calls atomic.Int32
 	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -61,6 +73,11 @@ func TestSendPostsExactEnvelope(t *testing.T) {
 		if envelope.Snapshot.SchemaVersion != snapshot.SchemaVersion || envelope.Snapshot.Sequence != snapshot.Sequence ||
 			!envelope.Snapshot.SampledAt.Equal(snapshot.SampledAt) || envelope.Snapshot.Host != snapshot.Host {
 			t.Errorf("snapshot = %+v", envelope.Snapshot)
+		}
+		if envelope.Snapshot.HostTelemetry == nil || envelope.Snapshot.HostTelemetry.Metrics["cpu_activity"].Value == nil ||
+			*envelope.Snapshot.HostTelemetry.Metrics["cpu_activity"].Value != 27.5 ||
+			envelope.Snapshot.HostTelemetry.Memory.UsedBytes == nil || *envelope.Snapshot.HostTelemetry.Memory.UsedBytes != 6<<30 {
+			t.Errorf("host telemetry = %+v", envelope.Snapshot.HostTelemetry)
 		}
 		if envelope.BuildInfo == nil || *envelope.BuildInfo != *buildInfo {
 			t.Errorf("buildInfo = %+v", envelope.BuildInfo)
