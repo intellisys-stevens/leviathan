@@ -9,7 +9,8 @@ import type {
   GpuInstance,
 } from './types';
 
-const historyBatchSize = 256;
+const historyBatchSeriesLimit = 256;
+const historyBatchMetricLimit = 1_024;
 
 export type WorkloadTelemetryEntity = {
   key: string;
@@ -17,19 +18,22 @@ export type WorkloadTelemetryEntity = {
   label: string;
   accessibleLabel: string;
   activityMetric: 'gpu_activity' | 'sm_activity';
+  memoryActivityMetric: 'memory_activity' | 'dram_activity';
   source: GPU | GpuInstance;
   sharedAcrossOwners: boolean;
 };
 
 export type WorkloadHistoryEntity = Pick<
   WorkloadTelemetryEntity,
-  'activityMetric' | 'entity' | 'key'
+  'activityMetric' | 'entity' | 'key' | 'memoryActivityMetric'
 >;
 
 export type WorkloadHistoryKeys = {
   descriptor: string;
   activity: string;
   memory: string;
+  memoryActivity: string;
+  pcieTotal: string;
 };
 
 function resourceScopeKey(
@@ -85,6 +89,7 @@ export function buildWorkloadTelemetryEntities(
             ? `${label}, shared assigned physical GPU telemetry`
             : `${label}, assigned physical GPU telemetry`,
           activityMetric: 'gpu_activity',
+          memoryActivityMetric: 'memory_activity',
           source: selection.gpu,
           sharedAcrossOwners,
         });
@@ -99,6 +104,7 @@ export function buildWorkloadTelemetryEntities(
           ? `${label}, shared parent GI telemetry across assigned users`
           : `${label}, assigned parent GI telemetry`,
         activityMetric: 'sm_activity',
+        memoryActivityMetric: 'dram_activity',
         source: selection.gi,
         sharedAcrossOwners,
       });
@@ -116,6 +122,8 @@ export function workloadHistoryKeys(index: number): WorkloadHistoryKeys {
     descriptor,
     activity: `${descriptor}_activity`,
     memory: `${descriptor}_memory`,
+    memoryActivity: `${descriptor}_memory_activity`,
+    pcieTotal: `${descriptor}_pcie_total`,
   };
 }
 
@@ -125,7 +133,14 @@ export function workloadHistoryDescriptors(
   return entities.map((entity, index) => ({
     key: workloadHistoryKeys(index).descriptor,
     entity: entity.entity,
-    metrics: [entity.activityMetric, 'memory_used_bytes', 'memory_total_bytes'],
+    metrics: [
+      entity.activityMetric,
+      entity.memoryActivityMetric,
+      'memory_used_bytes',
+      'memory_total_bytes',
+      'pcie_rx_bytes_per_second',
+      'pcie_tx_bytes_per_second',
+    ],
   }));
 }
 
@@ -133,8 +148,23 @@ export function workloadHistoryBatches(
   descriptors: readonly AlignedHistorySeriesDescriptor[],
 ): AlignedHistorySeriesDescriptor[][] {
   const batches: AlignedHistorySeriesDescriptor[][] = [];
-  for (let index = 0; index < descriptors.length; index += historyBatchSize)
-    batches.push(descriptors.slice(index, index + historyBatchSize));
+  let batch: AlignedHistorySeriesDescriptor[] = [];
+  let metricCount = 0;
+  for (const descriptor of descriptors) {
+    const requestedMetrics = descriptor.metrics.length;
+    if (
+      batch.length > 0 &&
+      (batch.length === historyBatchSeriesLimit ||
+        metricCount + requestedMetrics > historyBatchMetricLimit)
+    ) {
+      batches.push(batch);
+      batch = [];
+      metricCount = 0;
+    }
+    batch.push(descriptor);
+    metricCount += requestedMetrics;
+  }
+  if (batch.length > 0) batches.push(batch);
   return batches;
 }
 
@@ -144,6 +174,21 @@ function memoryPercentage(values: Record<string, number>): number | null {
   if (!Number.isFinite(used) || !Number.isFinite(total) || total <= 0)
     return null;
   return clampRenderedPercent((used / total) * 100);
+}
+
+function percentageMetric(
+  values: Record<string, number>,
+  metric: string,
+): number | null {
+  const value = values[metric];
+  return Number.isFinite(value) ? clampRenderedPercent(value) : null;
+}
+
+function pcieTotal(values: Record<string, number>): number | null {
+  const rx = values.pcie_rx_bytes_per_second;
+  const tx = values.pcie_tx_bytes_per_second;
+  if (!Number.isFinite(rx) || !Number.isFinite(tx)) return null;
+  return Math.max(0, rx) + Math.max(0, tx);
 }
 
 export function workloadRowsFromHistory(
@@ -160,11 +205,13 @@ export function workloadRowsFromHistory(
         const keys = workloadHistoryKeys(index);
         const values = point.values[keys.descriptor];
         if (!values) continue;
-        const activity = values[entity.activityMetric];
-        row[keys.activity] = Number.isFinite(activity)
-          ? clampRenderedPercent(activity)
-          : null;
+        row[keys.activity] = percentageMetric(values, entity.activityMetric);
         row[keys.memory] = memoryPercentage(values);
+        row[keys.memoryActivity] = percentageMetric(
+          values,
+          entity.memoryActivityMetric,
+        );
+        row[keys.pcieTotal] = pcieTotal(values);
       }
       rows.set(time, row);
     }
@@ -195,6 +242,20 @@ export function currentWorkloadRow(
         ? clampRenderedPercent(
             (Number(memory.usedBytes) / Number(memory.totalBytes)) * 100,
           )
+        : null;
+    const memoryActivity = entity.source.metrics[entity.memoryActivityMetric];
+    row[keys.memoryActivity] =
+      memoryActivity?.status === 'available' && memoryActivity.value != null
+        ? clampRenderedPercent(memoryActivity.value)
+        : null;
+    const rx = entity.source.metrics.pcie_rx_bytes_per_second;
+    const tx = entity.source.metrics.pcie_tx_bytes_per_second;
+    row[keys.pcieTotal] =
+      rx?.status === 'available' &&
+      rx.value != null &&
+      tx?.status === 'available' &&
+      tx.value != null
+        ? Math.max(0, rx.value) + Math.max(0, tx.value)
         : null;
   }
   return row;

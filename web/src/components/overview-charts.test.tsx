@@ -56,7 +56,7 @@ describe('overview chart tooltip', () => {
     expect(screen.getByText('73.5%')).toBeInTheDocument();
   });
 
-  it('shows exact PCIe totals with RX and TX detail', () => {
+  it('shows only the plotted PCIe total', () => {
     render(
       <SeriesTooltip
         active
@@ -85,9 +85,7 @@ describe('overview chart tooltip', () => {
       screen.getByTestId('pcie-throughput-chart-tooltip'),
     ).toBeInTheDocument();
     expect(screen.getByText('1.5 GiB/s')).toBeInTheDocument();
-    expect(
-      screen.getByText('RX 1.0 GiB/s · TX 512.0 MiB/s'),
-    ).toBeInTheDocument();
+    expect(screen.queryByText(/RX .* TX/u)).toBeNull();
   });
 
   it('uses a responsive multi-column layout for large tooltips', () => {
@@ -111,7 +109,7 @@ describe('overview chart tooltip', () => {
     expect(values).toHaveClass('grid-cols-1', 'sm:grid-cols-2');
   });
 
-  it('identifies the stable trend and its source samples', () => {
+  it('shows only the timestamp and plotted value in the tooltip', () => {
     render(
       <SeriesTooltip
         active
@@ -138,11 +136,12 @@ describe('overview chart tooltip', () => {
       />,
     );
 
-    expect(screen.getByText('Trend 42.0%')).toBeInTheDocument();
-    expect(
-      screen.getByText('Latest 45.0% · 3 samples · live bucket'),
-    ).toBeInTheDocument();
-    expect(screen.getByText('Min 40.0% · Max 45.0%')).toBeInTheDocument();
+    const tooltip = screen.getByTestId('overview-tooltip');
+    expect(tooltip).toHaveTextContent('GPU 0');
+    expect(tooltip).toHaveTextContent('42.0%');
+    expect(tooltip).not.toHaveTextContent(
+      /Trend|Latest|minimum|maximum|sample|bucket/i,
+    );
   });
 
   it('keeps current, minimum, and maximum summaries based on source samples', () => {

@@ -1,300 +1,67 @@
-import { useEffect, useRef } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react';
+import type {
+  SnowMode,
+  SnowWorkerInput,
+  SnowWorkerOutput,
+} from '../ambient-snow-protocol';
+import {
+  advanceSnowParticles,
+  createSnowParticles,
+  defaultSnowSeed,
+  drawSnowParticles,
+  resizeSnowParticlePool,
+  snowDotColor,
+  snowPixelRatio,
+  snowSpriteSize,
+  usesCoarseSnowProfile,
+  type SnowParticle,
+} from '../snow-particles';
 
-export type SnowLayer = 'far' | 'mid' | 'near';
+export {
+  advanceSnowParticles,
+  createSnowParticles,
+  snowParticleCount,
+  snowPixelRatio,
+  type SnowLayer,
+  type SnowParticle,
+} from '../snow-particles';
 
-export type SnowParticle = {
-  layer: SnowLayer;
-  x: number;
-  y: number;
-  radius: number;
-  speed: number;
-  drift: number;
-  sway: number;
-  swayRate: number;
-  phase: number;
-  alpha: number;
-};
+export type AmbientSnowState = SnowMode;
 
-export type AmbientSnowState = 'running' | 'paused' | 'static' | 'hidden';
+type SnowSpriteAtlas = { source: HTMLCanvasElement };
+type AmbientMediaQueryList = Pick<
+  MediaQueryList,
+  'matches' | 'addEventListener' | 'removeEventListener'
+>;
 
-const coarseMinimumParticleCount = 44;
-const coarseMaximumParticleCount = 80;
-const desktopMinimumParticleCount = 80;
-const desktopMaximumParticleCount = 160;
-const particleArea = 8_000;
-const maximumFrameDeltaMs = 50;
-const maximumBackingPixels = 8_294_400;
-const coarseViewportWidth = 768;
-const coarsePixelRatio = 1.25;
-const desktopPixelRatio = 1.25;
-const defaultSeed = 0x1e71a7a;
-const spriteSize = 8;
-const dotColor = 'rgb(225 250 255)';
-
-const layerRanges: Record<
-  SnowLayer,
-  {
-    radius: readonly [number, number];
-    speed: readonly [number, number];
-    drift: readonly [number, number];
-    sway: readonly [number, number];
-    swayRate: readonly [number, number];
-    alpha: readonly [number, number];
-  }
-> = {
-  far: {
-    radius: [0.6, 1.1],
-    speed: [14, 24],
-    drift: [-0.7, 0.7],
-    sway: [1, 3],
-    swayRate: [0.35, 0.7],
-    alpha: [0.12, 0.24],
-  },
-  mid: {
-    radius: [1, 1.8],
-    speed: [28, 48],
-    drift: [-2.2, 2.2],
-    sway: [4, 9],
-    swayRate: [0.55, 1.05],
-    alpha: [0.24, 0.42],
-  },
-  near: {
-    radius: [2, 3],
-    speed: [60, 90],
-    drift: [-3.2, 3.2],
-    sway: [12, 22],
-    swayRate: [0.7, 1.25],
-    alpha: [0.52, 0.76],
-  },
-};
-
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.min(maximum, Math.max(minimum, value));
-}
-
-function randomBetween(
-  random: () => number,
-  [minimum, maximum]: readonly [number, number],
-): number {
-  return minimum + random() * (maximum - minimum);
-}
-
-function seededRandom(seed: number): () => number {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let value = state;
-    value = Math.imul(value ^ (value >>> 15), value | 1);
-    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-    return ((value ^ (value >>> 14)) >>> 0) / 4_294_967_296;
-  };
-}
-
-function usesCoarseProfile(width: number, coarsePointer: boolean): boolean {
-  return coarsePointer || (width > 0 && width < coarseViewportWidth);
-}
-
-export function snowParticleCount(
-  width: number,
-  height: number,
-  coarsePointer = false,
-): number {
-  const area = Math.max(0, width) * Math.max(0, height);
-  const coarse = usesCoarseProfile(width, coarsePointer);
-  return clamp(
-    Math.round(area / particleArea),
-    coarse ? coarseMinimumParticleCount : desktopMinimumParticleCount,
-    coarse ? coarseMaximumParticleCount : desktopMaximumParticleCount,
-  );
-}
-
-export function snowPixelRatio(
-  devicePixelRatio: number,
-  width = 0,
-  height = 0,
-  coarsePointer = false,
-): number {
-  if (!Number.isFinite(devicePixelRatio) || devicePixelRatio <= 0) return 1;
-  const ratioLimit = usesCoarseProfile(width, coarsePointer)
-    ? coarsePixelRatio
-    : desktopPixelRatio;
-  const hardwareRatio = clamp(devicePixelRatio, 1, ratioLimit);
-  const area = Math.max(0, width) * Math.max(0, height);
-  if (area === 0) return hardwareRatio;
-  return Math.min(hardwareRatio, Math.sqrt(maximumBackingPixels / area));
-}
-
-function layerAt(index: number, count: number): SnowLayer {
-  const nearStart = count - Math.max(1, Math.round(count * 0.1));
-  const midStart = Math.round(count * 0.58);
-  if (index >= nearStart) return 'near';
-  if (index >= midStart) return 'mid';
-  return 'far';
-}
-
-function createSnowParticle(
-  layer: SnowLayer,
-  width: number,
-  height: number,
-  random: () => number,
-): SnowParticle {
-  const range = layerRanges[layer];
-  return {
-    layer,
-    x: random() * width,
-    y: random() * height,
-    radius: randomBetween(random, range.radius),
-    speed: randomBetween(random, range.speed),
-    drift: randomBetween(random, range.drift),
-    sway: randomBetween(random, range.sway),
-    swayRate: randomBetween(random, range.swayRate),
-    phase: random() * Math.PI * 2,
-    alpha: randomBetween(random, range.alpha),
-  };
-}
-
-export function createSnowParticles(
-  width: number,
-  height: number,
-  seed = defaultSeed,
-  coarsePointer = false,
-): SnowParticle[] {
-  const safeWidth = Math.max(1, width);
-  const safeHeight = Math.max(1, height);
-  const count = snowParticleCount(width, height, coarsePointer);
-  const random = seededRandom(seed);
-  const particles: SnowParticle[] = [];
-
-  for (let index = 0; index < count; index += 1) {
-    const layer = layerAt(index, count);
-    particles.push(createSnowParticle(layer, safeWidth, safeHeight, random));
-  }
-
-  return particles;
-}
-
-function resizeSnowParticlePool(
-  particles: SnowParticle[],
-  previousWidth: number,
-  previousHeight: number,
-  width: number,
-  height: number,
-  coarsePointer: boolean,
-) {
-  const scaleX = previousWidth > 0 ? width / previousWidth : 1;
-  const scaleY = previousHeight > 0 ? height / previousHeight : 1;
-  const pools: Record<SnowLayer, SnowParticle[]> = {
-    far: [],
-    mid: [],
-    near: [],
-  };
-  for (const particle of particles) {
-    particle.x *= scaleX;
-    particle.y *= scaleY;
-    pools[particle.layer].push(particle);
-  }
-
-  const count = snowParticleCount(width, height, coarsePointer);
-  const desired = {
-    far: Math.round(count * 0.58),
-    near: Math.max(1, Math.round(count * 0.1)),
-  };
-  const targets: Record<SnowLayer, number> = {
-    far: desired.far,
-    mid: count - desired.far - desired.near,
-    near: desired.near,
-  };
-  const random = seededRandom(defaultSeed ^ particles.length);
-
-  for (const layer of ['far', 'mid', 'near'] as const) {
-    const pool = pools[layer];
-    if (pool.length > targets[layer]) pool.length = targets[layer];
-    while (pool.length < targets[layer]) {
-      pool.push(createSnowParticle(layer, width, height, random));
-    }
-  }
-
-  particles.length = 0;
-  particles.push(...pools.far, ...pools.mid, ...pools.near);
-}
-
-/** Advances the existing particle objects in place to avoid frame allocations. */
-export function advanceSnowParticles(
-  particles: SnowParticle[],
-  width: number,
-  height: number,
-  deltaMilliseconds: number,
-): SnowParticle[] {
-  const deltaSeconds = clamp(deltaMilliseconds, 0, maximumFrameDeltaMs) / 1_000;
-  const safeWidth = Math.max(1, width);
-  const safeHeight = Math.max(1, height);
-
-  for (const particle of particles) {
-    particle.phase += particle.swayRate * deltaSeconds;
-    particle.x +=
-      particle.drift * deltaSeconds +
-      Math.sin(particle.phase) * particle.sway * deltaSeconds;
-    particle.y += particle.speed * deltaSeconds;
-
-    if (particle.y - particle.radius > safeHeight) {
-      particle.y = -particle.radius;
-    }
-    if (particle.x + particle.radius < 0) {
-      particle.x = safeWidth + particle.radius;
-    } else if (particle.x - particle.radius > safeWidth) {
-      particle.x = -particle.radius;
-    }
-  }
-
-  return particles;
-}
-
-function drawSnow(
-  context: CanvasRenderingContext2D,
-  atlas: SnowSpriteAtlas,
-  particles: readonly SnowParticle[],
-  width: number,
-  height: number,
-) {
-  context.clearRect(0, 0, width, height);
-
-  for (const particle of particles) {
-    const diameter = particle.radius * 2;
-    context.globalAlpha = particle.alpha;
-    context.drawImage(
-      atlas.source,
-      particle.x - particle.radius,
-      particle.y - particle.radius,
-      diameter,
-      diameter,
-    );
-  }
-
-  context.globalAlpha = 1;
-}
-
-type SnowSpriteAtlas = {
-  source: HTMLCanvasElement;
-};
-
+const fallbackFrameIntervalMs = 1_000 / 30;
 const snowSpriteAtlases = new WeakMap<Document, SnowSpriteAtlas>();
+const fallbackMediaQueryList: AmbientMediaQueryList = {
+  matches: false,
+  addEventListener: () => undefined,
+  removeEventListener: () => undefined,
+};
 
 function createSnowSpriteAtlas(
   ownerDocument: Document,
 ): SnowSpriteAtlas | null {
   const source = ownerDocument.createElement('canvas');
-  source.width = spriteSize;
-  source.height = spriteSize;
+  source.width = snowSpriteSize;
+  source.height = snowSpriteSize;
   const context = source.getContext('2d');
   if (!context) return null;
-
-  context.fillStyle = dotColor;
+  context.fillStyle = snowDotColor;
   context.fillRect(2, 0, 4, 1);
   context.fillRect(1, 1, 6, 1);
   context.fillRect(0, 2, 8, 4);
   context.fillRect(1, 6, 6, 1);
   context.fillRect(2, 7, 4, 1);
-
   return { source };
 }
 
@@ -306,29 +73,78 @@ function getSnowSpriteAtlas(ownerDocument: Document): SnowSpriteAtlas | null {
   return atlas;
 }
 
-type AmbientMediaQueryList = Pick<
-  MediaQueryList,
-  'matches' | 'addEventListener' | 'removeEventListener'
->;
-
-const fallbackMediaQueryList: AmbientMediaQueryList = {
-  matches: false,
-  addEventListener: () => undefined,
-  removeEventListener: () => undefined,
-};
-
 function mediaQuery(query: string): AmbientMediaQueryList {
   return typeof window.matchMedia === 'function'
     ? window.matchMedia(query)
     : fallbackMediaQueryList;
 }
 
-export function AmbientSnow({ enabled }: { enabled: boolean }) {
+function snowMode(
+  enabled: boolean,
+  reducedMotion: AmbientMediaQueryList,
+  reducedTransparency: AmbientMediaQueryList,
+  increasedContrast: AmbientMediaQueryList,
+  forcedColors: AmbientMediaQueryList,
+  slowUpdates: AmbientMediaQueryList,
+): SnowMode {
+  if (
+    !enabled ||
+    reducedTransparency.matches ||
+    increasedContrast.matches ||
+    forcedColors.matches ||
+    slowUpdates.matches
+  )
+    return 'hidden';
+  if (document.hidden) return 'paused';
+  return reducedMotion.matches ? 'static' : 'running';
+}
+
+function snowGeometry(
+  canvas: HTMLCanvasElement,
+  coarsePointer: AmbientMediaQueryList,
+) {
+  const bounds = canvas.getBoundingClientRect();
+  const width = Math.max(1, Math.round(bounds.width || window.innerWidth));
+  const height = Math.max(1, Math.round(bounds.height || window.innerHeight));
+  const coarse = usesCoarseSnowProfile(width, coarsePointer.matches);
+  return {
+    width,
+    height,
+    coarse,
+    pixelRatio: snowPixelRatio(window.devicePixelRatio, width, height),
+  };
+}
+
+function SnowCanvas({
+  canvasRef,
+  renderer,
+}: {
+  canvasRef: RefObject<HTMLCanvasElement | null>;
+  renderer: 'main' | 'worker-pending';
+}) {
+  return (
+    <canvas
+      ref={canvasRef}
+      className="ambient-snow"
+      data-testid="ambient-snow"
+      data-state="hidden"
+      data-renderer={renderer}
+      data-particle-count="0"
+      data-effective-dpr="1"
+      data-frame-sequence="0"
+      aria-hidden="true"
+      style={{ pointerEvents: 'none' }}
+    />
+  );
+}
+
+function MainThreadSnow({ enabled }: { enabled: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    canvas.dataset.renderer = 'main';
     if (typeof CanvasRenderingContext2D === 'undefined') {
       canvas.dataset.state = 'hidden';
       return;
@@ -336,15 +152,6 @@ export function AmbientSnow({ enabled }: { enabled: boolean }) {
     const context = canvas.getContext('2d');
     if (!context) {
       canvas.dataset.state = 'hidden';
-      return;
-    }
-    if (!enabled) {
-      canvas.dataset.state = 'hidden';
-      canvas.dataset.particleCount = '0';
-      canvas.dataset.effectiveDpr = '1';
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      canvas.width = 1;
-      canvas.height = 1;
       return;
     }
     const atlas = getSnowSpriteAtlas(canvas.ownerDocument);
@@ -378,20 +185,14 @@ export function AmbientSnow({ enabled }: { enabled: boolean }) {
     let lastTimestamp: number | null = null;
     let configured = false;
     let configuredCoarse = false;
+    let frameSequence = 0;
 
-    const setState = (state: AmbientSnowState) => {
-      canvas.dataset.state = state;
-    };
     const cancelFrame = () => {
-      if (animationFrame != null) {
-        window.cancelAnimationFrame(animationFrame);
-        animationFrame = null;
-      }
+      if (animationFrame != null) window.cancelAnimationFrame(animationFrame);
+      animationFrame = null;
       lastTimestamp = null;
     };
-    const clear = () => {
-      context.clearRect(0, 0, width, height);
-    };
+    const clear = () => context.clearRect(0, 0, width, height);
     const release = () => {
       if (configured) clear();
       else context.clearRect(0, 0, canvas.width, canvas.height);
@@ -405,85 +206,21 @@ export function AmbientSnow({ enabled }: { enabled: boolean }) {
       canvas.dataset.particleCount = '0';
       canvas.dataset.effectiveDpr = '1';
     };
-    const blocked = () =>
-      reducedTransparency.matches ||
-      increasedContrast.matches ||
-      forcedColors.matches ||
-      slowUpdates.matches;
-
-    const frame = (timestamp: number) => {
-      animationFrame = null;
-      if (document.hidden || blocked() || reducedMotion.matches) {
-        applyMode();
-        return;
-      }
-      if (lastTimestamp == null) {
-        lastTimestamp = timestamp;
-        animationFrame = window.requestAnimationFrame(frame);
-        return;
-      }
-      const delta = timestamp - lastTimestamp;
-      lastTimestamp = timestamp;
-      advanceSnowParticles(particles, width, height, delta);
-      drawSnow(context, atlas, particles, width, height);
-      animationFrame = window.requestAnimationFrame(frame);
-    };
-
-    const applyMode = () => {
-      cancelFrame();
-      if (blocked()) {
-        release();
-        setState('hidden');
-        return;
-      }
-      if (document.hidden) {
-        setState('paused');
-        return;
-      }
-      configureCanvas();
-      if (reducedMotion.matches) {
-        // Reduced motion is also the deterministic visual-baseline mode. A
-        // fresh field prevents prior animation time or intermediate viewport
-        // sizes from changing the pixels rendered once motion is disabled.
-        particles = createSnowParticles(
-          width,
-          height,
-          defaultSeed,
-          configuredCoarse,
-        );
-        drawSnow(context, atlas, particles, width, height);
-        setState('static');
-        return;
-      }
-      drawSnow(context, atlas, particles, width, height);
-      setState('running');
-      animationFrame = window.requestAnimationFrame(frame);
-    };
-
     const configureCanvas = () => {
-      const bounds = canvas.getBoundingClientRect();
-      const nextWidth = Math.max(
+      const geometry = snowGeometry(canvas, coarsePointer);
+      const backingWidth = Math.max(
         1,
-        Math.round(bounds.width || window.innerWidth),
+        Math.round(geometry.width * geometry.pixelRatio),
       );
-      const nextHeight = Math.max(
+      const backingHeight = Math.max(
         1,
-        Math.round(bounds.height || window.innerHeight),
+        Math.round(geometry.height * geometry.pixelRatio),
       );
-      const coarse = usesCoarseProfile(nextWidth, coarsePointer.matches);
-      const ratio = snowPixelRatio(
-        window.devicePixelRatio,
-        nextWidth,
-        nextHeight,
-        coarse,
-      );
-      const backingWidth = Math.max(1, Math.round(nextWidth * ratio));
-      const backingHeight = Math.max(1, Math.round(nextHeight * ratio));
       if (
         configured &&
-        configuredCoarse === coarse &&
-        width === nextWidth &&
-        height === nextHeight &&
+        configuredCoarse === geometry.coarse &&
+        width === geometry.width &&
+        height === geometry.height &&
         canvas.width === backingWidth &&
         canvas.height === backingHeight
       )
@@ -491,13 +228,25 @@ export function AmbientSnow({ enabled }: { enabled: boolean }) {
 
       const previousWidth = width;
       const previousHeight = height;
-      width = nextWidth;
-      height = nextHeight;
+      width = geometry.width;
+      height = geometry.height;
       canvas.width = backingWidth;
       canvas.height = backingHeight;
-      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      context.setTransform(
+        geometry.pixelRatio,
+        0,
+        0,
+        geometry.pixelRatio,
+        0,
+        0,
+      );
       if (particles.length === 0)
-        particles = createSnowParticles(width, height, defaultSeed, coarse);
+        particles = createSnowParticles(
+          width,
+          height,
+          defaultSnowSeed,
+          geometry.coarse,
+        );
       else
         resizeSnowParticlePool(
           particles,
@@ -505,12 +254,71 @@ export function AmbientSnow({ enabled }: { enabled: boolean }) {
           previousHeight,
           width,
           height,
-          coarse,
+          geometry.coarse,
         );
       canvas.dataset.particleCount = String(particles.length);
-      canvas.dataset.effectiveDpr = String(ratio);
+      canvas.dataset.effectiveDpr = String(geometry.pixelRatio);
       configured = true;
-      configuredCoarse = coarse;
+      configuredCoarse = geometry.coarse;
+    };
+    const draw = () =>
+      drawSnowParticles(context, atlas.source, particles, width, height);
+    const frame = (timestamp: number) => {
+      animationFrame = null;
+      if (
+        snowMode(
+          enabled,
+          reducedMotion,
+          reducedTransparency,
+          increasedContrast,
+          forcedColors,
+          slowUpdates,
+        ) !== 'running'
+      ) {
+        applyMode();
+        return;
+      }
+      if (lastTimestamp == null) {
+        lastTimestamp = timestamp;
+      } else if (timestamp - lastTimestamp >= fallbackFrameIntervalMs) {
+        const delta = timestamp - lastTimestamp;
+        lastTimestamp = timestamp;
+        advanceSnowParticles(particles, width, height, delta);
+        draw();
+        frameSequence += 1;
+        canvas.dataset.frameSequence = String(frameSequence);
+      }
+      animationFrame = window.requestAnimationFrame(frame);
+    };
+    const applyMode = () => {
+      cancelFrame();
+      const mode = snowMode(
+        enabled,
+        reducedMotion,
+        reducedTransparency,
+        increasedContrast,
+        forcedColors,
+        slowUpdates,
+      );
+      canvas.dataset.state = mode;
+      if (mode === 'hidden') {
+        release();
+        return;
+      }
+      if (mode === 'paused') return;
+      configureCanvas();
+      if (mode === 'static') {
+        particles = createSnowParticles(
+          width,
+          height,
+          defaultSnowSeed,
+          configuredCoarse,
+        );
+        draw();
+        return;
+      }
+      draw();
+      animationFrame = window.requestAnimationFrame(frame);
     };
     const resize = () => {
       if (resizeFrame != null) return;
@@ -519,11 +327,10 @@ export function AmbientSnow({ enabled }: { enabled: boolean }) {
         applyMode();
       });
     };
-    const onVisibilityChange = () => applyMode();
-    const onMediaChange = () => applyMode();
+    const onModeChange = () => applyMode();
 
-    for (const query of media) query.addEventListener('change', onMediaChange);
-    document.addEventListener('visibilitychange', onVisibilityChange);
+    for (const query of media) query.addEventListener('change', onModeChange);
+    document.addEventListener('visibilitychange', onModeChange);
     window.addEventListener('resize', resize, { passive: true });
     window.visualViewport?.addEventListener('resize', resize, {
       passive: true,
@@ -534,25 +341,201 @@ export function AmbientSnow({ enabled }: { enabled: boolean }) {
       if (resizeFrame != null) window.cancelAnimationFrame(resizeFrame);
       cancelFrame();
       release();
-      setState('hidden');
+      canvas.dataset.state = 'hidden';
       for (const query of media)
-        query.removeEventListener('change', onMediaChange);
-      document.removeEventListener('visibilitychange', onVisibilityChange);
+        query.removeEventListener('change', onModeChange);
+      document.removeEventListener('visibilitychange', onModeChange);
       window.removeEventListener('resize', resize);
       window.visualViewport?.removeEventListener('resize', resize);
     };
   }, [enabled]);
 
+  return <SnowCanvas canvasRef={canvasRef} renderer="main" />;
+}
+
+function WorkerSnow({
+  enabled,
+  onFailure,
+}: {
+  enabled: boolean;
+  onFailure: () => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    if (!enabled) {
+      canvas.width = 1;
+      canvas.height = 1;
+      canvas.dataset.state = 'hidden';
+      return;
+    }
+
+    const reducedMotion = mediaQuery('(prefers-reduced-motion: reduce)');
+    const reducedTransparency = mediaQuery(
+      '(prefers-reduced-transparency: reduce)',
+    );
+    const increasedContrast = mediaQuery('(prefers-contrast: more)');
+    const forcedColors = mediaQuery('(forced-colors: active)');
+    const slowUpdates = mediaQuery('(update: slow)');
+    const coarsePointer = mediaQuery('(pointer: coarse)');
+    const media = [
+      reducedMotion,
+      reducedTransparency,
+      increasedContrast,
+      forcedColors,
+      slowUpdates,
+      coarsePointer,
+    ];
+    let active = true;
+    let initialized = false;
+    let resizeFrame: number | null = null;
+    let probeTimer: number | null = null;
+    let failed = false;
+    let worker: Worker;
+
+    const fail = () => {
+      if (!active || failed) return;
+      failed = true;
+      onFailure();
+    };
+    const currentMode = () =>
+      snowMode(
+        enabled,
+        reducedMotion,
+        reducedTransparency,
+        increasedContrast,
+        forcedColors,
+        slowUpdates,
+      );
+    const post = (message: SnowWorkerInput, transfer?: Transferable[]) => {
+      if (!active) return;
+      worker.postMessage(message, transfer ?? []);
+    };
+    const configureWorker = () => {
+      const geometry = snowGeometry(canvas, coarsePointer);
+      post({ type: 'configure', ...geometry });
+      post({ type: 'mode', mode: currentMode() });
+    };
+    const initialize = () => {
+      if (!active || initialized) return;
+      try {
+        const geometry = snowGeometry(canvas, coarsePointer);
+        const offscreen = canvas.transferControlToOffscreen();
+        initialized = true;
+        canvas.dataset.renderer = 'worker';
+        post(
+          {
+            type: 'init',
+            canvas: offscreen,
+            ...geometry,
+            mode: currentMode(),
+          },
+          [offscreen],
+        );
+      } catch {
+        fail();
+      }
+    };
+    const onModeChange = () => {
+      const mode = currentMode();
+      canvas.dataset.state = mode;
+      if (initialized) post({ type: 'mode', mode });
+    };
+    const onMediaChange = () => {
+      const mode = currentMode();
+      canvas.dataset.state = mode;
+      if (initialized) configureWorker();
+    };
+    const resize = () => {
+      if (resizeFrame != null) return;
+      resizeFrame = window.requestAnimationFrame(() => {
+        resizeFrame = null;
+        if (initialized) configureWorker();
+      });
+    };
+
+    try {
+      worker = new Worker(
+        new URL('../ambient-snow.worker.ts', import.meta.url),
+        {
+          type: 'module',
+        },
+      );
+    } catch {
+      fail();
+      return;
+    }
+    worker.onmessage = ({ data }: MessageEvent<SnowWorkerOutput>) => {
+      if (!active) return;
+      if (data.type === 'probe-ready') {
+        probeTimer = window.setTimeout(initialize, 0);
+      } else if (data.type === 'state') {
+        canvas.dataset.state = data.state;
+        canvas.dataset.particleCount = String(data.particleCount);
+        canvas.dataset.effectiveDpr = String(data.pixelRatio);
+      } else if (data.type === 'frame') {
+        canvas.dataset.frameSequence = String(data.sequence);
+      } else if (data.type === 'error') {
+        fail();
+      }
+    };
+    worker.onerror = fail;
+
+    for (const query of media) query.addEventListener('change', onMediaChange);
+    document.addEventListener('visibilitychange', onModeChange);
+    window.addEventListener('resize', resize, { passive: true });
+    window.visualViewport?.addEventListener('resize', resize, {
+      passive: true,
+    });
+    canvas.dataset.state = currentMode();
+    post({ type: 'probe' });
+
+    return () => {
+      active = false;
+      if (probeTimer != null) window.clearTimeout(probeTimer);
+      if (resizeFrame != null) window.cancelAnimationFrame(resizeFrame);
+      if (initialized) {
+        try {
+          worker.postMessage({ type: 'dispose' } satisfies SnowWorkerInput);
+        } catch {
+          // The worker may already be gone after a navigation or crash.
+        }
+      }
+      worker.terminate();
+      for (const query of media)
+        query.removeEventListener('change', onMediaChange);
+      document.removeEventListener('visibilitychange', onModeChange);
+      window.removeEventListener('resize', resize);
+      window.visualViewport?.removeEventListener('resize', resize);
+    };
+  }, [enabled, onFailure]);
+
+  return <SnowCanvas canvasRef={canvasRef} renderer="worker-pending" />;
+}
+
+function supportsWorkerSnow(): boolean {
   return (
-    <canvas
-      ref={canvasRef}
-      className="ambient-snow"
-      data-testid="ambient-snow"
-      data-state={enabled ? 'paused' : 'hidden'}
-      data-particle-count="0"
-      data-effective-dpr="1"
-      aria-hidden="true"
-      style={{ pointerEvents: 'none' }}
+    typeof Worker === 'function' &&
+    typeof OffscreenCanvas === 'function' &&
+    typeof HTMLCanvasElement !== 'undefined' &&
+    typeof HTMLCanvasElement.prototype.transferControlToOffscreen === 'function'
+  );
+}
+
+export function AmbientSnow({ enabled }: { enabled: boolean }) {
+  const [workerFailed, setWorkerFailed] = useState(false);
+  const onWorkerFailure = useCallback(() => setWorkerFailed(true), []);
+  const worker = supportsWorkerSnow() && !workerFailed;
+
+  return worker ? (
+    <WorkerSnow
+      key={enabled ? 'worker-enabled' : 'worker-disabled'}
+      enabled={enabled}
+      onFailure={onWorkerFailure}
     />
+  ) : (
+    <MainThreadSnow enabled={enabled} />
   );
 }

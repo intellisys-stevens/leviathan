@@ -1444,10 +1444,10 @@ describe('Leviathan dashboard states', () => {
     ).closest('section');
     expect(temperaturePanel).not.toBeNull();
     const gpu0 = within(temperaturePanel as HTMLElement).getByRole('button', {
-      name: 'Focus GPU 0',
+      name: /^Focus GPU 0\. Current /u,
     });
     const gpu1 = within(temperaturePanel as HTMLElement).getByRole('button', {
-      name: 'Focus GPU 1',
+      name: /^Focus GPU 1\. Current /u,
     });
     const panel = gpu0.closest('section');
     expect(panel).not.toBeNull();
