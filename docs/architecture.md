@@ -22,11 +22,12 @@ calls and accumulated lag are impossible. A provider error triggers one
 immediate full retry. Persistent errors publish a retained-topology snapshot
 whose formerly available values are `stale` and `null`.
 
-The browser can change the process-local cadence to 500 ms, one second, or two
-seconds. An update resets the next deadline relative to the change and is
-coalesced with any rapid subsequent updates. It never starts a second provider
-poll. The profiling and process cadences remain read-only runtime settings. The
-startup CLI, environment, or TOML values return after a restart.
+The browser receives every server-sent snapshot. Each browser independently
+chooses whether React commits every sample or only the newest pending snapshot
+once per one or two seconds; this presentation preference is stored locally and
+does not mutate host collection. Operators can still change the process-local
+collector cadence through the settings API or startup configuration. A host
+cadence update resets the next deadline and never starts a second provider poll.
 
 ## Domain invariants
 
@@ -104,20 +105,26 @@ namespace.
 
 ## History and reconfiguration
 
-History is a map of dynamically growing fixed-capacity rings. Rings allocate
-only the points they contain, are capped by `window / interval + 2`, and are
-removed after their final sample falls outside the configured window. This
-keeps both steady operation and rapid UUID churn bounded.
+History uses two bounded in-memory tiers. Per-entity raw rings retain at most the
+latest hour at the real collector cadence. In parallel, deterministic
+epoch-aligned 30-second buckets retain count, sum, latest, minimum, maximum, and
+gap state for the configured long window. The default retention is twelve
+hours. Rings allocate only the points they contain and inactive entity
+generations expire after their final retained sample, keeping steady operation
+and rapid UUID churn bounded.
 
-Switching to a faster cadence grows every existing ring while preserving
-chronology. Capacity never shrinks during the process lifetime, so a later
-slower cadence cannot discard already retained samples. Queries still enforce
-the configured retention window, which defaults to one hour.
+Switching to a faster cadence grows every raw ring while preserving chronology.
+The compact tier is independent of sampling cadence. Capacity never shrinks
+during the process lifetime, so a later slower cadence cannot discard already
+retained samples. Queries still enforce custom operator retention.
 
 The history API maps a stable current UUID to its internal generation key and
 then removes that suffix from the response. Old generations naturally expire
-but cannot contaminate the current chart. An optional point budget applies a
-strict multi-metric min/max envelope while preserving endpoints.
+but cannot contaminate the current chart. Windows through one hour return raw
+samples. Four-hour queries return 30-second means (at most 480 points), and
+twelve-hour queries use count-weighted two-minute rollups (at most 360 points).
+Only plotted means cross the existing wire format; gaps, unavailable metrics,
+and generation boundaries remain absent rather than being interpolated.
 
 `POST /api/v1/history/aligned` serves overview history for multiple requested
 entities on one shared timestamp grid. Every response row represents one
@@ -151,15 +158,15 @@ evidence of active use. Charts and processes remain host-wide; a process may
 show its joined workspace but never claims a particular GPU, GI, or CI.
 
 The overview loads one aligned history batch per panel and refetches whenever
-the exact panel, topology, or selected range changes in either direction. SSE
-samples received during a request are merged by timestamp up to server
-retention, and stale responses are ignored. The shared grid keeps series
-continuous and comparable while preserving real gaps. Single-entity detail
-views continue to use the legacy history query. The browser-local view can be
-5, 15, 30, or 60 minutes; settings events keep cadence controls synchronized
-across tabs. Missing values remain chart gaps and reset the trailing five-second
-average. Both the server response and rendered rows use strict 720-row caps for
-the dashboard. The overview chart bundle and GI/CI detail drawer are lazy-loaded.
+the exact panel, topology, or selected range changes in either direction. Raw
+windows merge newer SSE samples by timestamp; compact 4h/12h windows retain the
+last complete plot and refresh only on the next aggregate boundary. Stale
+responses are ignored. The shared grid keeps series comparable while preserving
+real gaps. Single-entity detail views continue to use the legacy history query.
+The browser-local window can be 5, 15, or 30 minutes and 1, 4, or 12 hours,
+subject to configured retention. Deterministic epoch-aligned display buckets
+keep closed curve geometry stable. The overview chart bundle and GI/CI detail
+drawer are lazy-loaded.
 
 ## Shutdown
 

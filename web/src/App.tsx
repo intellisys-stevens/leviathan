@@ -52,6 +52,11 @@ import {
   storedChartWindow,
   storedDetailChartWindow,
 } from './chart-window';
+import {
+  displayCadenceStorageKey,
+  normalizeDisplayCadence,
+  storedDisplayCadence,
+} from './display-cadence';
 import type { BuildInfo, Selection, SelectionKey, Snapshot } from './types';
 import { useMediaQuery } from './use-media-query';
 import { useLeviathan } from './use-leviathan';
@@ -179,16 +184,42 @@ function selectedEntity(
 }
 
 function summaryFor(snapshot: Snapshot | null) {
-  if (!snapshot) return { gpu: 0, gi: 0, processes: 0 };
+  if (!snapshot)
+    return {
+      gpu: 0,
+      gi: 0,
+      processes: 0,
+      assignedUsers: null,
+      assignedWorkspaces: null,
+    };
   let gi = 0;
   for (const gpu of snapshot.gpus) {
     gi += gpu.gpuInstances.length;
+  }
+  let assignedUsers: number | null = null;
+  let assignedWorkspaces: number | null = null;
+  const attribution = snapshot.attribution;
+  if (attribution?.status === 'available') {
+    const assignedRefs = new Set(
+      attribution.assignments.map(({ workloadRef }) => workloadRef),
+    );
+    const assigned = attribution.workloads.filter(({ ref }) =>
+      assignedRefs.has(ref),
+    );
+    assignedUsers = new Set(assigned.map(({ ownerName }) => ownerName)).size;
+    assignedWorkspaces = new Set(assigned.map(({ ref }) => ref)).size;
   }
   return {
     gpu: snapshot.gpus.length,
     gi,
     processes: snapshot.processes.length,
+    assignedUsers,
+    assignedWorkspaces,
   };
+}
+
+function countLabel(value: number, singular: string, plural = `${singular}s`) {
+  return `${value} ${value === 1 ? singular : plural}`;
 }
 
 type BrowserViewTransition = {
@@ -423,7 +454,10 @@ export function DetailSheetFallback({
 }
 
 export function App() {
-  const leviathan = useLeviathan();
+  const [displayCadenceMs, setDisplayCadenceMs] = useState(() =>
+    storedDisplayCadence(),
+  );
+  const leviathan = useLeviathan(displayCadenceMs);
   const {
     snapshot,
     connection,
@@ -432,7 +466,6 @@ export function App() {
     alignedHistory,
     settings,
     buildInfo,
-    updateSamplingInterval,
   } = leviathan;
   const snapshotError =
     leviathan.snapshotError ?? (!snapshot ? legacyError : null);
@@ -440,6 +473,14 @@ export function App() {
   const settingsError = leviathan.settingsError ?? null;
   const retrySnapshot = leviathan.retrySnapshot ?? (() => undefined);
   const retrySettings = leviathan.retrySettings ?? (() => undefined);
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== displayCadenceStorageKey) return;
+      setDisplayCadenceMs(normalizeDisplayCadence(event.newValue));
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
   const [initialHash] = useState(() => window.location.hash);
   const pendingOperationsFocusRef = useRef<OperationsFocus | null>(
     operationsFocusForHash(initialHash),
@@ -657,6 +698,12 @@ export function App() {
     writeBrowserSetting(detailChartWindowStorageKey, String(milliseconds));
   }, []);
 
+  const selectDisplayCadence = useCallback((milliseconds: number) => {
+    const next = normalizeDisplayCadence(milliseconds);
+    setDisplayCadenceMs(next);
+    writeBrowserSetting(displayCadenceStorageKey, String(next));
+  }, []);
+
   const summary = useMemo(() => summaryFor(snapshot), [snapshot]);
   const selection = snapshot ? selectedEntity(snapshot, selectedKey) : null;
   useEffect(() => {
@@ -684,26 +731,40 @@ export function App() {
     activeDiagnostics.length > 0;
 
   const summaryItems: Array<{
-    value: number;
+    value: string;
     label: string;
+    mobileLabel: string;
+    ariaLabel: string;
     icon: LucideIcon;
     target: WorkbenchView;
   }> = [
     {
-      value: summary.gpu,
-      label: 'Physical GPUs',
+      value: `${countLabel(summary.gpu, 'GPU')} · ${countLabel(summary.gi, 'instance')}`,
+      label: 'Resources',
+      mobileLabel: 'Resources',
+      ariaLabel: `Resources: ${countLabel(summary.gpu, 'physical GPU')} and ${countLabel(summary.gi, 'GPU instance')}`,
       icon: Server,
       target: 'resources',
     },
     {
-      value: summary.gi,
-      label: 'GPU instances',
-      icon: Boxes,
-      target: 'resources',
+      value:
+        summary.assignedUsers == null || summary.assignedWorkspaces == null
+          ? '—'
+          : `${countLabel(summary.assignedUsers, 'user')} · ${countLabel(summary.assignedWorkspaces, 'workspace')}`,
+      label: 'Assigned workloads',
+      mobileLabel: 'Workloads',
+      ariaLabel:
+        summary.assignedUsers == null || summary.assignedWorkspaces == null
+          ? 'Assigned workloads: unavailable'
+          : `Assigned workloads: ${countLabel(summary.assignedUsers, 'user')} and ${countLabel(summary.assignedWorkspaces, 'workspace')}`,
+      icon: Users,
+      target: 'workloads',
     },
     {
-      value: summary.processes,
+      value: String(summary.processes),
       label: 'GPU processes',
+      mobileLabel: 'Processes',
+      ariaLabel: `GPU processes: ${summary.processes}`,
       icon: Database,
       target: 'operations',
     },
@@ -719,7 +780,8 @@ export function App() {
         settings={settings}
         settingsError={settingsError}
         theme={theme}
-        onSamplingIntervalChange={updateSamplingInterval}
+        displayCadenceMs={displayCadenceMs}
+        onDisplayCadenceChange={selectDisplayCadence}
         onRetrySettings={retrySettings}
         onToggleTheme={() =>
           setTheme((value) => (value === 'dark' ? 'light' : 'dark'))
@@ -800,12 +862,19 @@ export function App() {
                   </div>
                   <div className="overview-kpi-grid" aria-label="Host totals">
                     {summaryItems.map(
-                      ({ value, label, icon: Icon, target }) => (
+                      ({
+                        value,
+                        label,
+                        mobileLabel,
+                        ariaLabel,
+                        icon: Icon,
+                        target,
+                      }) => (
                         <button
                           key={label}
                           type="button"
                           className="summary-link group text-center outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                          aria-label={`${label}: ${value}`}
+                          aria-label={ariaLabel}
                           onClick={() => navigateTo(target)}
                         >
                           <span className="flex items-center justify-center gap-1.5 font-mono text-lg font-semibold text-primary">
@@ -821,11 +890,7 @@ export function App() {
                           >
                             <span className="desktop-only-label">{label}</span>
                             <span className="mobile-only-label">
-                              {label === 'Physical GPUs'
-                                ? 'GPUs'
-                                : label === 'GPU instances'
-                                  ? 'Instances'
-                                  : 'Processes'}
+                              {mobileLabel}
                             </span>
                           </span>
                         </button>

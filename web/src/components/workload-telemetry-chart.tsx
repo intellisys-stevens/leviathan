@@ -13,6 +13,10 @@ import { buildTrendRows, trendTimeDomain } from '../chart-trend';
 import { formatBytesPerSecond, formatRoundedPercent } from '../lib';
 import type { ChartRow, LoadAlignedHistory } from '../overview-history';
 import { useChartTooltips } from '../use-chart-tooltips';
+import {
+  rawHistoryWindowMilliseconds,
+  useHistoryRefreshGeneration,
+} from '../use-history-refresh';
 import { useTrendCeiling } from '../use-trend-ceiling';
 import {
   currentWorkloadRow,
@@ -387,7 +391,9 @@ function TelemetryLegend({
               />
             </svg>
             <span className="truncate">{entity.label}</span>
-            <span className="text-foreground">{formatted}</span>
+            <span className="chart-legend-value text-foreground">
+              {formatted}
+            </span>
           </li>
         );
       })}
@@ -500,6 +506,8 @@ export default function WorkloadTelemetryChart({
   onChartWindowChange,
 }: Props) {
   const [retryGeneration, setRetryGeneration] = useState(0);
+  const historyRefresh = useHistoryRefreshGeneration(chartWindowMs);
+  const includeLiveSamples = chartWindowMs <= rawHistoryWindowMilliseconds;
   const [history, setHistory] = useState<HistoryState>({
     requestGeneration: -1,
     scopeSignature: '',
@@ -527,7 +535,7 @@ export default function WorkloadTelemetryChart({
     () => JSON.parse(signature) as WorkloadHistoryEntity[],
     [signature],
   );
-  const queryKey = `${ownerKey}\u0000${signature}\u0000${chartWindowMs}`;
+  const queryKey = `${ownerKey}\u0000${signature}\u0000${chartWindowMs}\u0000${historyRefresh}`;
 
   useEffect(() => {
     if (historyEntities.length === 0) return;
@@ -595,14 +603,14 @@ export default function WorkloadTelemetryChart({
   const historyError = cachedRows || !historyMatches ? null : history.error;
   const visibleRows = useMemo(
     () =>
-      currentRow
+      includeLiveSamples && currentRow
         ? mergeWorkloadRows(baseRows, currentRow, chartWindowMs)
         : baseRows,
-    [baseRows, chartWindowMs, currentRow],
+    [baseRows, chartWindowMs, currentRow, includeLiveSamples],
   );
 
   useEffect(() => {
-    if (!currentRow) return;
+    if (!includeLiveSamples || !currentRow) return;
     let active = true;
     queueMicrotask(() => {
       if (!active) return;
@@ -623,7 +631,7 @@ export default function WorkloadTelemetryChart({
     return () => {
       active = false;
     };
-  }, [chartWindowMs, currentRow, queryKey, signature]);
+  }, [chartWindowMs, currentRow, includeLiveSamples, queryKey, signature]);
 
   if (entities.length === 0) {
     return (

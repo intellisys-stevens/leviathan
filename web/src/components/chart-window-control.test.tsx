@@ -16,10 +16,17 @@ describe('ChartWindowControl', () => {
     const group = screen.getByRole('radiogroup', { name: 'Chart window' });
     expect(group).toHaveClass('segmented-control');
     expect(within(group).getByRole('radio', { name: '30m' })).toBeChecked();
-    expect(within(group).getByRole('radio', { name: '1h' })).toBeDisabled();
+    for (const label of ['1h', '4h', '12h']) {
+      expect(within(group).getByRole('radio', { name: label })).toBeDisabled();
+    }
+    const mobile = screen.getByRole('combobox', { name: 'Chart window' });
+    expect(mobile).toHaveValue(String(30 * 60 * 1000));
+    expect(within(mobile).getByRole('option', { name: '12h' })).toBeDisabled();
 
     fireEvent.click(within(group).getByRole('radio', { name: '15m' }));
     expect(onChartWindowChange).toHaveBeenCalledWith(15 * 60 * 1000);
+    fireEvent.change(mobile, { target: { value: String(5 * 60 * 1000) } });
+    expect(onChartWindowChange).toHaveBeenCalledWith(5 * 60 * 1000);
   });
 
   it('shows a selected custom effective range when no preset fits', () => {
@@ -35,7 +42,7 @@ describe('ChartWindowControl', () => {
     const group = screen.getByRole('radiogroup', {
       name: 'Detail chart window',
     });
-    for (const label of ['5m', '15m', '30m', '1h']) {
+    for (const label of ['5m', '15m', '30m', '1h', '4h', '12h']) {
       expect(within(group).getByRole('radio', { name: label })).toBeDisabled();
     }
     const custom = within(group).getByRole('radio', {

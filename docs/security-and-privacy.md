@@ -23,6 +23,8 @@ concise GPU/GI/CI numbers.
 ## 🧠 Telemetry and retention
 
 GPU samples and chart history remain in memory and are discarded on restart.
+By default the latest hour is retained at collector cadence and older data is
+held as bounded, gap-preserving aggregate trends for up to twelve hours.
 Unavailable, stale, permission-denied, and failed measurements remain explicit;
 Leviathan does not substitute fabricated zeros.
 

@@ -14,12 +14,16 @@ export type TrendValueSummary = {
 const fiveMinutes = 5 * 60 * 1000;
 const fifteenMinutes = 15 * 60 * 1000;
 const thirtyMinutes = 30 * 60 * 1000;
+const oneHour = 60 * 60 * 1000;
+const fourHours = 4 * oneHour;
 
 export function trendBucketMilliseconds(windowMilliseconds: number): number {
   if (windowMilliseconds <= fiveMinutes) return 1_000;
   if (windowMilliseconds <= fifteenMinutes) return 3_000;
   if (windowMilliseconds <= thirtyMinutes) return 5_000;
-  return 10_000;
+  if (windowMilliseconds <= oneHour) return 10_000;
+  if (windowMilliseconds <= fourHours) return 30_000;
+  return 2 * 60_000;
 }
 
 export function trendStatisticKey(

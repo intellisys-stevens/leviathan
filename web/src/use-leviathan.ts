@@ -177,7 +177,7 @@ export function shareStableSnapshot(
   };
 }
 
-export function useLeviathan() {
+export function useLeviathan(displayCadenceMs = 0) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [settings, setSettings] = useState<RuntimeSettings | null>(null);
   const [buildInfo, setBuildInfo] = useState<BuildInfo | null | undefined>(
@@ -192,6 +192,80 @@ export function useLeviathan() {
   const failures = useRef(0);
   const snapshotEventGeneration = useRef(0);
   const settingsEventGeneration = useRef(0);
+  const snapshotRef = useRef<Snapshot | null>(null);
+  const pendingSnapshotRef = useRef<Snapshot | null>(null);
+  const snapshotCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const displayCadenceRef = useRef(displayCadenceMs);
+  const lastSnapshotCommitRef = useRef(0);
+
+  const commitSnapshot = useCallback((next: Snapshot) => {
+    const current = snapshotRef.current;
+    if (current && next.sequence <= current.sequence) return;
+    const shared = shareStableSnapshot(current, next);
+    snapshotRef.current = shared;
+    lastSnapshotCommitRef.current = Date.now();
+    setSnapshot(shared);
+  }, []);
+
+  const flushPendingSnapshot = useCallback(() => {
+    snapshotCommitTimerRef.current = null;
+    const pending = pendingSnapshotRef.current;
+    pendingSnapshotRef.current = null;
+    if (pending) commitSnapshot(pending);
+  }, [commitSnapshot]);
+
+  const queueSnapshot = useCallback(
+    (next: Snapshot) => {
+      const current = pendingSnapshotRef.current ?? snapshotRef.current;
+      if (current && next.sequence <= current.sequence) return;
+      const cadence = displayCadenceRef.current;
+      if (cadence <= 0 || snapshotRef.current == null) {
+        pendingSnapshotRef.current = null;
+        if (snapshotCommitTimerRef.current != null) {
+          clearTimeout(snapshotCommitTimerRef.current);
+          snapshotCommitTimerRef.current = null;
+        }
+        commitSnapshot(next);
+        return;
+      }
+      pendingSnapshotRef.current = next;
+      if (snapshotCommitTimerRef.current != null) return;
+      const elapsed = Date.now() - lastSnapshotCommitRef.current;
+      snapshotCommitTimerRef.current = setTimeout(
+        flushPendingSnapshot,
+        Math.max(0, cadence - elapsed),
+      );
+    },
+    [commitSnapshot, flushPendingSnapshot],
+  );
+
+  useEffect(() => {
+    displayCadenceRef.current = displayCadenceMs;
+    if (pendingSnapshotRef.current == null) return;
+    if (snapshotCommitTimerRef.current != null) {
+      clearTimeout(snapshotCommitTimerRef.current);
+      snapshotCommitTimerRef.current = null;
+    }
+    if (displayCadenceMs <= 0) {
+      flushPendingSnapshot();
+      return;
+    }
+    const elapsed = Date.now() - lastSnapshotCommitRef.current;
+    snapshotCommitTimerRef.current = setTimeout(
+      flushPendingSnapshot,
+      Math.max(0, displayCadenceMs - elapsed),
+    );
+  }, [displayCadenceMs, flushPendingSnapshot]);
+
+  useEffect(
+    () => () => {
+      if (snapshotCommitTimerRef.current != null)
+        clearTimeout(snapshotCommitTimerRef.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     let active = true;
@@ -206,11 +280,7 @@ export function useLeviathan() {
         if (!active || eventGeneration !== snapshotEventGeneration.current)
           return;
         const next = normalizeSnapshot(data);
-        setSnapshot((current) =>
-          current && next.sequence <= current.sequence
-            ? current
-            : shareStableSnapshot(current, next),
-        );
+        queueSnapshot(next);
         setSnapshotError(null);
       })
       .catch((reason: unknown) => {
@@ -223,7 +293,7 @@ export function useLeviathan() {
     return () => {
       active = false;
     };
-  }, [snapshotRetry]);
+  }, [queueSnapshot, snapshotRetry]);
 
   useEffect(() => {
     let active = true;
@@ -285,11 +355,7 @@ export function useLeviathan() {
         ) as SnapshotPayload;
         const next = normalizeSnapshot(payload);
         snapshotEventGeneration.current += 1;
-        setSnapshot((current) =>
-          current && next.sequence <= current.sequence
-            ? current
-            : shareStableSnapshot(current, next),
-        );
+        queueSnapshot(next);
         setConnection('live');
         setSnapshotError(null);
         setStreamError(null);
@@ -318,7 +384,7 @@ export function useLeviathan() {
     return () => {
       events.close();
     };
-  }, []);
+  }, [queueSnapshot]);
 
   const retrySnapshot = useCallback(() => {
     setSnapshotError(null);

@@ -41,11 +41,11 @@ paths:
         - name: maxPoints
           in: query
           required: false
-          description: Maximum number of history points returned after shape-preserving downsampling.
+          description: Maximum number of history points returned. Windows through one hour use raw samples; longer windows use deterministic compact means.
           schema: { type: integer, minimum: 50, maximum: 5000 }
       responses:
         "200":
-          description: Bounded in-memory series.
+          description: Bounded in-memory series with missing values and collection gaps preserved.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/HistorySeries" }
@@ -61,7 +61,7 @@ paths:
             schema: { $ref: "#/components/schemas/AlignedHistoryRequest" }
       responses:
         "200":
-          description: Shape-preserving aligned in-memory history with no interpolated values.
+          description: Aligned in-memory history with raw samples through one hour, compact means for longer windows, and no interpolated values.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/AlignedHistory" }
@@ -328,7 +328,7 @@ components:
           type: integer
           format: int64
           minimum: 1
-          description: Maximum in-memory retention in milliseconds.
+          description: Maximum in-memory retention in milliseconds. The latest hour is raw; older data uses bounded compact trends.
         allowedSamplingIntervalsMs:
           type: array
           items: { type: integer, format: int64, enum: [500, 1000, 2000] }
@@ -427,7 +427,7 @@ components:
           type: string
           minLength: 1
           maxLength: 32
-          description: Positive Go duration no longer than the configured history retention.
+          description: Positive Go duration no longer than configured retention. Windows over one hour return compact aggregate means.
         maxPoints: { type: integer, minimum: 50, maximum: 5000 }
         series:
           type: array

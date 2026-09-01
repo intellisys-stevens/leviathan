@@ -14,6 +14,8 @@ describe('stable chart trends', () => {
     expect(trendBucketMilliseconds(15 * 60_000)).toBe(3_000);
     expect(trendBucketMilliseconds(30 * 60_000)).toBe(5_000);
     expect(trendBucketMilliseconds(60 * 60_000)).toBe(10_000);
+    expect(trendBucketMilliseconds(4 * 60 * 60_000)).toBe(30_000);
+    expect(trendBucketMilliseconds(12 * 60 * 60_000)).toBe(2 * 60_000);
   });
 
   it('keeps closed buckets immutable while only the latest bucket changes', () => {

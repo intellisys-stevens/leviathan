@@ -368,6 +368,59 @@ describe('overview history', () => {
     ).toEqual([20, 65, 88]);
   });
 
+  it('keeps compact long-window plots unchanged between aggregate boundaries', async () => {
+    const initial = fixture();
+    const entity = buildOverviewEntities(initial)[1];
+    const descriptor = {
+      key: entity.key,
+      entity: entity.uuid,
+      metrics: ['sm_activity'],
+    };
+    const loadHistory = vi.fn().mockResolvedValue({
+      window: '4h0m0s',
+      series: [descriptor],
+      points: [
+        {
+          sampledAt: '2026-08-29T11:59:30Z',
+          values: { [entity.key]: { sm_activity: 20 } },
+        },
+      ],
+    });
+    const hook = renderHook(
+      ({ snapshot }) =>
+        useOverviewHistory(
+          snapshot,
+          'utilization-chart',
+          [entity],
+          [descriptor],
+          loadHistory,
+          4 * 60 * 60 * 1000,
+          12 * 60 * 60 * 1000,
+        ),
+      { initialProps: { snapshot: initial } },
+    );
+
+    await waitFor(() => expect(hook.result.current.loading).toBe(false));
+    expect(
+      hook.result.current.points[entity.key]?.map(
+        (point) => point.values.sm_activity,
+      ),
+    ).toEqual([20]);
+
+    const live = structuredClone(initial);
+    live.sequence = 2;
+    live.sampledAt = '2026-08-29T12:00:01Z';
+    live.gpus[0].gpuInstances[0].metrics.sm_activity.value = 88;
+    hook.rerender({ snapshot: live });
+
+    expect(loadHistory).toHaveBeenCalledTimes(1);
+    expect(
+      hook.result.current.points[entity.key]?.map(
+        (point) => point.values.sm_activity,
+      ),
+    ).toEqual([20]);
+  });
+
   it('records only the current resolved window and preserves loaded points on failure', async () => {
     const current = fixture();
     const entity = buildOverviewEntities(current)[1];

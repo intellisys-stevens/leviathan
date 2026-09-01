@@ -198,7 +198,7 @@ const settings = {
   samplingIntervalMs: 1_000,
   profileIntervalMs: 2_000,
   processIntervalMs: 2_000,
-  historyWindowMs: 3_600_000,
+  historyWindowMs: 43_200_000,
   allowedSamplingIntervalsMs: [500, 1_000, 2_000],
 };
 
@@ -483,6 +483,10 @@ test('renders frost-dragon branding with glass, aurora, and ambient snow layers'
   await expect(page.getByText('MIGLens', { exact: true })).toHaveCount(0);
   if (page.viewportSize()!.width < 768) {
     await page.getByRole('button', { name: 'Open app menu' }).click();
+    await expect(page.getByText('GitHub Repo', { exact: true })).toBeVisible();
+    await expect(
+      page.getByText(light ? 'Dark Theme' : 'Light Theme', { exact: true }),
+    ).toBeVisible();
     await expect(
       page.getByRole('link', { name: 'Open Leviathan repository on GitHub' }),
     ).toHaveAttribute(
@@ -790,6 +794,30 @@ test('renders healthy aligned history as one continuous path per series', async 
   }
 });
 
+test('bolds only the latest chart value in the light theme', async ({
+  page,
+}, testInfo) => {
+  const light = testInfo.project.name.endsWith('-light');
+  const legendItem = page
+    .getByTestId('utilization-chart')
+    .locator('.mobile-chart-legend-item')
+    .first();
+  const weights = await legendItem.evaluate((element) => {
+    const value = element.querySelector<HTMLElement>('.chart-legend-value')!;
+    const label = [...element.querySelectorAll<HTMLElement>('span')].find(
+      (candidate) =>
+        !candidate.classList.contains('chart-legend-value') &&
+        getComputedStyle(candidate).display !== 'none',
+    )!;
+    return {
+      label: Number.parseInt(getComputedStyle(label).fontWeight, 10),
+      value: Number.parseInt(getComputedStyle(value).fontWeight, 10),
+    };
+  });
+  expect(weights.label).toBeLessThan(700);
+  expect(weights.value).toBe(light ? 700 : 500);
+});
+
 test('keeps closed trend geometry stable while the live bucket updates', async ({
   page,
 }, testInfo) => {
@@ -1049,16 +1077,24 @@ test('lays out GPU cards responsively without rendering opaque identifiers', asy
   }
 });
 
-test('keeps the live cadence control concise and visually balanced', async ({
+test('keeps browser-local view updates concise and visually balanced', async ({
   page,
 }) => {
+  const settingsPatches: string[] = [];
+  page.on('request', (request) => {
+    if (
+      request.method() === 'PATCH' &&
+      new URL(request.url()).pathname === '/api/v1/settings'
+    )
+      settingsPatches.push(request.postData() ?? '');
+  });
   const viewport = page.viewportSize();
   expect(viewport).not.toBeNull();
   const header = page.getByRole('banner');
   const desktop = page.getByTestId('desktop-live-sampling');
   const mobile = page.getByTestId('mobile-live-sampling');
   let samplingGroup = desktop.getByRole('radiogroup', {
-    name: 'Sampling interval',
+    name: 'View updates',
   });
 
   await expect(header.getByText('Leviathan', { exact: true })).toBeVisible();
@@ -1100,7 +1136,7 @@ test('keeps the live cadence control concise and visually balanced', async ({
     ).toHaveCount(1);
 
     const geometry = await desktop
-      .locator('[aria-label="Live status and sampling"]')
+      .locator('[aria-label="Live status and view updates"]')
       .evaluate((element) => {
         const status = element.querySelector('output')!.getBoundingClientRect();
         const choices = element
@@ -1116,28 +1152,42 @@ test('keeps the live cadence control concise and visually balanced', async ({
         };
       });
 
-    expect(geometry.width).toBeLessThanOrEqual(224);
+    expect(geometry.width).toBeLessThanOrEqual(310);
     expect(geometry.centerDelta).toBeLessThanOrEqual(1);
     expect(geometry.outerBorderWidth).toBe('0px');
   } else {
     await expect(desktop).toBeHidden();
     await expect(mobile).toBeVisible();
     const trigger = mobile.getByRole('button', {
-      name: 'Live status, sampling 1s',
+      name: 'Live status, view updates 1s',
     });
+    const more = header.getByRole('button', { name: 'Open app menu' });
+    const [triggerBox, moreBox] = await Promise.all([
+      trigger.boundingBox(),
+      more.boundingBox(),
+    ]);
+    expect(triggerBox).not.toBeNull();
+    expect(moreBox).not.toBeNull();
+    expect(triggerBox).toMatchObject({ width: 40, height: 40 });
+    expect(moreBox).toMatchObject({ width: 40, height: 40 });
+    expect(
+      Math.abs(
+        triggerBox!.y +
+          triggerBox!.height / 2 -
+          (moreBox!.y + moreBox!.height / 2),
+      ),
+    ).toBeLessThanOrEqual(1);
     await expect(trigger).toHaveText('Live · 1s');
     if (viewport!.width <= 380) {
       await expect(trigger.locator('.mobile-status-name')).toBeHidden();
     }
-    const triggerBox = await trigger.boundingBox();
-    expect(triggerBox).not.toBeNull();
     expect(triggerBox!.width).toBeLessThan(120);
 
     await trigger.click();
     const popup = page.getByRole('dialog');
     await expect(popup).toBeVisible();
     samplingGroup = popup.getByRole('radiogroup', {
-      name: 'Sampling interval',
+      name: 'View updates',
     });
     await expect(samplingGroup).toHaveClass(/\bsegmented-control\b/u);
     await expect(
@@ -1165,22 +1215,30 @@ test('keeps the live cadence control concise and visually balanced', async ({
     expect(Math.max(...widths) - Math.min(...widths)).toBeLessThanOrEqual(1);
   }
 
-  const halfSecond = samplingGroup.getByRole('radio', { name: '0.5s' });
-  const halfSecondItem = samplingItems.filter({ hasText: /^0\.5s$/u });
-  const beforeUpdate = await halfSecondItem.evaluate((element) => ({
+  const everySample = samplingGroup.getByRole('radio', {
+    name: 'Every sample',
+  });
+  const everySampleItem = samplingItems.filter({ hasText: /^Every$/u });
+  const beforeUpdate = await everySampleItem.evaluate((element) => ({
     width: (element as HTMLElement).offsetWidth,
     height: (element as HTMLElement).offsetHeight,
   }));
-  await halfSecondItem.click();
-  await expect(halfSecondItem).toHaveText('0.5s');
-  await expect(halfSecondItem.locator('svg')).toHaveCount(0);
-  await expect(halfSecondItem.locator('.animate-spin')).toHaveCount(0);
-  await expect(halfSecond).toBeChecked();
-  const duringUpdate = await halfSecondItem.evaluate((element) => ({
+  await everySampleItem.click();
+  await expect(everySampleItem).toHaveText('Every');
+  await expect(everySampleItem.locator('svg')).toHaveCount(0);
+  await expect(everySampleItem.locator('.animate-spin')).toHaveCount(0);
+  await expect(everySample).toBeChecked();
+  const duringUpdate = await everySampleItem.evaluate((element) => ({
     width: (element as HTMLElement).offsetWidth,
     height: (element as HTMLElement).offsetHeight,
   }));
   expect(duringUpdate).toEqual(beforeUpdate);
+  expect(
+    await page.evaluate(() =>
+      localStorage.getItem('leviathan.displayCadence.v1'),
+    ),
+  ).toBe('0');
+  expect(settingsPatches).toEqual([]);
 
   await expect(page.getByText('Sampling', { exact: true })).toHaveCount(0);
 });
@@ -1194,7 +1252,7 @@ test('uses one smooth segmented-control motion contract for cadence and chart wi
   );
   const sampling = page
     .getByTestId('desktop-live-sampling')
-    .getByRole('radiogroup', { name: 'Sampling interval' });
+    .getByRole('radiogroup', { name: 'View updates' });
   const telemetryHeader = page
     .getByRole('heading', { name: 'Telemetry', exact: true, level: 2 })
     .locator('xpath=..');
@@ -1229,6 +1287,65 @@ test('uses one smooth segmented-control motion contract for cadence and chart wi
   await expect
     .poll(async () => (await motion(chartWindow)).transform)
     .not.toBe(initialTransform);
+});
+
+test('offers functional 4h and 12h windows with a native narrow selector', async ({
+  page,
+}) => {
+  const requestedWindows: string[] = [];
+  page.on('request', (request) => {
+    if (
+      request.method() === 'POST' &&
+      new URL(request.url()).pathname === '/api/v1/history/aligned'
+    ) {
+      const body = request.postDataJSON() as { window: string };
+      requestedWindows.push(body.window);
+    }
+  });
+  const header = page
+    .getByRole('heading', { name: 'Telemetry', exact: true, level: 2 })
+    .locator('xpath=..');
+  const narrow = header.locator('.chart-window-mobile');
+  const wide = header.locator('.chart-window-desktop');
+
+  if (page.viewportSize()!.width < 640) {
+    await expect(narrow).toBeVisible();
+    await expect(wide).toBeHidden();
+    const selector = narrow.getByRole('combobox', { name: 'Chart window' });
+    for (const label of ['5m', '15m', '30m', '1h', '4h', '12h']) {
+      await expect(
+        selector.getByRole('option', { name: label, exact: true }),
+      ).toBeEnabled();
+    }
+    await selector.selectOption(String(4 * 60 * 60 * 1000));
+    await expect(selector).toHaveValue(String(4 * 60 * 60 * 1000));
+    await expect.poll(() => requestedWindows.includes('4h')).toBe(true);
+    await selector.selectOption(String(12 * 60 * 60 * 1000));
+    await expect(selector).toHaveValue(String(12 * 60 * 60 * 1000));
+  } else {
+    await expect(narrow).toBeHidden();
+    await expect(wide).toBeVisible();
+    const group = wide.getByRole('radiogroup', { name: 'Chart window' });
+    for (const label of ['5m', '15m', '30m', '1h', '4h', '12h']) {
+      await expect(
+        group.getByRole('radio', { name: label, exact: true }),
+      ).toBeEnabled();
+    }
+    await group.locator('.segmented-item', { hasText: /^4h$/u }).click();
+    await expect(
+      group.getByRole('radio', { name: '4h', exact: true }),
+    ).toBeChecked();
+    await expect.poll(() => requestedWindows.includes('4h')).toBe(true);
+    await group.locator('.segmented-item', { hasText: /^12h$/u }).click();
+    await expect(
+      group.getByRole('radio', { name: '12h', exact: true }),
+    ).toBeChecked();
+  }
+
+  await expect.poll(() => requestedWindows.includes('12h')).toBe(true);
+  expect(
+    await page.evaluate(() => localStorage.getItem('leviathan.chartWindow.v1')),
+  ).toBe(String(12 * 60 * 60 * 1000));
 });
 
 test('bounds the process table with sticky headers and a scroll viewport', async ({
@@ -1525,11 +1642,10 @@ test('keeps every detail percentage tick visible', async ({ page }) => {
     }),
   ).toHaveCount(0);
   await expect(
-    page.getByTestId('detail-sheet').getByRole('table', {
-      name: '30m PCIe transfer history data summary',
-      includeHidden: true,
-    }),
-  ).toBeAttached();
+    page
+      .getByTestId('detail-sheet')
+      .getByText('Current / minimum / maximum data', { exact: true }),
+  ).toHaveCount(0);
   await expect(chart.locator('.recharts-wrapper')).toBeVisible();
   const labels = chart.locator('svg text');
   for (const label of ['0%', '25%', '50%', '75%', '100%']) {
@@ -1741,11 +1857,24 @@ test('balances attribution with exactly three overview totals', async ({
   await expect(totals).toHaveCount(3);
   const expectedLabels =
     page.viewportSize()!.width < 768
-      ? ['GPUs', 'Instances', 'Processes']
-      : ['Physical GPUs', 'GPU instances', 'GPU processes'];
-  for (const label of expectedLabels) {
-    await expect(summary.getByText(label, { exact: true })).toBeVisible();
-  }
+      ? ['Resources', 'Workloads', 'Processes']
+      : ['Resources', 'Assigned workloads', 'GPU processes'];
+  const labelScope =
+    page.viewportSize()!.width < 768
+      ? summary.locator('.mobile-only-label')
+      : summary.locator('.desktop-only-label');
+  for (const label of expectedLabels)
+    await expect(labelScope.getByText(label, { exact: true })).toBeVisible();
+  await expect(
+    summary.getByRole('button', {
+      name: 'Resources: 2 physical GPUs and 1 GPU instance',
+    }),
+  ).toContainText('2 GPUs · 1 instance');
+  await expect(
+    summary.getByRole('button', {
+      name: 'Assigned workloads: 2 users and 2 workspaces',
+    }),
+  ).toContainText('2 users · 2 workspaces');
   await expect(
     summary.getByText('Compute instances', { exact: true }),
   ).toHaveCount(0);
@@ -1919,6 +2048,28 @@ test('keeps equal-size resource hover shadows and an independent focus ring', as
     cardOverflow: 'visible',
     zIndex: '3',
   });
+  if (testInfo.project.name.endsWith('-dark')) {
+    await expect
+      .poll(() =>
+        surface.evaluate((element) => {
+          const style = getComputedStyle(element, '::before');
+          return {
+            animationName: style.animationName,
+            backgroundImage: style.backgroundImage,
+            opacity: style.opacity,
+          };
+        }),
+      )
+      .toMatchObject({
+        animationName: 'perimeter-light-sweep',
+        opacity: '1',
+      });
+    expect(
+      await surface.evaluate(
+        (element) => getComputedStyle(element, '::before').backgroundImage,
+      ),
+    ).toContain('conic-gradient');
+  }
 
   await button.focus();
   await page.keyboard.press('Tab');
@@ -2034,6 +2185,15 @@ test('removes spatial motion when reduced motion is requested', async ({
     )
     .toContain('0px 20px 52px');
   expect(motion.durationToken).toBe('240ms');
+  if (!light) {
+    await expect
+      .poll(() =>
+        resource.evaluate(
+          (element) => getComputedStyle(element, '::before').animationName,
+        ),
+      )
+      .toBe('none');
+  }
   if (!light) {
     await expect.poll(() => canvasFramesAreStable(ambientSnow)).toBe(true);
   }
@@ -2180,7 +2340,7 @@ test('covers required responsive widths with a concise header', async ({
       );
       await expect(
         page.getByRole('button', {
-          name: 'Reconnecting status, sampling 0.5s',
+          name: 'Reconnecting status, view updates 1s',
         }),
       ).toBeVisible();
       if (width <= 380) {
@@ -2345,8 +2505,8 @@ test('uses mobile-native tabs, compact charts, and a full-screen detail sheet', 
   ).toHaveCount(0);
   await expect(page.getByText('synthetic-host', { exact: true })).toBeHidden();
   await expect(page.locator('.summary-link .mobile-only-label')).toHaveText([
-    'GPUs',
-    'Instances',
+    'Resources',
+    'Workloads',
     'Processes',
   ]);
 

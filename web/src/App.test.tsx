@@ -809,17 +809,25 @@ describe('Leviathan dashboard states', () => {
     expect(screen.getByText('No NVIDIA GPUs detected')).toBeInTheDocument();
   });
 
-  it('keeps the overview summary to attribution and three host totals', () => {
-    mockUseLeviathan.mockReturnValue(result(snapshot()));
+  it('combines resource totals and links assigned workloads from the overview', async () => {
+    mockUseLeviathan.mockReturnValue(
+      result({ ...snapshot(), attribution: workspaceAttribution }),
+    );
     render(<App />);
 
     const summary = screen.getByLabelText('Host summary');
     expect(summary.querySelectorAll('.summary-link')).toHaveLength(3);
-    expect(within(summary).getByText('Physical GPUs')).toBeInTheDocument();
-    expect(within(summary).getByText('GPU instances')).toBeInTheDocument();
+    expect(within(summary).getAllByText('Resources')).toHaveLength(2);
+    expect(within(summary).getByText('1 GPU · 1 instance')).toBeInTheDocument();
+    expect(within(summary).getByText('Assigned workloads')).toBeInTheDocument();
+    expect(
+      within(summary).getByText('1 user · 1 workspace'),
+    ).toBeInTheDocument();
     expect(within(summary).getByText('GPU processes')).toBeInTheDocument();
-    expect(within(summary).getByText('GPUs')).toHaveClass('mobile-only-label');
-    expect(within(summary).getByText('Instances')).toHaveClass(
+    expect(within(summary).getAllByText('Resources')[1]).toHaveClass(
+      'mobile-only-label',
+    );
+    expect(within(summary).getByText('Workloads')).toHaveClass(
       'mobile-only-label',
     );
     expect(within(summary).getByText('Processes')).toHaveClass(
@@ -827,6 +835,32 @@ describe('Leviathan dashboard states', () => {
     );
     expect(summary).toHaveAttribute('data-snow-cap', 'split');
     expect(within(summary).queryByText('Compute instances')).toBeNull();
+
+    fireEvent.click(
+      within(summary).getByRole('button', {
+        name: 'Resources: 1 physical GPU and 1 GPU instance',
+      }),
+    );
+    await waitFor(() => expect(window.location.hash).toBe('#resources'));
+    openView('Overview');
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Assigned workloads: 1 user and 1 workspace',
+      }),
+    );
+    await waitFor(() => expect(window.location.hash).toBe('#workloads'));
+  });
+
+  it('links to Workloads while clearly marking unavailable attribution', () => {
+    mockUseLeviathan.mockReturnValue(result(snapshot()));
+    render(<App />);
+
+    const button = screen.getByRole('button', {
+      name: 'Assigned workloads: unavailable',
+    });
+    expect(button).toHaveTextContent('—');
+    fireEvent.click(button);
+    expect(window.location.hash).toBe('#workloads');
   });
 
   it('keeps the last snapshot visible while disconnected', () => {
@@ -871,8 +905,9 @@ describe('Leviathan dashboard states', () => {
     expect(within(capsule).getByText('Live')).toBeInTheDocument();
     expect(within(capsule).queryByText(/#12/)).not.toBeInTheDocument();
     expect(within(capsule).queryByText('Sampling')).toBeNull();
+    expect(within(capsule).getByText('Host 1s')).toBeInTheDocument();
     const sampling = within(capsule).getByRole('radiogroup', {
-      name: 'Sampling interval',
+      name: 'View updates',
     });
     expect(sampling).toHaveClass('segmented-control');
     const selectedSampling = within(sampling).getByRole('radio', {
@@ -902,26 +937,29 @@ describe('Leviathan dashboard states', () => {
     expect(screen.queryByTestId('sampling-update-status')).toBeNull();
     expect(screen.queryByText('Sampling')).toBeNull();
     expect(
-      screen.getByTitle('GPU metrics 1s · profiles 2s · processes 5s'),
+      screen.getByTitle(
+        'Host samples 1s · profiles 2s · processes 5s. Browser view updates 1s.',
+      ),
     ).toBeInTheDocument();
   });
 
-  it('opens and dismisses the accessible mobile sampling popover', async () => {
+  it('opens and dismisses the accessible mobile view-update popover', async () => {
     const dashboard = result(snapshot());
     mockUseLeviathan.mockReturnValue(dashboard);
     render(<App />);
 
     const trigger = screen.getByRole('button', {
-      name: 'Live status, sampling 1s',
+      name: 'Live status, view updates 1s',
     });
     fireEvent.click(trigger);
     const popup = await screen.findByRole('dialog');
     expect(
-      within(popup).getByText('GPU metrics 1s · profiles 1s · processes 1s'),
+      within(popup).getByText(/Host samples 1s · profiles 1s · processes 1s/),
     ).toBeVisible();
 
-    fireEvent.click(within(popup).getByRole('radio', { name: '0.5s' }));
-    expect(dashboard.updateSamplingInterval).toHaveBeenCalledWith(500);
+    fireEvent.click(within(popup).getByRole('radio', { name: '2s' }));
+    expect(localStorage.getItem('leviathan.displayCadence.v1')).toBe('2000');
+    expect(dashboard.updateSamplingInterval).not.toHaveBeenCalled();
 
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -1363,7 +1401,7 @@ describe('Leviathan dashboard states', () => {
     );
     render(<App />);
 
-    for (const label of ['5m', '15m', '30m', '1h']) {
+    for (const label of ['5m', '15m', '30m', '1h', '4h', '12h']) {
       expect(await screen.findByRole('radio', { name: label })).toBeDisabled();
     }
     expect(await screen.findByText('Physical GPUs · 4m')).toBeInTheDocument();
@@ -1378,14 +1416,14 @@ describe('Leviathan dashboard states', () => {
     const detailWindow = screen.getByRole('radiogroup', {
       name: 'Detail chart window',
     });
-    for (const label of ['5m', '15m', '30m', '1h']) {
+    for (const label of ['5m', '15m', '30m', '1h', '4h', '12h']) {
       expect(
         within(detailWindow).getByRole('radio', { name: label }),
       ).toBeDisabled();
     }
   });
 
-  it('applies sampling changes and keeps custom startup cadences visible', async () => {
+  it('keeps custom host sampling read-only while persisting local cadence', async () => {
     const settings: RuntimeSettings = {
       samplingIntervalMs: 250,
       profileIntervalMs: 250,
@@ -1394,43 +1432,48 @@ describe('Leviathan dashboard states', () => {
       allowedSamplingIntervalsMs: [500, 1000, 2000],
     };
     const dashboard = result(snapshot(), 'live', null, settings);
-    let rejectUpdate: ((reason: Error) => void) | undefined;
-    dashboard.updateSamplingInterval = vi.fn(
-      () =>
-        new Promise<RuntimeSettings>((_resolve, reject) => {
-          rejectUpdate = reject;
-        }),
-    );
     mockUseLeviathan.mockReturnValue(dashboard);
     render(<App />);
 
-    expect(await screen.findByText('Custom 0.25s')).toBeInTheDocument();
+    expect(screen.queryByText('Custom 0.25s')).toBeNull();
     const cadenceControl = screen.getByRole('radiogroup', {
-      name: 'Sampling interval',
+      name: 'View updates',
     });
-    fireEvent.click(screen.getByRole('radio', { name: '0.5s' }));
-    expect(screen.getByText('Applying 0.5s')).toBeInTheDocument();
-    expect(screen.getByRole('radiogroup', { name: 'Sampling interval' })).toBe(
+    fireEvent.click(screen.getByRole('radio', { name: 'Every sample' }));
+    expect(screen.getByRole('radiogroup', { name: 'View updates' })).toBe(
       cadenceControl,
     );
     expect(
       within(screen.getByTestId('desktop-live-sampling')).getByRole('radio', {
-        name: '0.5s',
+        name: 'Every sample',
       }),
     ).toBeChecked();
-    expect(screen.getByLabelText('Live status and sampling')).toHaveAttribute(
-      'aria-busy',
-      'true',
-    );
-    fireEvent.click(screen.getByRole('radio', { name: '0.5s' }));
-    expect(dashboard.updateSamplingInterval).toHaveBeenCalledTimes(1);
-    expect(dashboard.updateSamplingInterval).toHaveBeenCalledWith(500);
-
-    rejectUpdate?.(new Error('Sampling update failed.'));
+    expect(localStorage.getItem('leviathan.displayCadence.v1')).toBe('0');
+    expect(dashboard.updateSamplingInterval).not.toHaveBeenCalled();
     expect(
-      await screen.findByText('Sampling update failed.'),
+      screen.getByTitle(
+        'Host samples 0.25s · profiles 0.25s · processes 0.25s. Browser view updates Every sample.',
+      ),
     ).toBeInTheDocument();
-    expect(screen.getByText('Custom 0.25s')).toBeInTheDocument();
+  });
+
+  it('synchronizes the browser-local display cadence from another tab', async () => {
+    const dashboard = result(snapshot());
+    mockUseLeviathan.mockReturnValue(dashboard);
+    render(<App />);
+
+    fireEvent(
+      window,
+      new StorageEvent('storage', {
+        key: 'leviathan.displayCadence.v1',
+        newValue: '2000',
+      }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: '2s' })).toBeChecked(),
+    );
+    expect(dashboard.updateSamplingInterval).not.toHaveBeenCalled();
   });
 
   it('focuses and pins patterned chart series from the legend', async () => {

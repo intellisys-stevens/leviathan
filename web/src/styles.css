@@ -477,12 +477,14 @@ html[data-ambient-paused='true'] .app-shell::after {
 
 .summary-link {
   position: relative;
+  isolation: isolate;
   min-width: 0;
   min-height: 5.25rem;
   padding: 1rem 0.75rem;
   background: color-mix(in oklch, var(--card) 82%, transparent);
   transition:
     background-color var(--duration-feedback) var(--ease-out),
+    box-shadow var(--duration-feedback) var(--ease-out),
     color var(--duration-feedback) var(--ease-out),
     opacity var(--duration-feedback) var(--ease-out),
     transform var(--duration-feedback) var(--ease-out);
@@ -499,7 +501,7 @@ html[data-ambient-paused='true'] .app-shell::after {
 .overview-summary {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid color-mix(in oklch, var(--border) 86%, transparent);
   background: var(--card);
 }
@@ -602,6 +604,14 @@ html[data-ambient-paused='true'] .app-shell::after {
     background-color var(--duration-feedback) var(--ease-out),
     box-shadow var(--duration-feedback) var(--ease-out),
     transform var(--duration-feedback) var(--ease-out);
+}
+
+.chart-legend-value {
+  font-weight: 700;
+}
+
+.dark .chart-legend-value {
+  font-weight: 500;
 }
 
 .interactive-resource-button {
@@ -1021,11 +1031,110 @@ html[data-ambient-paused='true'] .app-shell::after {
   }
 
   .summary-link:hover {
+    z-index: 3;
+    box-shadow:
+      inset 0 1px 0 var(--glass-edge),
+      0 20px 52px oklch(0.08 0.025 235 / 20%);
     transform: translateY(-1px);
+  }
+
+  .dark .summary-link:hover {
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklch, var(--primary) 30%, transparent),
+      0 20px 52px color-mix(in oklch, var(--primary) 30%, transparent);
   }
 
   .summary-link:hover .summary-icon {
     transform: scale(1.04);
+  }
+
+  :is(
+    .flowing-surface,
+    .workbench-nav-link,
+    .summary-link,
+    .interactive-resource,
+    .attribution-summary,
+    .workload-owner-tab,
+    .segmented-control,
+    .chart-window-mobile select
+  ) {
+    isolation: isolate;
+  }
+
+  :is(
+    .flowing-surface,
+    .workbench-nav-link,
+    .summary-link,
+    .interactive-resource,
+    .attribution-summary,
+    .workload-owner-tab,
+    .segmented-control,
+    .chart-window-mobile select
+  ):not(.absolute, .fixed, .relative, .sticky) {
+    position: relative;
+  }
+
+  .dark
+    :is(
+      .flowing-surface,
+      .workbench-nav-link,
+      .summary-link,
+      .interactive-resource,
+      .attribution-summary,
+      .workload-owner-tab,
+      .segmented-control,
+      .chart-window-mobile select
+    )::before {
+    position: absolute;
+    z-index: 4;
+    inset: -2px;
+    border-radius: inherit;
+    padding: 1px;
+    background: conic-gradient(
+      from 12deg,
+      transparent 0 60%,
+      color-mix(in oklch, var(--primary) 20%, transparent) 68%,
+      color-mix(in oklch, white 82%, var(--primary)) 76%,
+      color-mix(in oklch, var(--primary) 42%, transparent) 84%,
+      transparent 92% 100%
+    );
+    content: '';
+    opacity: 0;
+    pointer-events: none;
+    transform: rotate(0deg);
+    transform-origin: center;
+    transition: opacity var(--duration-feedback) var(--ease-out);
+    will-change: auto;
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+  }
+
+  .dark
+    :is(
+      .flowing-surface,
+      .workbench-nav-link,
+      .summary-link,
+      .interactive-resource,
+      .attribution-summary,
+      .workload-owner-tab,
+      .segmented-control,
+      .chart-window-mobile select
+    ):is(:hover, :focus-visible, :focus-within)::before {
+    opacity: 1;
+    animation: perimeter-light-sweep 2.8s linear infinite;
+    will-change: transform;
+  }
+}
+
+@keyframes perimeter-light-sweep {
+  to {
+    transform: rotate(360deg);
   }
 }
 
@@ -1459,6 +1568,22 @@ html[data-ambient-paused='true'] .app-shell::after {
     will-change: auto;
   }
 
+  .dark
+    :is(
+      .flowing-surface,
+      .workbench-nav-link,
+      .summary-link,
+      .interactive-resource,
+      .attribution-summary,
+      .workload-owner-tab,
+      .segmented-control,
+      .chart-window-mobile select
+    )::before {
+    animation: none !important;
+    transform: none !important;
+    will-change: auto;
+  }
+
   ::view-transition-old(workbench-content),
   ::view-transition-new(workbench-content) {
     animation-duration: var(--duration-feedback);
@@ -1472,7 +1597,18 @@ html[data-ambient-paused='true'] .app-shell::after {
   .app-shell::before,
   .app-shell::after,
   .ambient-snow,
-  .snow-capped::after {
+  .snow-capped::after,
+  .dark
+    :is(
+      .flowing-surface,
+      .workbench-nav-link,
+      .summary-link,
+      .interactive-resource,
+      .attribution-summary,
+      .workload-owner-tab,
+      .segmented-control,
+      .chart-window-mobile select
+    )::before {
     display: none !important;
   }
 
@@ -1500,7 +1636,18 @@ html[data-ambient-paused='true'] .app-shell::after {
 @media (update: slow) {
   .app-shell::before,
   .app-shell::after,
-  .ambient-snow {
+  .ambient-snow,
+  .dark
+    :is(
+      .flowing-surface,
+      .workbench-nav-link,
+      .summary-link,
+      .interactive-resource,
+      .attribution-summary,
+      .workload-owner-tab,
+      .segmented-control,
+      .chart-window-mobile select
+    )::before {
     display: none !important;
   }
 }

@@ -95,6 +95,7 @@ describe('useLeviathan runtime settings', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -294,6 +295,54 @@ describe('useLeviathan runtime settings', () => {
     act(() => FakeEventSource.instances[0].onopen?.());
     expect(hook.result.current.connection).toBe('live');
     expect(hook.result.current.streamError).toBeNull();
+  });
+
+  it('commits only the latest pending snapshot at the browser display cadence', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        const url = requestURL(input);
+        if (url === '/api/v1/snapshot') return jsonResponse(snapshot);
+        if (url === '/api/v1/settings') return jsonResponse(initialSettings);
+        if (url === '/api/v1/version') return jsonResponse(buildInfo);
+        throw new Error(`unexpected request: ${url}`);
+      }),
+    );
+
+    const hook = renderHook(({ cadence }) => useLeviathan(cadence), {
+      initialProps: { cadence: 1000 },
+    });
+    await waitFor(() => expect(hook.result.current.snapshot?.sequence).toBe(1));
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now());
+
+    act(() => {
+      FakeEventSource.instances[0].emit('snapshot', {
+        ...snapshot,
+        sequence: 2,
+        sampledAt: '2026-08-29T12:00:01Z',
+      });
+      FakeEventSource.instances[0].emit('snapshot', {
+        ...snapshot,
+        sequence: 3,
+        sampledAt: '2026-08-29T12:00:02Z',
+      });
+    });
+    expect(hook.result.current.snapshot?.sequence).toBe(1);
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(hook.result.current.snapshot?.sequence).toBe(3);
+
+    hook.rerender({ cadence: 0 });
+    act(() => {
+      FakeEventSource.instances[0].emit('snapshot', {
+        ...snapshot,
+        sequence: 4,
+        sampledAt: '2026-08-29T12:00:03Z',
+      });
+    });
+    expect(hook.result.current.snapshot?.sequence).toBe(4);
   });
 
   it('reuses unchanged slow-moving slices across telemetry snapshots', () => {
