@@ -285,7 +285,7 @@ type AlignedHistoryRequest struct {
 	MaxPoints int                              `json:"maxPoints"`
 	Series    []AlignedHistorySeriesDescriptor `json:"series"`
 
-	// Window Positive Go duration no longer than the configured history retention.
+	// Window Positive Go duration no longer than configured retention. Windows over one hour return compact aggregate means.
 	Window string `json:"window"`
 }
 
@@ -497,7 +497,7 @@ type ResourceAssignment struct {
 type RuntimeSettings struct {
 	AllowedSamplingIntervalsMs []RuntimeSettingsAllowedSamplingIntervalsMs `json:"allowedSamplingIntervalsMs"`
 
-	// HistoryWindowMs Maximum in-memory retention in milliseconds.
+	// HistoryWindowMs Maximum in-memory retention in milliseconds. The latest hour is raw; older data uses bounded compact trends.
 	HistoryWindowMs int64 `json:"historyWindowMs"`
 
 	// ProcessIntervalMs Effective GPU-process inventory refresh cadence in milliseconds.
@@ -568,7 +568,7 @@ type GetHistoryParams struct {
 	Metrics *string `form:"metrics,omitempty" json:"metrics,omitempty"`
 	Window  *string `form:"window,omitempty" json:"window,omitempty"`
 
-	// MaxPoints Maximum number of history points returned after shape-preserving downsampling.
+	// MaxPoints Maximum number of history points returned. Windows through one hour use raw samples; longer windows use deterministic compact means.
 	MaxPoints *int `form:"maxPoints,omitempty" json:"maxPoints,omitempty"`
 }
 

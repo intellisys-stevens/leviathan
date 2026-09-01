@@ -50,6 +50,10 @@ import type {
 } from '../types';
 import { useChartTooltips } from '../use-chart-tooltips';
 import { useTrendCeiling } from '../use-trend-ceiling';
+import {
+  rawHistoryWindowMilliseconds,
+  useHistoryRefreshGeneration,
+} from '../use-history-refresh';
 import { ChartWindowControl } from './chart-window-control';
 import {
   ChartTooltipPortal,
@@ -211,94 +215,11 @@ function MetricLegend({
               />
             </svg>
             <span>{metric.label}</span>
-            <span className="text-foreground">{value}</span>
+            <span className="chart-legend-value text-foreground">{value}</span>
           </li>
         );
       })}
     </ul>
-  );
-}
-
-function MetricDataSummary({
-  title,
-  rows,
-  metrics,
-  format,
-}: {
-  title: string;
-  rows: ChartRow[];
-  metrics: readonly ChartDescriptor[];
-  format: (value: number) => string;
-}) {
-  return (
-    <details className="mt-2 border border-border/70 bg-card/55 px-3 py-2">
-      <summary className="cursor-pointer font-mono text-[13px] text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        Current / minimum / maximum data
-      </summary>
-      <div className="mt-2 overflow-x-auto">
-        <table className="w-full min-w-[25rem] text-left font-mono text-[13px]">
-          <caption className="sr-only">{title} data summary</caption>
-          <thead className="uppercase tracking-[0.06em] text-muted-foreground">
-            <tr>
-              <th className="py-1 pr-3 font-medium">Metric</th>
-              <th className="px-3 py-1 font-medium">Current</th>
-              <th className="px-3 py-1 font-medium">Minimum</th>
-              <th className="pl-3 py-1 font-medium">Maximum</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/60">
-            {metrics.map((metric) => {
-              const source = rows
-                .map((row) => trendValueSummary(row, metric.key))
-                .filter(({ count }) => count > 0);
-              const values =
-                source.length > 0
-                  ? source.flatMap(({ latest }) =>
-                      latest == null ? [] : [latest],
-                    )
-                  : rows.flatMap((row) => {
-                      const value = row[metric.key];
-                      return typeof value === 'number' && Number.isFinite(value)
-                        ? [value]
-                        : [];
-                    });
-              const minimum = source.flatMap((summary) =>
-                summary.minimum == null ? [] : [summary.minimum],
-              );
-              const maximum = source.flatMap((summary) =>
-                summary.maximum == null ? [] : [summary.maximum],
-              );
-              const printable = (value: number | undefined) =>
-                value == null ? 'Unavailable' : format(value);
-              return (
-                <tr key={metric.key}>
-                  <th className="py-1.5 pr-3 font-medium">{metric.label}</th>
-                  <td className="px-3 py-1.5">{printable(values.at(-1))}</td>
-                  <td className="px-3 py-1.5">
-                    {printable(
-                      minimum.length
-                        ? Math.min(...minimum)
-                        : values.length
-                          ? Math.min(...values)
-                          : undefined,
-                    )}
-                  </td>
-                  <td className="pl-3 py-1.5">
-                    {printable(
-                      maximum.length
-                        ? Math.max(...maximum)
-                        : values.length
-                          ? Math.max(...values)
-                          : undefined,
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </details>
   );
 }
 
@@ -763,7 +684,12 @@ class DetailHistoryStore {
     });
   }
 
-  resolve(key: string, series: HistorySeries, windowMilliseconds: number) {
+  resolve(
+    key: string,
+    series: HistorySeries,
+    windowMilliseconds: number,
+    includeLiveSamples = true,
+  ) {
     if (this.latestKey !== key) return;
     const outgoingSeries =
       this.state.loadedWindowMilliseconds != null &&
@@ -779,9 +705,10 @@ class DetailHistoryStore {
       entity: this.state.entity,
       loadedKey: key,
       loadedWindowMilliseconds: windowMilliseconds,
-      series: this.latestPoint
-        ? appendHistoryPoint(series, this.latestPoint, windowMilliseconds)
-        : series,
+      series:
+        includeLiveSamples && this.latestPoint
+          ? appendHistoryPoint(series, this.latestPoint, windowMilliseconds)
+          : series,
       outgoingSeries,
       outgoingWindowMilliseconds,
       error: null,
@@ -830,6 +757,8 @@ export default function DetailSheet({
 }: Props) {
   const [historyStore] = useState(() => new DetailHistoryStore());
   const [historyRetry, setHistoryRetry] = useState(0);
+  const historyRefresh = useHistoryRefreshGeneration(chartWindowMs);
+  const includeLiveSamples = chartWindowMs <= rawHistoryWindowMilliseconds;
   const physical = selection.kind === 'physical_gpu';
   const gpu = selection.gpu;
   const source = physical ? gpu : selection.gi;
@@ -839,7 +768,7 @@ export default function DetailSheet({
   const historyMetrics = physical
     ? physicalHistoryMetrics
     : instanceHistoryMetrics;
-  const historyKey = `${historyEntity}:${chartWindowMs}:${historyRetry}`;
+  const historyKey = `${historyEntity}:${chartWindowMs}:${historyRetry}:${historyRefresh}`;
   const currentPoint = useMemo(
     () => currentHistoryPoint(source, historyMetrics),
     [historyMetrics, source],
@@ -867,7 +796,13 @@ export default function DetailSheet({
       durationQuery(chartWindowMs),
     )
       .then((data) => {
-        if (active) historyStore.resolve(historyKey, data, chartWindowMs);
+        if (active)
+          historyStore.resolve(
+            historyKey,
+            data,
+            chartWindowMs,
+            includeLiveSamples,
+          );
       })
       .catch((reason: unknown) => {
         if (active)
@@ -885,12 +820,20 @@ export default function DetailSheet({
     historyMetrics,
     historyKey,
     historyStore,
+    includeLiveSamples,
     loadHistory,
   ]);
 
   useEffect(() => {
+    if (!includeLiveSamples) return;
     historyStore.mergeLivePoint(historyKey, currentPoint, chartWindowMs);
-  }, [chartWindowMs, currentPoint, historyKey, historyStore]);
+  }, [
+    chartWindowMs,
+    currentPoint,
+    historyKey,
+    historyStore,
+    includeLiveSamples,
+  ]);
 
   const series =
     historyState.entity === historyEntity ? historyState.series : null;
@@ -1192,12 +1135,6 @@ export default function DetailSheet({
                     </Button>
                   </output>
                 ) : null}
-                <MetricDataSummary
-                  title={`${formatDuration(chartWindowMs)} activity history`}
-                  rows={chartData}
-                  metrics={chartMetrics}
-                  format={formatRoundedPercent}
-                />
               </section>
 
               <section aria-labelledby="pcie-history-title">
@@ -1257,12 +1194,6 @@ export default function DetailSheet({
                     </div>
                   )}
                 </figure>
-                <MetricDataSummary
-                  title={`${formatDuration(chartWindowMs)} PCIe transfer history`}
-                  rows={pcieChartData}
-                  metrics={pcieChartMetrics}
-                  format={formatBytesPerSecond}
-                />
               </section>
             </div>
           </section>

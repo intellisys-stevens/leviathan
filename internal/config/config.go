@@ -132,7 +132,7 @@ func ApplyEnv(cfg *Config) error {
 func Defaults() Config {
 	return Config{
 		Interval: time.Second, ProfileInterval: 2 * time.Second, ProcessInterval: 2 * time.Second,
-		HistoryWindow: time.Hour, TopologyInterval: 10 * time.Second,
+		HistoryWindow: 12 * time.Hour, TopologyInterval: 10 * time.Second,
 		Provider: "auto", DCGMAddress: "127.0.0.1:5555", Listen: DefaultListen,
 	}
 }

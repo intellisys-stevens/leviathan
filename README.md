@@ -27,9 +27,9 @@ Kubernetes bridge adds scheduler-authoritative workspace assignments.
 - Explicit unavailable, stale, permission-denied, and error states—never fake zeros.
 - GPU-connected processes visible in the current PID namespace, with optional
   Coder workspace labels and no container-runtime socket.
-- One-hour in-memory history with continuous, timestamp-aligned overview charts,
-  plus live `0.5s`, `1s`, or `2s` sampling and independently throttled profiling
-  and process scans.
+- Twelve-hour bounded in-memory history: the latest hour stays at collector
+  cadence, while older 4h/12h views use gap-preserving compact trends. Browser
+  view updates are local to each operator and do not change host sampling.
 
 ## 🚀 Quick start
 

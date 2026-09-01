@@ -216,6 +216,23 @@ func TestAlignedHistoryContractAndStrictCap(t *testing.T) {
 	}
 }
 
+func TestAlignedHistoryAcceptsTwelveHourRetention(t *testing.T) {
+	source := newStubSource()
+	source.settings.HistoryWindowMs = (12 * time.Hour).Milliseconds()
+	server := newTestServer(source, nil)
+	body := `{"window":"12h","maxPoints":360,"series":[{"key":"gpu","entity":"GPU-a","metrics":["sm_activity"]}]}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/history/aligned", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	if source.alignedWindow != 12*time.Hour || source.alignedMaxPoints != 360 {
+		t.Fatalf("aligned source window=%s cap=%d", source.alignedWindow, source.alignedMaxPoints)
+	}
+}
+
 func TestAlignedHistoryValidation(t *testing.T) {
 	valid := `{"window":"30m","maxPoints":720,"series":[{"key":"gpu","entity":"GPU-a","metrics":["sm_activity"]}]}`
 	tests := []struct {

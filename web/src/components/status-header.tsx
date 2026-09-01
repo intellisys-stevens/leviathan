@@ -7,9 +7,10 @@ import {
   Moon,
   Sun,
 } from 'lucide-react';
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo } from 'react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { formatSamplingInterval } from '../chart-window';
+import { displayCadenceLabel, displayCadenceOptions } from '../display-cadence';
 import type { RuntimeSettings } from '../types';
 import { useMediaQuery } from '../use-media-query';
 import type { ConnectionState } from '../use-leviathan';
@@ -25,21 +26,17 @@ type Props = {
   settings: RuntimeSettings | null;
   settingsError?: string | null;
   theme: 'dark' | 'light';
-  onSamplingIntervalChange: (milliseconds: number) => Promise<RuntimeSettings>;
+  displayCadenceMs: number;
+  onDisplayCadenceChange: (milliseconds: number) => void;
   onRetrySettings?: () => void;
   onToggleTheme: () => void;
 };
 
-type SamplingChoicesProps = {
-  allowed: number[];
-  custom: number | null;
-  current: number | null;
-  pending: number | null;
+type ViewCadenceChoicesProps = {
+  current: number;
   mobile?: boolean;
   onSelect: (milliseconds: number) => void;
 };
-
-const defaultSamplingIntervals = [500, 1000, 2000];
 
 function GitHubMark() {
   return (
@@ -58,46 +55,27 @@ function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-function SamplingChoices({
-  allowed,
-  custom,
+function ViewCadenceChoices({
   current,
-  pending,
   mobile = false,
   onSelect,
-}: SamplingChoicesProps) {
-  const choices =
-    custom == null
-      ? defaultSamplingIntervals
-      : [custom, ...defaultSamplingIntervals];
-  const options: SegmentedControlOption<number>[] = choices.map(
-    (milliseconds) => {
-      const isCustom = custom === milliseconds;
-      const label = `${isCustom ? 'Custom ' : ''}${formatSamplingInterval(milliseconds)}`;
-      return {
-        value: milliseconds,
-        label,
-        ariaLabel: label,
-        disabled:
-          current == null || (!isCustom && !allowed.includes(milliseconds)),
-      };
-    },
+}: ViewCadenceChoicesProps) {
+  const options: SegmentedControlOption<number>[] = displayCadenceOptions.map(
+    (milliseconds) => ({
+      value: milliseconds,
+      label: milliseconds === 0 ? 'Every' : displayCadenceLabel(milliseconds),
+      ariaLabel: displayCadenceLabel(milliseconds),
+    }),
   );
 
   return (
-    <>
-      <SegmentedControl
-        ariaLabel="Sampling interval"
-        ariaBusy={pending != null}
-        className={mobile ? 'w-full' : ''}
-        options={options}
-        value={current}
-        onValueChange={onSelect}
-      />
-      <output className="sr-only" aria-live="polite">
-        {pending == null ? '' : `Applying ${formatSamplingInterval(pending)}`}
-      </output>
-    </>
+    <SegmentedControl
+      ariaLabel="View updates"
+      className={mobile ? 'w-full' : ''}
+      options={options}
+      value={current}
+      onValueChange={onSelect}
+    />
   );
 }
 
@@ -108,28 +86,11 @@ function StatusHeaderComponent({
   settings,
   settingsError = null,
   theme,
-  onSamplingIntervalChange,
+  displayCadenceMs,
+  onDisplayCadenceChange,
   onRetrySettings,
   onToggleTheme,
 }: Props) {
-  const [pendingSampling, setPendingSampling] = useState<number | null>(null);
-  const [samplingBusy, setSamplingBusy] = useState(false);
-  const [samplingError, setSamplingError] = useState<string | null>(null);
-  const settingsSampling = settings?.samplingIntervalMs ?? null;
-  const [confirmedOverride, setConfirmedOverride] = useState<{
-    source: number | null;
-    value: number;
-  } | null>(null);
-  const confirmedSampling =
-    confirmedOverride?.source === settingsSampling
-      ? confirmedOverride.value
-      : settingsSampling;
-  const confirmedSamplingRef = useRef<number | null>(confirmedSampling);
-  const settingsSamplingRef = useRef(settingsSampling);
-  const optimisticSamplingRef = useRef<number | null>(null);
-  const queuedSamplingRef = useRef<number | null>(null);
-  const samplingWriteInFlightRef = useRef(false);
-  const updateSamplingRef = useRef(onSamplingIntervalChange);
   const desktop = useMediaQuery('(min-width: 768px)');
   const live = connection === 'live';
   const reconnecting =
@@ -140,16 +101,12 @@ function StatusHeaderComponent({
       : 'Live'
     : titleCase(connection);
   const healthy = live && !degraded;
-  const displayedSampling = pendingSampling ?? confirmedSampling;
-  const allowedSampling =
-    settings?.allowedSamplingIntervalsMs ?? defaultSamplingIntervals;
-  const customSampling =
-    confirmedSampling != null &&
-    !defaultSamplingIntervals.includes(confirmedSampling)
-      ? confirmedSampling
-      : null;
-  const displayedSamplingText =
-    displayedSampling == null ? '—' : formatSamplingInterval(displayedSampling);
+  const displayedCadenceText =
+    displayCadenceMs === 0 ? 'Every' : displayCadenceLabel(displayCadenceMs);
+  const hostSamplingText =
+    settings?.samplingIntervalMs == null
+      ? 'unavailable'
+      : formatSamplingInterval(settings.samplingIntervalMs);
   const cadenceDetails = [
     settings?.profileIntervalMs
       ? `profiles ${formatSamplingInterval(settings.profileIntervalMs)}`
@@ -159,74 +116,9 @@ function StatusHeaderComponent({
       : null,
   ].filter((value): value is string => value != null);
   const cadenceTitle = [
-    `GPU metrics ${displayedSamplingText}`,
+    `Host samples ${hostSamplingText}`,
     ...cadenceDetails,
   ].join(' · ');
-  const cadenceError = samplingError ?? settingsError;
-
-  useEffect(() => {
-    confirmedSamplingRef.current = confirmedSampling;
-    settingsSamplingRef.current = settingsSampling;
-    updateSamplingRef.current = onSamplingIntervalChange;
-  }, [confirmedSampling, onSamplingIntervalChange, settingsSampling]);
-
-  async function drainSamplingQueue() {
-    if (samplingWriteInFlightRef.current) return;
-    samplingWriteInFlightRef.current = true;
-    setSamplingBusy(true);
-    let lastFailure: string | null = null;
-
-    try {
-      while (queuedSamplingRef.current != null) {
-        const milliseconds = queuedSamplingRef.current;
-        queuedSamplingRef.current = null;
-
-        if (milliseconds === confirmedSamplingRef.current) {
-          lastFailure = null;
-          continue;
-        }
-
-        try {
-          const settingsAtRequest = settingsSamplingRef.current;
-          const next = await updateSamplingRef.current(milliseconds);
-          if (settingsSamplingRef.current !== settingsAtRequest) {
-            confirmedSamplingRef.current = settingsSamplingRef.current;
-            setConfirmedOverride(null);
-          } else {
-            confirmedSamplingRef.current = next.samplingIntervalMs;
-            setConfirmedOverride({
-              source: settingsSamplingRef.current,
-              value: next.samplingIntervalMs,
-            });
-          }
-          lastFailure = null;
-        } catch (reason) {
-          lastFailure =
-            reason instanceof Error
-              ? reason.message
-              : 'Sampling update failed.';
-        }
-      }
-    } finally {
-      samplingWriteInFlightRef.current = false;
-      optimisticSamplingRef.current = null;
-      setPendingSampling(null);
-      setSamplingBusy(false);
-      setSamplingError(lastFailure);
-    }
-  }
-
-  function applySampling(milliseconds: number) {
-    const displayed =
-      optimisticSamplingRef.current ?? confirmedSamplingRef.current;
-    if (confirmedSamplingRef.current == null || milliseconds === displayed)
-      return;
-    queuedSamplingRef.current = milliseconds;
-    optimisticSamplingRef.current = milliseconds;
-    setPendingSampling(milliseconds);
-    setSamplingError(null);
-    void drainSamplingQueue();
-  }
 
   const indicator = (
     <span
@@ -272,8 +164,7 @@ function StatusHeaderComponent({
           >
             <fieldset
               className="flex h-8 items-center gap-2 border-0 p-0"
-              aria-label="Live status and sampling"
-              aria-busy={samplingBusy}
+              aria-label="Live status and view updates"
             >
               <output
                 className={`flex h-full items-center gap-1.5 font-mono text-[13px] font-semibold ${healthy ? 'text-foreground' : 'text-amber-700 dark:text-amber-300'}`}
@@ -283,17 +174,20 @@ function StatusHeaderComponent({
                 {indicator}
                 {statusName}
               </output>
-              <div title={cadenceTitle}>
-                <SamplingChoices
-                  allowed={allowedSampling}
-                  custom={customSampling}
-                  current={displayedSampling}
-                  pending={pendingSampling}
-                  onSelect={applySampling}
+              <div
+                className="flex items-center gap-2"
+                title={`${cadenceTitle}. Browser view updates ${displayCadenceLabel(displayCadenceMs)}.`}
+              >
+                <ViewCadenceChoices
+                  current={displayCadenceMs}
+                  onSelect={onDisplayCadenceChange}
                 />
+                <span className="hidden font-mono text-[13px] text-muted-foreground xl:inline">
+                  Host {hostSamplingText}
+                </span>
               </div>
             </fieldset>
-            {cadenceError ? (
+            {settingsError ? (
               <output
                 role="alert"
                 className="sampling-error-popover absolute right-0 top-[calc(100%+0.5rem)] z-50 flex w-max max-w-80 items-center gap-2 rounded-md border border-amber-500/30 bg-popover px-3 py-2 font-mono text-[13px] text-amber-700 shadow-xl dark:text-amber-300"
@@ -302,8 +196,8 @@ function StatusHeaderComponent({
                   className="size-3.5 shrink-0"
                   aria-hidden="true"
                 />
-                <span>{cadenceError}</span>
-                {!samplingError && onRetrySettings ? (
+                <span>{settingsError}</span>
+                {onRetrySettings ? (
                   <button
                     type="button"
                     className="rounded border border-current/35 px-2 py-1 font-semibold outline-none hover:bg-amber-500/10 focus-visible:ring-2 focus-visible:ring-ring"
@@ -319,14 +213,13 @@ function StatusHeaderComponent({
           <div className="md:hidden" data-testid="mobile-live-sampling">
             <PopoverPrimitive.Root key={desktop ? 'desktop' : 'mobile'}>
               <PopoverPrimitive.Trigger
-                className="flex h-8 items-center gap-1.5 rounded-md border border-input bg-popover px-2.5 font-mono text-[13px] font-semibold text-foreground shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label={`${statusName} status, sampling ${displayedSamplingText}`}
-                aria-busy={samplingBusy}
+                className="flex size-10 items-center justify-center gap-1.5 rounded-md border border-input bg-popover px-2 font-mono text-[13px] font-semibold text-foreground shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={`${statusName} status, view updates ${displayCadenceLabel(displayCadenceMs)}`}
               >
                 {indicator}
                 <span className="whitespace-nowrap">
                   <span className="mobile-status-name">{statusName} · </span>
-                  {displayedSamplingText}
+                  {displayedCadenceText}
                 </span>
                 <ChevronDown className="size-3" aria-hidden="true" />
               </PopoverPrimitive.Trigger>
@@ -341,12 +234,13 @@ function StatusHeaderComponent({
                     <div className="mb-3 flex items-start justify-between gap-3">
                       <div>
                         <PopoverPrimitive.Title className="text-sm font-semibold">
-                          Live cadence
+                          View updates
                         </PopoverPrimitive.Title>
                         <PopoverPrimitive.Description className="mt-0.5 text-[13px] text-muted-foreground">
-                          {cadenceDetails.length > 0
-                            ? cadenceTitle
-                            : 'Shared live update cadence.'}
+                          This browser updates{' '}
+                          {displayCadenceLabel(displayCadenceMs).toLowerCase()}.
+                          {' · '}
+                          {cadenceTitle}.
                         </PopoverPrimitive.Description>
                       </div>
                       <span
@@ -357,15 +251,12 @@ function StatusHeaderComponent({
                       </span>
                     </div>
                     <div className="relative">
-                      <SamplingChoices
-                        allowed={allowedSampling}
-                        custom={customSampling}
-                        current={displayedSampling}
-                        pending={pendingSampling}
+                      <ViewCadenceChoices
+                        current={displayCadenceMs}
                         mobile
-                        onSelect={applySampling}
+                        onSelect={onDisplayCadenceChange}
                       />
-                      {cadenceError ? (
+                      {settingsError ? (
                         <output
                           role="alert"
                           className="sampling-error-popover absolute right-0 top-[calc(100%+0.5rem)] z-50 flex w-max max-w-full items-center gap-2 rounded-md border border-amber-500/30 bg-popover px-3 py-2 font-mono text-[13px] text-amber-700 shadow-xl dark:text-amber-300"
@@ -374,8 +265,8 @@ function StatusHeaderComponent({
                             className="size-3.5 shrink-0"
                             aria-hidden="true"
                           />
-                          <span>{cadenceError}</span>
-                          {!samplingError && onRetrySettings ? (
+                          <span>{settingsError}</span>
+                          {onRetrySettings ? (
                             <button
                               type="button"
                               className="rounded border border-current/35 px-2 py-1 font-semibold outline-none hover:bg-amber-500/10 focus-visible:ring-2 focus-visible:ring-ring"
@@ -422,7 +313,7 @@ function StatusHeaderComponent({
           <div className="mobile-header-more md:hidden">
             <PopoverPrimitive.Root key={desktop ? 'desktop' : 'mobile'}>
               <PopoverPrimitive.Trigger
-                className={buttonVariants({ variant: 'ghost', size: 'icon' })}
+                className={`${buttonVariants({ variant: 'ghost', size: 'icon' })} size-10`}
                 aria-label="Open app menu"
               >
                 <Ellipsis className="size-5" aria-hidden="true" />
@@ -447,7 +338,7 @@ function StatusHeaderComponent({
                         aria-label="Open Leviathan repository on GitHub"
                       >
                         <GitHubMark />
-                        <span className="flex-1">GitHub repository</span>
+                        <span className="flex-1">GitHub Repo</span>
                         <ExternalLink
                           className="size-3.5 text-muted-foreground"
                           aria-hidden="true"
@@ -464,7 +355,7 @@ function StatusHeaderComponent({
                         ) : (
                           <Moon className="size-4" aria-hidden="true" />
                         )}
-                        Use {theme === 'dark' ? 'light' : 'dark'} theme
+                        {theme === 'dark' ? 'Light Theme' : 'Dark Theme'}
                       </button>
                     </div>
                   </PopoverPrimitive.Popup>

@@ -256,6 +256,166 @@ func TestAlignedGapRowsDoNotChangeLegacyHistory(t *testing.T) {
 	}
 }
 
+func TestTieredHistoryCapacityIsBoundedIndependentlyOfCadence(t *testing.T) {
+	buffer := New(12*time.Hour, time.Second)
+	if got, want := buffer.Capacity(), int(time.Hour/time.Second)+2; got != want {
+		t.Fatalf("raw capacity = %d, want %d", got, want)
+	}
+	if got, want := buffer.AggregateCapacity(), int(12*time.Hour/(30*time.Second))+2; got != want {
+		t.Fatalf("aggregate capacity = %d, want %d", got, want)
+	}
+	aggregateCapacity := buffer.AggregateCapacity()
+	buffer.EnsureCapacity(500 * time.Millisecond)
+	if got, want := buffer.Capacity(), int(time.Hour/(500*time.Millisecond))+2; got != want {
+		t.Fatalf("faster raw capacity = %d, want %d", got, want)
+	}
+	if got := buffer.AggregateCapacity(); got != aggregateCapacity {
+		t.Fatalf("aggregate capacity changed with cadence: %d -> %d", aggregateCapacity, got)
+	}
+}
+
+func TestFourHourHistoryUsesEpochAlignedThirtySecondMeans(t *testing.T) {
+	buffer := New(12*time.Hour, 10*time.Second)
+	base := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	values := []float64{10, 20, 30, 40, 50, 60}
+	for index, value := range values {
+		buffer.Add(historySnapshot(base.Add(time.Duration(index)*10*time.Second), uint64(index+1), map[string]*float64{"GPU-a": floatPointer(value)}))
+	}
+
+	series := buffer.Query("GPU-a", []string{"sm_activity"}, 4*time.Hour, base.Add(59*time.Second))
+	if len(series.Points) != 2 {
+		t.Fatalf("four-hour aggregate rows = %d, want 2: %+v", len(series.Points), series.Points)
+	}
+	if !series.Points[0].SampledAt.Equal(base) || !series.Points[1].SampledAt.Equal(base.Add(30*time.Second)) {
+		t.Fatalf("aggregate buckets are not epoch aligned: %+v", series.Points)
+	}
+	if got := series.Points[0].Values["sm_activity"]; got != 20 {
+		t.Fatalf("first aggregate mean = %v, want 20", got)
+	}
+	if got := series.Points[1].Values["sm_activity"]; got != 50 {
+		t.Fatalf("second aggregate mean = %v, want 50", got)
+	}
+}
+
+func TestTwelveHourHistoryUsesWeightedTwoMinuteRollups(t *testing.T) {
+	buffer := New(12*time.Hour, 10*time.Second)
+	base := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	for index := 1; index <= 11; index++ {
+		value := float64(index * 10)
+		buffer.Add(historySnapshot(base.Add(time.Duration(index)*10*time.Second), uint64(index), map[string]*float64{"GPU-a": floatPointer(value)}))
+	}
+
+	series := buffer.Query("GPU-a", []string{"sm_activity"}, 12*time.Hour, base.Add(119*time.Second))
+	if len(series.Points) != 1 {
+		t.Fatalf("twelve-hour aggregate rows = %d, want 1: %+v", len(series.Points), series.Points)
+	}
+	if !series.Points[0].SampledAt.Equal(base) {
+		t.Fatalf("rollup start = %s, want %s", series.Points[0].SampledAt, base)
+	}
+	if got, want := series.Points[0].Values["sm_activity"], 60.0; got != want {
+		t.Fatalf("weighted rollup mean = %v, want %v", got, want)
+	}
+}
+
+func TestLongHistoryPreservesMissingMetricsAndExplicitGaps(t *testing.T) {
+	buffer := New(12*time.Hour, 10*time.Second)
+	base := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	buffer.Add(historySnapshot(base, 1, map[string]*float64{"GPU-a": floatPointer(10)}))
+	buffer.Add(historySnapshot(base.Add(10*time.Second), 2, map[string]*float64{"GPU-a": nil}))
+	buffer.AddGap(base.Add(30 * time.Second))
+	buffer.Add(historySnapshot(base.Add(40*time.Second), 4, map[string]*float64{"GPU-a": floatPointer(40)}))
+	buffer.Add(historySnapshot(base.Add(50*time.Second), 5, map[string]*float64{"GPU-a": floatPointer(40)}))
+	buffer.Add(historySnapshot(base.Add(60*time.Second), 6, map[string]*float64{"GPU-a": floatPointer(40)}))
+
+	series := buffer.Query("GPU-a", []string{"sm_activity"}, 4*time.Hour, base.Add(89*time.Second))
+	if len(series.Points) != 3 {
+		t.Fatalf("aggregate rows = %d, want 3: %+v", len(series.Points), series.Points)
+	}
+	if len(series.Points[0].Values) != 0 {
+		t.Fatalf("partially unavailable metric was averaged: %+v", series.Points[0])
+	}
+	if len(series.Points[1].Values) != 0 {
+		t.Fatalf("explicit gap was bridged: %+v", series.Points[1])
+	}
+	if got := series.Points[2].Values["sm_activity"]; got != 40 {
+		t.Fatalf("post-gap value = %v, want 40", got)
+	}
+}
+
+func TestLongHistoryKeepsTopologyGenerationsSeparated(t *testing.T) {
+	buffer := New(12*time.Hour, 30*time.Second)
+	base := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	addGI := func(at time.Time, sequence uint64, generation string, value float64) {
+		buffer.Add(model.Snapshot{
+			SampledAt: at,
+			Sequence:  sequence,
+			GPUs: []model.GPU{{
+				UUID: "GPU-a",
+				GPUInstances: []model.GPUInstance{{
+					UUID:       "GI-a",
+					Generation: generation,
+					Metrics: model.MetricSet{
+						"sm_activity": model.AvailableMetric(value, "percent", model.SourceSynthetic, model.ScopeGPUInstance, at),
+					},
+				}},
+			}},
+		})
+	}
+	addGI(base, 1, "GI-a@g1", 10)
+	addGI(base.Add(30*time.Second), 2, "GI-a@g1", 20)
+	addGI(base.Add(60*time.Second), 3, "GI-a@g2", 90)
+
+	got := buffer.QueryAligned([]SeriesDescriptor{{
+		Key: "current", Entity: "GI-a@g2", Metrics: []string{"sm_activity"},
+	}}, 4*time.Hour, 480, base.Add(89*time.Second))
+	if len(got.Points) != 3 {
+		t.Fatalf("aligned generation rows = %d, want 3: %+v", len(got.Points), got.Points)
+	}
+	for index := 0; index < 2; index++ {
+		if _, exists := got.Points[index].Values["current"]; exists {
+			t.Fatalf("old generation leaked into row %d: %+v", index, got.Points[index])
+		}
+	}
+	if value := got.Points[2].Values["current"]["sm_activity"]; value != 90 {
+		t.Fatalf("current generation value = %v, want 90", value)
+	}
+}
+
+func TestClosedAggregateBucketsRemainImmutable(t *testing.T) {
+	buffer := New(12*time.Hour, 20*time.Second)
+	base := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	buffer.Add(historySnapshot(base, 1, map[string]*float64{"GPU-a": floatPointer(10)}))
+	buffer.Add(historySnapshot(base.Add(20*time.Second), 2, map[string]*float64{"GPU-a": floatPointer(30)}))
+	buffer.Add(historySnapshot(base.Add(35*time.Second), 3, map[string]*float64{"GPU-a": floatPointer(40)}))
+	before := buffer.Query("GPU-a", []string{"sm_activity"}, 4*time.Hour, base.Add(40*time.Second))
+	buffer.Add(historySnapshot(base.Add(55*time.Second), 4, map[string]*float64{"GPU-a": floatPointer(80)}))
+	after := buffer.Query("GPU-a", []string{"sm_activity"}, 4*time.Hour, base.Add(55*time.Second))
+	if len(before.Points) < 1 || len(after.Points) < 1 || !reflect.DeepEqual(before.Points[0], after.Points[0]) {
+		t.Fatalf("closed bucket changed: before=%+v after=%+v", before.Points, after.Points)
+	}
+	if got := after.Points[1].Values["sm_activity"]; got != 60 {
+		t.Fatalf("partial bucket mean = %v, want 60", got)
+	}
+}
+
+func TestLongAlignedHistoryStaysWithinPresetPointBudgets(t *testing.T) {
+	buffer := New(12*time.Hour, 30*time.Second)
+	base := time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC)
+	for index := 0; index < int(12*time.Hour/(30*time.Second)); index++ {
+		at := base.Add(time.Duration(index) * 30 * time.Second)
+		buffer.Add(historySnapshot(at, uint64(index+1), map[string]*float64{"GPU-a": floatPointer(float64(index))}))
+	}
+	descriptors := []SeriesDescriptor{{Key: "gpu", Entity: "GPU-a", Metrics: []string{"sm_activity"}}}
+	fourHours := buffer.QueryAligned(descriptors, 4*time.Hour, 720, base.Add(12*time.Hour-time.Second))
+	if len(fourHours.Points) > 480 {
+		t.Fatalf("4h returned %d points, want <= 480", len(fourHours.Points))
+	}
+	twelveHours := buffer.QueryAligned(descriptors, 12*time.Hour, 720, base.Add(12*time.Hour-time.Second))
+	if len(twelveHours.Points) > 360 {
+		t.Fatalf("12h returned %d points, want <= 360", len(twelveHours.Points))
+	}
+}
+
 func historySnapshot(at time.Time, sequence uint64, values map[string]*float64) model.Snapshot {
 	gpus := make([]model.GPU, 0, len(values))
 	for uuid, value := range values {

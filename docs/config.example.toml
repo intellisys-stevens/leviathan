@@ -3,7 +3,7 @@
 interval = "1s"                 # 250ms through 60s
 profile_interval = "2s"         # expensive per-entity telemetry
 process_interval = "2s"         # /proc GPU-client inventory
-history_window = "1h"           # bounded; not persisted
+history_window = "12h"          # 1h raw + bounded compact trends; not persisted
 topology_interval = "10s"
 provider = "auto"               # auto, nvml, dcgm, or fake
 dcgm_address = "127.0.0.1:5555"

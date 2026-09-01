@@ -12,6 +12,10 @@ import type {
   AlignedHistorySeriesDescriptor,
   Snapshot,
 } from './types';
+import {
+  rawHistoryWindowMilliseconds,
+  useHistoryRefreshGeneration,
+} from './use-history-refresh';
 
 export type OverviewEntity = {
   key: string;
@@ -264,6 +268,7 @@ class OverviewHistoryStore {
     snapshot: Snapshot,
     entities: OverviewEntity[],
     retentionMilliseconds: number,
+    includeLiveSamples = true,
   ) {
     const topologyKey = overviewTopologyKey(snapshot);
     if (this.state.topologyKey !== topologyKey) {
@@ -273,6 +278,7 @@ class OverviewHistoryStore {
       this.publish(initialHistoryState(snapshot, entities));
       return;
     }
+    if (!includeLiveSamples) return;
     const points = { ...this.state.points };
     for (const entity of this.state.entities) {
       const point = pointFromSnapshot(snapshot, entity);
@@ -299,7 +305,8 @@ class OverviewHistoryStore {
     loadHistory: LoadAlignedHistory,
     windowMilliseconds: number,
     retentionMilliseconds: number,
-    requestGeneration = 0,
+    requestGeneration: string | number = 0,
+    includeLiveSamples = true,
   ) {
     const topologyKey = overviewTopologyKey(snapshot);
     const requestWindow = durationQuery(windowMilliseconds);
@@ -367,9 +374,11 @@ class OverviewHistoryStore {
 
         const points: Record<string, OverviewPoint[]> = {};
         for (const entity of entities) {
-          const live = (this.state.points[entity.key] ?? []).filter(
-            (point) => pointTime(point) >= requestStartedAt,
-          );
+          const live = includeLiveSamples
+            ? (this.state.points[entity.key] ?? []).filter(
+                (point) => pointTime(point) >= requestStartedAt,
+              )
+            : [];
           points[entity.key] = mergeOverviewPoints(
             historical[entity.key] ?? [],
             live,
@@ -389,6 +398,7 @@ class OverviewHistoryStore {
           ...this.state,
           entities,
           points,
+          latestSampledAt: snapshot.sampledAt,
           outgoingPoints,
           outgoingWindowMilliseconds,
           loading: false,
@@ -446,10 +456,27 @@ export function useOverviewHistory(
 ): OverviewHistoryResult {
   const [store] = useState(() => new OverviewHistoryStore(snapshot, entities));
   const [requestGeneration, setRequestGeneration] = useState(0);
+  const refreshGeneration = useHistoryRefreshGeneration(windowMilliseconds);
+  const retainedWindowMilliseconds = Math.min(
+    windowMilliseconds,
+    retentionMilliseconds,
+  );
+  const includeLiveSamples = windowMilliseconds <= rawHistoryWindowMilliseconds;
 
   useEffect(() => {
-    store.mergeSnapshot(snapshot, entities, retentionMilliseconds);
-  }, [entities, retentionMilliseconds, snapshot, store]);
+    store.mergeSnapshot(
+      snapshot,
+      entities,
+      retainedWindowMilliseconds,
+      includeLiveSamples,
+    );
+  }, [
+    entities,
+    includeLiveSamples,
+    retainedWindowMilliseconds,
+    snapshot,
+    store,
+  ]);
 
   useEffect(() => {
     store.loadHistory(
@@ -459,15 +486,18 @@ export function useOverviewHistory(
       descriptors,
       loadHistory,
       windowMilliseconds,
-      retentionMilliseconds,
-      requestGeneration,
+      retainedWindowMilliseconds,
+      `${requestGeneration}:${refreshGeneration}`,
+      includeLiveSamples,
     );
   }, [
     descriptors,
     entities,
+    includeLiveSamples,
     loadHistory,
     panelID,
-    retentionMilliseconds,
+    retainedWindowMilliseconds,
+    refreshGeneration,
     requestGeneration,
     snapshot,
     store,

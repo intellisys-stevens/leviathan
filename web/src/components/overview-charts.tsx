@@ -398,7 +398,7 @@ function ChartLegend({
                 </span>
               </>
             )}
-            <span className="ml-auto shrink-0 text-foreground">
+            <span className="chart-legend-value ml-auto shrink-0 text-foreground">
               {currentLabel}
             </span>
           </button>
@@ -822,43 +822,6 @@ function ChartPanel({
           </Button>
         </output>
       ) : null}
-      <details className="mt-3 border-t border-border/70 pt-2">
-        <summary className="cursor-pointer select-none font-mono text-[13px] text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          Current / minimum / maximum data
-        </summary>
-        <div className="mt-2 overflow-x-auto">
-          <table className="w-full min-w-[26rem] text-left text-[13px]">
-            <caption className="sr-only">
-              {title} current, minimum, and maximum values over {rangeLabel}
-            </caption>
-            <thead className="font-mono uppercase tracking-[0.06em] text-muted-foreground">
-              <tr>
-                <th className="py-1 pr-3 font-medium">Series</th>
-                <th className="px-3 py-1 font-medium">Current</th>
-                <th className="px-3 py-1 font-medium">Minimum</th>
-                <th className="pl-3 py-1 font-medium">Maximum</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/60 font-mono">
-              {series.map(({ entity, valueKey }) => {
-                const summary = summarizeSeries(rows, valueKey);
-                const label = (value: number | null) =>
-                  value == null ? 'Unavailable' : chartValueLabel(value, unit);
-                return (
-                  <tr key={entity.key}>
-                    <th className="py-1.5 pr-3 font-medium text-foreground">
-                      {entity.label}
-                    </th>
-                    <td className="px-3 py-1.5">{label(summary.current)}</td>
-                    <td className="px-3 py-1.5">{label(summary.minimum)}</td>
-                    <td className="pl-3 py-1.5">{label(summary.maximum)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </details>
     </section>
   );
 }

@@ -37,7 +37,7 @@ func TestLoadFileParsesHumanDurationsAndPreservesDefaults(t *testing.T) {
 
 func TestDefaultsRetainOneHourOfHistory(t *testing.T) {
 	cfg := Defaults()
-	if cfg.HistoryWindow != time.Hour || cfg.Interval != time.Second || cfg.ProfileInterval != 2*time.Second || cfg.ProcessInterval != 2*time.Second {
+	if cfg.HistoryWindow != 12*time.Hour || cfg.Interval != time.Second || cfg.ProfileInterval != 2*time.Second || cfg.ProcessInterval != 2*time.Second {
 		t.Fatalf("unexpected defaults: interval=%s history=%s", cfg.Interval, cfg.HistoryWindow)
 	}
 }

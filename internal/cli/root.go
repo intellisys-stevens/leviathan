@@ -67,7 +67,7 @@ func (a *application) command() *cobra.Command {
 	flags.DurationVar(&a.flags.Interval, "interval", a.flags.Interval, "sampling interval (250ms–60s)")
 	flags.DurationVar(&a.flags.ProfileInterval, "profile-interval", a.flags.ProfileInterval, "expensive per-entity telemetry interval (250ms–60s)")
 	flags.DurationVar(&a.flags.ProcessInterval, "process-interval", a.flags.ProcessInterval, "GPU process inventory interval (250ms–60s)")
-	flags.DurationVar(&a.flags.HistoryWindow, "history-window", a.flags.HistoryWindow, "bounded in-memory history window")
+	flags.DurationVar(&a.flags.HistoryWindow, "history-window", a.flags.HistoryWindow, "bounded in-memory history window (last hour raw, older data compact)")
 	flags.DurationVar(&a.flags.TopologyInterval, "topology-interval", a.flags.TopologyInterval, "MIG topology rescan interval")
 	flags.StringVar(&a.flags.Provider, "provider", a.flags.Provider, "provider mode: auto, nvml, dcgm, or fake")
 	flags.StringVar(&a.flags.DCGMAddress, "dcgm-address", a.flags.DCGMAddress, "local nv-hostengine address")

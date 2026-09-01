@@ -259,12 +259,7 @@ describe('detail sheet presentation', () => {
         name: '30m PCIe transfer history',
       }),
     ).toBeInTheDocument();
-    expect(
-      within(dialog).getByText('30m activity history data summary'),
-    ).toBeInTheDocument();
-    expect(
-      within(dialog).getByText('30m PCIe transfer history data summary'),
-    ).toBeInTheDocument();
+    expect(dialog).not.toHaveTextContent('Current / minimum / maximum data');
     expect(
       within(dialog).getAllByRole('radiogroup', {
         name: 'Detail chart window',
@@ -365,12 +360,11 @@ describe('detail sheet presentation', () => {
         1,
       ),
     );
-    const activitySummary = within(dialog).getByRole('table', {
-      name: '30m activity history data summary',
-    });
-    const oldSummary = within(activitySummary).getByRole('row', {
-      name: /GPU activity/u,
-    }).textContent;
+    const activityLegend = within(dialog).getByLabelText(
+      'Activity chart series',
+    );
+    const oldSummary =
+      within(activityLegend).getByLabelText(/GPU activity:/u).textContent;
 
     view.rerender(<DetailSheet {...props} chartWindowMs={5 * 60 * 1000} />);
     await waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(2));
@@ -379,7 +373,7 @@ describe('detail sheet presentation', () => {
     expect(pcieChart.querySelectorAll('.chart-plot-layer')).toHaveLength(1);
     expect(within(dialog).queryByText('Collecting history…')).toBeNull();
     expect(
-      within(activitySummary).getByRole('row', { name: /GPU activity/u }),
+      within(activityLegend).getByLabelText(/GPU activity:/u),
     ).toHaveTextContent(oldSummary ?? '');
 
     vi.useFakeTimers();
@@ -396,8 +390,8 @@ describe('detail sheet presentation', () => {
         expect(chart.querySelector('.chart-plot-outgoing')).not.toBeNull();
       }
       expect(
-        within(activitySummary).getByRole('row', { name: /GPU activity/u }),
-      ).not.toHaveTextContent(oldSummary ?? '');
+        within(activityLegend).getByLabelText(/GPU activity:/u),
+      ).toHaveTextContent(oldSummary ?? '');
 
       await act(() => vi.advanceTimersByTime(139));
       expect(activityChart.querySelectorAll('.chart-plot-layer')).toHaveLength(
@@ -411,6 +405,9 @@ describe('detail sheet presentation', () => {
         expect(chart.querySelector('.chart-plot-incoming')).toBeNull();
         expect(chart.querySelector('.chart-plot-outgoing')).toBeNull();
       }
+      expect(
+        within(activityLegend).getByLabelText(/GPU activity:/u),
+      ).toHaveTextContent(oldSummary ?? '');
     } finally {
       view.unmount();
       vi.useRealTimers();
@@ -445,12 +442,11 @@ describe('detail sheet presentation', () => {
         1,
       ),
     );
-    const activitySummary = within(dialog).getByRole('table', {
-      name: '30m activity history data summary',
-    });
-    const retainedSummary = within(activitySummary).getByRole('row', {
-      name: /GPU activity/u,
-    }).textContent;
+    const activityLegend = within(dialog).getByLabelText(
+      'Activity chart series',
+    );
+    const retainedSummary =
+      within(activityLegend).getByLabelText(/GPU activity:/u).textContent;
 
     view.rerender(<DetailSheet {...props} chartWindowMs={5 * 60 * 1000} />);
     await waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(2));
@@ -462,7 +458,7 @@ describe('detail sheet presentation', () => {
     expect(activityChart).toHaveAttribute('aria-busy', 'false');
     expect(activityChart.querySelectorAll('.chart-plot-layer')).toHaveLength(1);
     expect(
-      within(activitySummary).getByRole('row', { name: /GPU activity/u }),
+      within(activityLegend).getByLabelText(/GPU activity:/u),
     ).toHaveTextContent(retainedSummary ?? '');
     expect(
       within(dialog).getByText(

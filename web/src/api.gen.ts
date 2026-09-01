@@ -290,7 +290,7 @@ export interface components {
             processIntervalMs: number;
             /**
              * Format: int64
-             * @description Maximum in-memory retention in milliseconds.
+             * @description Maximum in-memory retention in milliseconds. The latest hour is raw; older data uses bounded compact trends.
              */
             historyWindowMs: number;
             allowedSamplingIntervalsMs: (500 | 1000 | 2000)[];
@@ -359,7 +359,7 @@ export interface components {
             metrics: string[];
         };
         AlignedHistoryRequest: {
-            /** @description Positive Go duration no longer than the configured history retention. */
+            /** @description Positive Go duration no longer than configured retention. Windows over one hour return compact aggregate means. */
             window: string;
             maxPoints: number;
             series: components["schemas"]["AlignedHistorySeriesDescriptor"][];
@@ -444,7 +444,7 @@ export interface operations {
                 /** @description Comma-separated canonical metric names. */
                 metrics?: string;
                 window?: string;
-                /** @description Maximum number of history points returned after shape-preserving downsampling. */
+                /** @description Maximum number of history points returned. Windows through one hour use raw samples; longer windows use deterministic compact means. */
                 maxPoints?: number;
             };
             header?: never;
@@ -453,7 +453,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Bounded in-memory series. */
+            /** @description Bounded in-memory series with missing values and collection gaps preserved. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -478,7 +478,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Shape-preserving aligned in-memory history with no interpolated values. */
+            /** @description Aligned in-memory history with raw samples through one hour, compact means for longer windows, and no interpolated values. */
             200: {
                 headers: {
                     [name: string]: unknown;

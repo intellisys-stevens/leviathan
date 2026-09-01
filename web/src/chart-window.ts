@@ -3,13 +3,15 @@ import { readBrowserSetting } from './browser-storage';
 export const chartWindowStorageKey = 'leviathan.chartWindow.v1';
 export const detailChartWindowStorageKey = 'leviathan.detailChartWindow.v1';
 export const defaultChartWindowMs = 30 * 60 * 1000;
-export const defaultHistoryWindowMs = 60 * 60 * 1000;
+export const defaultHistoryWindowMs = 12 * 60 * 60 * 1000;
 
 export const chartWindowPresets = [
   { label: '5m', milliseconds: 5 * 60 * 1000 },
   { label: '15m', milliseconds: 15 * 60 * 1000 },
   { label: '30m', milliseconds: defaultChartWindowMs },
   { label: '1h', milliseconds: 60 * 60 * 1000 },
+  { label: '4h', milliseconds: 4 * 60 * 60 * 1000 },
+  { label: '12h', milliseconds: defaultHistoryWindowMs },
 ] as const;
 
 function storedWindow(key: string): number {
