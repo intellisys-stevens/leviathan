@@ -1000,7 +1000,11 @@ html[data-ambient-paused='true'] .app-shell::after {
   }
 }
 
-@media (pointer: fine) {
+.perimeter-light {
+  display: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
   .motion-chevron {
     transition: rotate var(--duration-feedback) var(--ease-out);
   }
@@ -1048,63 +1052,25 @@ html[data-ambient-paused='true'] .app-shell::after {
     transform: scale(1.04);
   }
 
-  :is(
-    .flowing-surface,
-    .workbench-nav-link,
-    .summary-link,
-    .interactive-resource,
-    .attribution-summary,
-    .workload-owner-tab,
-    .segmented-control,
-    .chart-window-mobile select
-  ) {
+  .flowing-surface {
     isolation: isolate;
   }
 
-  :is(
-    .flowing-surface,
-    .workbench-nav-link,
-    .summary-link,
-    .interactive-resource,
-    .attribution-summary,
-    .workload-owner-tab,
-    .segmented-control,
-    .chart-window-mobile select
-  ):not(.absolute, .fixed, .relative, .sticky) {
+  .flowing-surface:not(.absolute, .fixed, .relative, .sticky) {
     position: relative;
   }
 
-  .dark
-    :is(
-      .flowing-surface,
-      .workbench-nav-link,
-      .summary-link,
-      .interactive-resource,
-      .attribution-summary,
-      .workload-owner-tab,
-      .segmented-control,
-      .chart-window-mobile select
-    )::before {
+  .dark .flowing-surface > .perimeter-light {
+    display: block;
     position: absolute;
     z-index: 4;
     inset: -2px;
+    overflow: hidden;
     border-radius: inherit;
     padding: 1px;
-    background: conic-gradient(
-      from 12deg,
-      transparent 0 60%,
-      color-mix(in oklch, var(--primary) 20%, transparent) 68%,
-      color-mix(in oklch, white 82%, var(--primary)) 76%,
-      color-mix(in oklch, var(--primary) 42%, transparent) 84%,
-      transparent 92% 100%
-    );
-    content: '';
     opacity: 0;
     pointer-events: none;
-    transform: rotate(0deg);
-    transform-origin: center;
     transition: opacity var(--duration-feedback) var(--ease-out);
-    will-change: auto;
     -webkit-mask:
       linear-gradient(#000 0 0) content-box,
       linear-gradient(#000 0 0);
@@ -1115,26 +1081,51 @@ html[data-ambient-paused='true'] .app-shell::after {
     mask-composite: exclude;
   }
 
+  :is(.workbench-nav-link, .segmented-control, .chart-window-mobile)
+    > .perimeter-light {
+    inset: 0;
+  }
+
+  .perimeter-light-beam {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 200%;
+    height: 200%;
+    background: conic-gradient(
+      from 12deg,
+      transparent 0 60%,
+      color-mix(in oklch, var(--primary) 20%, transparent) 68%,
+      color-mix(in oklch, white 82%, var(--primary)) 76%,
+      color-mix(in oklch, var(--primary) 42%, transparent) 84%,
+      transparent 92% 100%
+    );
+    transform: translate3d(-50%, -50%, 0) rotate(12deg);
+    transform-origin: center;
+    will-change: auto;
+  }
+
   .dark
-    :is(
-      .flowing-surface,
-      .workbench-nav-link,
-      .summary-link,
-      .interactive-resource,
-      .attribution-summary,
-      .workload-owner-tab,
-      .segmented-control,
-      .chart-window-mobile select
-    ):is(:hover, :focus-visible, :focus-within)::before {
+    .flowing-surface:is(:hover, :focus-visible, :focus-within)
+    > .perimeter-light {
     opacity: 1;
+  }
+
+  .dark
+    .flowing-surface:hover:not(:focus-within)
+    > .perimeter-light
+    .perimeter-light-beam {
     animation: perimeter-light-sweep 2.8s linear infinite;
     will-change: transform;
   }
 }
 
 @keyframes perimeter-light-sweep {
+  from {
+    transform: translate3d(-50%, -50%, 0) rotate(12deg);
+  }
   to {
-    transform: rotate(360deg);
+    transform: translate3d(-50%, -50%, 0) rotate(372deg);
   }
 }
 
@@ -1568,19 +1559,9 @@ html[data-ambient-paused='true'] .app-shell::after {
     will-change: auto;
   }
 
-  .dark
-    :is(
-      .flowing-surface,
-      .workbench-nav-link,
-      .summary-link,
-      .interactive-resource,
-      .attribution-summary,
-      .workload-owner-tab,
-      .segmented-control,
-      .chart-window-mobile select
-    )::before {
+  .perimeter-light-beam {
     animation: none !important;
-    transform: none !important;
+    transform: translate3d(-50%, -50%, 0) rotate(12deg) !important;
     will-change: auto;
   }
 
@@ -1598,17 +1579,7 @@ html[data-ambient-paused='true'] .app-shell::after {
   .app-shell::after,
   .ambient-snow,
   .snow-capped::after,
-  .dark
-    :is(
-      .flowing-surface,
-      .workbench-nav-link,
-      .summary-link,
-      .interactive-resource,
-      .attribution-summary,
-      .workload-owner-tab,
-      .segmented-control,
-      .chart-window-mobile select
-    )::before {
+  .perimeter-light {
     display: none !important;
   }
 
@@ -1637,17 +1608,7 @@ html[data-ambient-paused='true'] .app-shell::after {
   .app-shell::before,
   .app-shell::after,
   .ambient-snow,
-  .dark
-    :is(
-      .flowing-surface,
-      .workbench-nav-link,
-      .summary-link,
-      .interactive-resource,
-      .attribution-summary,
-      .workload-owner-tab,
-      .segmented-control,
-      .chart-window-mobile select
-    )::before {
+  .perimeter-light {
     display: none !important;
   }
 }

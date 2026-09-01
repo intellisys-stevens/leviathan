@@ -26,6 +26,10 @@ describe('SegmentedControl', () => {
       new Set([radios[0].getAttribute('name')]),
     );
     expect(group).toHaveStyle('--segment-count: 3; --active-index: 1');
+    expect(group).toHaveClass('flowing-surface');
+    expect(
+      group.querySelector(':scope > [data-slot="perimeter-light"]'),
+    ).toHaveAttribute('aria-hidden', 'true');
 
     const thumb = group.querySelector<HTMLElement>('.segmented-thumb');
     expect(thumb).toHaveClass(

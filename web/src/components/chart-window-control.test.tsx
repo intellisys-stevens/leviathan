@@ -21,6 +21,15 @@ describe('ChartWindowControl', () => {
     }
     const mobile = screen.getByRole('combobox', { name: 'Chart window' });
     expect(mobile).toHaveValue(String(30 * 60 * 1000));
+    expect(mobile.parentElement).toHaveClass(
+      'chart-window-mobile',
+      'flowing-surface',
+    );
+    expect(
+      mobile.parentElement?.querySelector(
+        ':scope > [data-slot="perimeter-light"]',
+      ),
+    ).toBeInTheDocument();
     expect(within(mobile).getByRole('option', { name: '12h' })).toBeDisabled();
 
     fireEvent.click(within(group).getByRole('radio', { name: '15m' }));

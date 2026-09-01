@@ -3,6 +3,7 @@ import {
   SegmentedControl,
   type SegmentedControlOption,
 } from './segmented-control';
+import { PerimeterLight } from './perimeter-light';
 
 type Props = {
   chartWindowMs: number;
@@ -45,7 +46,8 @@ export function ChartWindowControl({
       <span className="font-mono text-[13px] uppercase tracking-[0.12em] text-muted-foreground">
         Window
       </span>
-      <div className="chart-window-mobile sm:hidden">
+      <div className="chart-window-mobile flowing-surface rounded-lg sm:hidden">
+        <PerimeterLight />
         <select
           aria-label={ariaLabel}
           className="min-h-11 rounded-lg border border-border/80 bg-background/75 px-3 font-mono text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"

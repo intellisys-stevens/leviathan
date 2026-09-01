@@ -1124,6 +1124,7 @@ test('keeps browser-local view updates concise and visually balanced', async ({
   ).toHaveCount(0);
 
   if (viewport!.width >= 768) {
+    await page.evaluate(() => document.fonts.ready);
     await expect(desktop).toBeVisible();
     await expect(mobile).toBeHidden();
     await expect(desktop.getByText('Live', { exact: true })).toBeVisible();
@@ -2017,7 +2018,7 @@ test('opens resource details from card whitespace with one full-surface button',
   await activateWhitespace(/^Open GPU \d+ · Full GPU details$/u);
 });
 
-test('keeps equal-size resource hover shadows and an independent focus ring', async ({
+test('keeps the flowing beam inside a stationary resource perimeter', async ({
   page,
 }, testInfo) => {
   test.skip(
@@ -2049,28 +2050,104 @@ test('keeps equal-size resource hover shadows and an independent focus ring', as
     zIndex: '3',
   });
   if (testInfo.project.name.endsWith('-dark')) {
-    await expect
-      .poll(() =>
-        surface.evaluate((element) => {
-          const style = getComputedStyle(element, '::before');
-          return {
-            animationName: style.animationName,
-            backgroundImage: style.backgroundImage,
-            opacity: style.opacity,
-          };
-        }),
-      )
-      .toMatchObject({
-        animationName: 'perimeter-light-sweep',
-        opacity: '1',
+    const mask = surface.locator(':scope > [data-slot="perimeter-light"]');
+    const beam = mask.locator('[data-slot="perimeter-light-beam"]');
+    await expect(mask).toHaveCSS('opacity', '1');
+    await expect(mask).toHaveCSS('pointer-events', 'none');
+    await expect(mask).toHaveCSS('overflow', 'hidden');
+
+    const readPhase = () =>
+      surface.evaluate((element) => {
+        const mask = element.querySelector<HTMLElement>(
+          ':scope > [data-slot="perimeter-light"]',
+        )!;
+        const beam = mask.querySelector<HTMLElement>(
+          '[data-slot="perimeter-light-beam"]',
+        )!;
+        const hostRect = element.getBoundingClientRect();
+        const maskRect = mask.getBoundingClientRect();
+        const hostStyle = getComputedStyle(element);
+        const maskStyle = getComputedStyle(mask);
+        const beamStyle = getComputedStyle(beam);
+        return {
+          host: {
+            left: hostRect.left,
+            top: hostRect.top,
+            right: hostRect.right,
+            bottom: hostRect.bottom,
+          },
+          mask: {
+            left: maskRect.left,
+            top: maskRect.top,
+            right: maskRect.right,
+            bottom: maskRect.bottom,
+          },
+          hostTransform: hostStyle.transform,
+          maskTransform: maskStyle.transform,
+          maskAnimation: maskStyle.animationName,
+          hostRadius: hostStyle.borderRadius,
+          maskRadius: maskStyle.borderRadius,
+          maskImage: maskStyle.maskImage,
+          beamTransform: beamStyle.transform,
+          beamAnimation: beamStyle.animationName,
+          beamBackground: beamStyle.backgroundImage,
+        };
       });
+
+    const phases = [await readPhase()];
+    for (let phase = 0; phase < 2; phase += 1) {
+      await page.waitForTimeout(180);
+      phases.push(await readPhase());
+    }
+    for (const phase of phases) {
+      expect(phase.maskTransform).toBe('none');
+      expect(phase.maskAnimation).toBe('none');
+      expect(phase.beamAnimation).toBe('perimeter-light-sweep');
+      expect(phase.beamBackground).toContain('conic-gradient');
+      expect(phase.maskImage).toContain('linear-gradient');
+      expect(phase.maskRadius).toBe(phase.hostRadius);
+      expect(Math.abs(phase.host.left - phase.mask.left)).toBeLessThanOrEqual(
+        2.1,
+      );
+      expect(Math.abs(phase.host.top - phase.mask.top)).toBeLessThanOrEqual(
+        2.1,
+      );
+      expect(Math.abs(phase.mask.right - phase.host.right)).toBeLessThanOrEqual(
+        2.1,
+      );
+      expect(
+        Math.abs(phase.mask.bottom - phase.host.bottom),
+      ).toBeLessThanOrEqual(2.1);
+    }
+    expect(new Set(phases.map((phase) => phase.beamTransform)).size).toBe(
+      phases.length,
+    );
+    expect(new Set(phases.map((phase) => phase.hostTransform)).size).toBe(1);
     expect(
-      await surface.evaluate(
-        (element) => getComputedStyle(element, '::before').backgroundImage,
+      await beam.evaluate((element) => element.getAttribute('style')),
+    ).toBe(null);
+    expect(
+      await surface.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const hit = document.elementFromPoint(
+          rect.left + rect.width / 2,
+          rect.top + rect.height / 2,
+        );
+        return hit?.closest('[data-slot="perimeter-light"]') === null;
+      }),
+    ).toBe(true);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth - window.innerWidth,
       ),
-    ).toContain('conic-gradient');
+    ).toBeLessThanOrEqual(0);
+  } else {
+    await expect(
+      surface.locator(':scope > [data-slot="perimeter-light"]'),
+    ).toHaveCSS('display', 'none');
   }
 
+  await page.mouse.move(0, 0);
   await button.focus();
   await page.keyboard.press('Tab');
   await page.keyboard.press('Shift+Tab');
@@ -2083,6 +2160,15 @@ test('keeps equal-size resource hover shadows and an independent focus ring', as
       }),
     )
     .toBe('2px solid');
+  if (testInfo.project.name.endsWith('-dark')) {
+    const focusedMask = surface.locator(
+      ':scope > [data-slot="perimeter-light"]',
+    );
+    await expect(focusedMask).toHaveCSS('opacity', '1');
+    await expect(
+      focusedMask.locator('[data-slot="perimeter-light-beam"]'),
+    ).toHaveCSS('animation-name', 'none');
+  }
 
   await page.getByRole('link', { name: 'Workloads' }).click();
   await selectWorkloadOwner(page, 'synthetic-owner');
@@ -2103,6 +2189,66 @@ test('keeps equal-size resource hover shadows and an independent focus ring', as
     'overflow',
     'visible',
   );
+});
+
+test('keeps every flowing treatment rounded and pointer transparent', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'chromium-desktop-dark',
+    'One dark fine-pointer project covers all perimeter consumers.',
+  );
+
+  const assertRoundedPerimeter = async (surface: Locator) => {
+    const perimeter = surface.locator(':scope > [data-slot="perimeter-light"]');
+    await expect(perimeter).toHaveCount(1);
+    const geometry = await surface.evaluate((element) => {
+      const perimeter = element.querySelector<HTMLElement>(
+        ':scope > [data-slot="perimeter-light"]',
+      )!;
+      const hostStyle = getComputedStyle(element);
+      const perimeterStyle = getComputedStyle(perimeter);
+      return {
+        hostRadius: hostStyle.borderRadius,
+        perimeterRadius: perimeterStyle.borderRadius,
+        perimeterPointerEvents: perimeterStyle.pointerEvents,
+        perimeterTransform: perimeterStyle.transform,
+      };
+    });
+    expect(geometry.hostRadius).not.toBe('0px');
+    expect(geometry.perimeterRadius).toBe(geometry.hostRadius);
+    expect(geometry.perimeterPointerEvents).toBe('none');
+    expect(geometry.perimeterTransform).toBe('none');
+  };
+
+  await assertRoundedPerimeter(
+    page.getByRole('link', { name: 'Overview' }).first(),
+  );
+  await assertRoundedPerimeter(page.locator('.summary-link').first());
+  await assertRoundedPerimeter(page.locator('.attribution-summary').first());
+  await assertRoundedPerimeter(page.locator('.segmented-control').first());
+
+  await page.getByRole('link', { name: 'Resources' }).click();
+  await assertRoundedPerimeter(
+    page
+      .getByRole('button', { name: 'Open GPU 0 full GPU details' })
+      .locator('xpath=..'),
+  );
+
+  await page.getByRole('link', { name: 'Workloads' }).click();
+  await assertRoundedPerimeter(page.locator('.workload-owner-tab').first());
+  await assertRoundedPerimeter(
+    page.locator('.mobile-workload-resource').first(),
+  );
+
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.getByRole('link', { name: 'Overview' }).click();
+  await assertRoundedPerimeter(page.locator('.chart-window-mobile').first());
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth,
+    ),
+  ).toBeLessThanOrEqual(0);
 });
 
 test('has no serious or critical authored accessibility violations', async ({
@@ -2186,13 +2332,12 @@ test('removes spatial motion when reduced motion is requested', async ({
     .toContain('0px 20px 52px');
   expect(motion.durationToken).toBe('240ms');
   if (!light) {
-    await expect
-      .poll(() =>
-        resource.evaluate(
-          (element) => getComputedStyle(element, '::before').animationName,
-        ),
-      )
-      .toBe('none');
+    const mask = resource.locator(':scope > [data-slot="perimeter-light"]');
+    await expect(mask).toHaveCSS('opacity', '1');
+    await expect(mask.locator('[data-slot="perimeter-light-beam"]')).toHaveCSS(
+      'animation-name',
+      'none',
+    );
   }
   if (!light) {
     await expect.poll(() => canvasFramesAreStable(ambientSnow)).toBe(true);
@@ -2208,30 +2353,47 @@ test('removes ambient glass effects for visibility-oriented media preferences', 
   );
   const ambientSnow = page.getByTestId('ambient-snow');
   const cap = page.locator('.snow-capped').first();
+  await page.getByRole('link', { name: 'Resources' }).click();
+  const perimeter = page
+    .getByRole('button', { name: 'Open GPU 0 full GPU details' })
+    .locator('xpath=..')
+    .locator(':scope > [data-slot="perimeter-light"]');
+  await perimeter.locator('xpath=..').hover();
 
   const visualState = () =>
     page.evaluate(() => {
       const snow = document.querySelector('[data-testid="ambient-snow"]')!;
       const capped = document.querySelector('.snow-capped')!;
       const panel = document.querySelector('.frost-panel')!;
+      const perimeter = document.querySelector(
+        '.interactive-resource > [data-slot="perimeter-light"]',
+      )!;
       return {
         snow: getComputedStyle(snow).display,
         snowState: (snow as HTMLElement).dataset.state,
         cap: getComputedStyle(capped, '::after').display,
         backdrop: getComputedStyle(panel).backdropFilter,
+        perimeter: getComputedStyle(perimeter).display,
       };
     });
 
   await expect(ambientSnow).toBeVisible();
   await expect(cap).toBeVisible();
+  await expect(perimeter).toHaveCSS('display', 'block');
   await page.emulateMedia({ contrast: 'more' });
   await expect.poll(visualState).toMatchObject({
     snow: 'none',
     snowState: 'hidden',
     cap: 'none',
     backdrop: 'none',
+    perimeter: 'none',
   });
   await page.emulateMedia({ contrast: 'no-preference' });
+  await expect(ambientSnow).toHaveAttribute('data-state', 'running');
+
+  await page.emulateMedia({ forcedColors: 'active' });
+  await expect(perimeter).toHaveCSS('display', 'none');
+  await page.emulateMedia({ forcedColors: 'none' });
   await expect(ambientSnow).toHaveAttribute('data-state', 'running');
 
   const session = await page.context().newCDPSession(page);
@@ -2243,9 +2405,44 @@ test('removes ambient glass effects for visibility-oriented media preferences', 
     snowState: 'hidden',
     cap: 'none',
     backdrop: 'none',
+    perimeter: 'none',
   });
   await session.send('Emulation.setEmulatedMedia', { features: [] });
   await expect(ambientSnow).toHaveAttribute('data-state', 'running');
+
+  expect(
+    await page.evaluate(() => {
+      const findSlowUpdateRule = (rules: CSSRuleList): boolean =>
+        [...rules].some((rule) => {
+          if (
+            rule instanceof CSSMediaRule &&
+            rule.conditionText.includes('update: slow')
+          ) {
+            return [...rule.cssRules].some(
+              (child) =>
+                child instanceof CSSStyleRule &&
+                child.selectorText.includes('.perimeter-light') &&
+                child.style.display === 'none',
+            );
+          }
+          return (
+            rule instanceof CSSGroupingRule && findSlowUpdateRule(rule.cssRules)
+          );
+        });
+      return [...document.styleSheets].some((sheet) =>
+        findSlowUpdateRule(sheet.cssRules),
+      );
+    }),
+  ).toBe(true);
+  await session.send('Emulation.setTouchEmulationEnabled', {
+    enabled: true,
+    maxTouchPoints: 5,
+  });
+  await expect
+    .poll(() => page.evaluate(() => matchMedia('(pointer: coarse)').matches))
+    .toBe(true);
+  await expect(perimeter).toHaveCSS('display', 'none');
+  await session.send('Emulation.setTouchEmulationEnabled', { enabled: false });
 });
 
 test('covers required responsive widths with a concise header', async ({
@@ -2729,10 +2926,25 @@ test('matches targeted workbench and frost-dragon visual baselines', async ({
     await captureViewport('chart-tooltip-dark.png');
     await page.mouse.move(0, 0);
     await page.getByRole('link', { name: 'Resources' }).click();
-    await page
+    await page.addStyleTag({
+      content: `
+        @media (prefers-reduced-motion: reduce) {
+          .dark .flowing-surface:hover:not(:focus-within)
+            > .perimeter-light .perimeter-light-beam {
+            animation: none !important;
+            transform: translate3d(-50%, -50%, 0) rotate(102deg) !important;
+          }
+        }
+      `,
+    });
+    const hoveredResource = page
       .getByRole('button', { name: 'Open GPU 0 full GPU details' })
-      .locator('xpath=..')
-      .hover();
+      .locator('xpath=..');
+    await hoveredResource.hover();
+    await expect(hoveredResource).toHaveScreenshot(
+      'resources-hover-border-dark.png',
+      { animations: 'disabled' },
+    );
     await capturePage('resources-desktop.png');
     await showAllocatedWorkloads();
     await capturePage('workloads-desktop-dark.png');

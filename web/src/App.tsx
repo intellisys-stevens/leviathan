@@ -35,6 +35,7 @@ import { DiagnosticsPanel } from './components/diagnostics-panel';
 import { AmbientSnow } from './components/ambient-snow';
 import { ChartWindowControl } from './components/chart-window-control';
 import { GPUCard } from './components/gpu-card';
+import { PerimeterLight } from './components/perimeter-light';
 import { PeopleView } from './components/people-view';
 import { ProcessTable } from './components/process-table';
 import { StatusHeader } from './components/status-header';
@@ -324,7 +325,7 @@ const WorkbenchNavigation = memo(function WorkbenchNavigation({
             <a
               key={id}
               href={`#${id}`}
-              className={`workbench-nav-link ${
+              className={`workbench-nav-link flowing-surface ${
                 mobile
                   ? 'mobile-workbench-nav-link flex-col justify-center gap-0.5 px-1 py-1.5 text-center'
                   : ''
@@ -344,6 +345,7 @@ const WorkbenchNavigation = memo(function WorkbenchNavigation({
                 onNavigate(id);
               }}
             >
+              <PerimeterLight />
               <span className="relative inline-flex" aria-hidden="true">
                 <Icon className={mobile ? 'size-5' : 'size-4'} />
                 {mobile && id === 'operations' && diagnosticCount > 0 ? (
@@ -873,10 +875,11 @@ export function App() {
                         <button
                           key={label}
                           type="button"
-                          className="summary-link group text-center outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                          className="summary-link flowing-surface group rounded-lg text-center outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                           aria-label={ariaLabel}
                           onClick={() => navigateTo(target)}
                         >
+                          <PerimeterLight />
                           <span className="flex items-center justify-center gap-1.5 font-mono text-lg font-semibold text-primary">
                             <Icon
                               className="summary-icon size-4"

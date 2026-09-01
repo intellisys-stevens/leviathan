@@ -77,6 +77,10 @@ describe('workspace attribution presentation', () => {
     const trigger = screen.getByRole('button', {
       name: /Kubernetes DRA attribution: 2 workspaces, 1 device, available/,
     });
+    expect(trigger).toHaveClass('flowing-surface');
+    expect(
+      trigger.querySelector(':scope > [data-slot="perimeter-light"]'),
+    ).toHaveAttribute('aria-hidden', 'true');
     expect(trigger).toHaveTextContent(/Kubernetes DRA.*2 workspaces.*1 device/);
     fireEvent.click(trigger);
     expect(await screen.findByText('alice / active')).toBeInTheDocument();
