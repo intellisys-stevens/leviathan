@@ -314,7 +314,7 @@ async function installSyntheticBackend(
     }
     if (url.pathname === '/api/v1/version') {
       await route.fulfill({
-        json: { version: '0.3.1', commit: 'synthetic', buildDate: sampledAt },
+        json: { version: '0.3.2', commit: 'synthetic', buildDate: sampledAt },
       });
       return;
     }
@@ -432,6 +432,8 @@ function moveCommands(pathData: string | null) {
 function canvasFrameSignature(canvas: Locator) {
   return canvas.evaluate((element) => {
     const source = element as HTMLCanvasElement;
+    if (source.dataset.renderer === 'worker')
+      return `worker:${source.dataset.frameSequence ?? '0'}`;
     const probe = document.createElement('canvas');
     probe.width = 192;
     probe.height = 112;
@@ -445,6 +447,13 @@ function canvasFrameSignature(canvas: Locator) {
 function canvasFramesAreStable(canvas: Locator) {
   return canvas.evaluate(async (element) => {
     const source = element as HTMLCanvasElement;
+    if (source.dataset.renderer === 'worker') {
+      const first = source.dataset.frameSequence;
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+      return source.dataset.frameSequence === first;
+    }
     const signature = () => {
       const probe = document.createElement('canvas');
       probe.width = 192;
@@ -632,91 +641,13 @@ test('animates, pauses, resumes, and theme-gates the ambient snow canvas', async
   await expect(canvas).toHaveAttribute('data-state', 'running');
 });
 
-test('renders mobile dot snow at display cadence without per-particle path work', async ({
+test('renders denser mobile dot snow in the offscreen worker', async ({
   page,
 }, testInfo) => {
   test.skip(
     testInfo.project.name !== 'chromium-desktop-dark',
     'One dark Chromium project measures the canvas renderer.',
   );
-
-  await page.addInitScript(() => {
-    const probe = {
-      arcCalls: 0,
-      clearCalls: 0,
-      drawImageCalls: 0,
-      firstFrameAt: 0,
-      frameDraws: 0,
-      frameStarted: 0,
-      lastFrameAt: 0,
-      maxFrameDuration: 0,
-      measuring: false,
-      referenceFrames: 0,
-    };
-    (
-      window as unknown as {
-        __leviathanSnowProbe: typeof probe;
-      }
-    ).__leviathanSnowProbe = probe;
-
-    const countDisplayFrames = () => {
-      if (probe.measuring) probe.referenceFrames += 1;
-      requestAnimationFrame(countDisplayFrames);
-    };
-    requestAnimationFrame(countDisplayFrames);
-
-    const isAmbient = (context: CanvasRenderingContext2D) =>
-      context.canvas.dataset.testid === 'ambient-snow';
-    const originalArc = Object.getOwnPropertyDescriptor(
-      CanvasRenderingContext2D.prototype,
-      'arc',
-    )!.value as CanvasRenderingContext2D['arc'];
-    const originalClear = Object.getOwnPropertyDescriptor(
-      CanvasRenderingContext2D.prototype,
-      'clearRect',
-    )!.value as CanvasRenderingContext2D['clearRect'];
-    const originalDrawImage = Object.getOwnPropertyDescriptor(
-      CanvasRenderingContext2D.prototype,
-      'drawImage',
-    )!.value as CanvasRenderingContext2D['drawImage'];
-    CanvasRenderingContext2D.prototype.arc = function (
-      this: CanvasRenderingContext2D,
-      ...arguments_
-    ) {
-      if (isAmbient(this)) probe.arcCalls += 1;
-      Reflect.apply(originalArc, this, arguments_);
-    };
-    CanvasRenderingContext2D.prototype.clearRect = function (
-      this: CanvasRenderingContext2D,
-      ...arguments_
-    ) {
-      if (isAmbient(this)) {
-        probe.clearCalls += 1;
-        probe.frameDraws = 0;
-        probe.frameStarted = performance.now();
-        if (probe.firstFrameAt === 0) probe.firstFrameAt = probe.frameStarted;
-        probe.lastFrameAt = probe.frameStarted;
-      }
-      Reflect.apply(originalClear, this, arguments_);
-    };
-    CanvasRenderingContext2D.prototype.drawImage = function (
-      this: CanvasRenderingContext2D,
-      ...arguments_
-    ) {
-      if (isAmbient(this)) {
-        probe.drawImageCalls += 1;
-        probe.frameDraws += 1;
-        const particleCount = Number(this.canvas.dataset.particleCount);
-        if (particleCount > 0 && probe.frameDraws === particleCount) {
-          probe.maxFrameDuration = Math.max(
-            probe.maxFrameDuration,
-            performance.now() - probe.frameStarted,
-          );
-        }
-      }
-      Reflect.apply(originalDrawImage, this, arguments_);
-    } as typeof CanvasRenderingContext2D.prototype.drawImage;
-  });
 
   const session = await page.context().newCDPSession(page);
   await session.send('Emulation.setDeviceMetricsOverride', {
@@ -732,7 +663,8 @@ test('renders mobile dot snow at display cadence without per-particle path work'
 
   const canvas = page.getByTestId('ambient-snow');
   await expect(canvas).toHaveAttribute('data-state', 'running');
-  await expect(canvas).toHaveAttribute('data-particle-count', '44');
+  await expect(canvas).toHaveAttribute('data-renderer', 'worker');
+  await expect(canvas).toHaveAttribute('data-particle-count', '60');
   await expect(canvas).toHaveAttribute('data-effective-dpr', '1.25');
   await expect
     .poll(() => canvas.evaluate((node) => (node as HTMLCanvasElement).width))
@@ -741,69 +673,15 @@ test('renders mobile dot snow at display cadence without per-particle path work'
     .poll(() => canvas.evaluate((node) => (node as HTMLCanvasElement).height))
     .toBe(1_000);
 
-  await page.evaluate(() => {
-    const probe = (
-      window as unknown as {
-        __leviathanSnowProbe: {
-          arcCalls: number;
-          clearCalls: number;
-          drawImageCalls: number;
-          firstFrameAt: number;
-          frameDraws: number;
-          frameStarted: number;
-          lastFrameAt: number;
-          maxFrameDuration: number;
-          measuring: boolean;
-          referenceFrames: number;
-        };
-      }
-    ).__leviathanSnowProbe;
-    probe.arcCalls = 0;
-    probe.clearCalls = 0;
-    probe.drawImageCalls = 0;
-    probe.firstFrameAt = 0;
-    probe.frameDraws = 0;
-    probe.frameStarted = performance.now();
-    probe.lastFrameAt = 0;
-    probe.maxFrameDuration = 0;
-    probe.referenceFrames = 0;
-    probe.measuring = true;
-  });
-  await page.waitForTimeout(1_500);
-  await page.evaluate(() => {
-    (
-      window as unknown as {
-        __leviathanSnowProbe: { measuring: boolean };
-      }
-    ).__leviathanSnowProbe.measuring = false;
-  });
-  const probe = await page.evaluate(
-    () =>
-      (
-        window as unknown as {
-          __leviathanSnowProbe: {
-            arcCalls: number;
-            clearCalls: number;
-            drawImageCalls: number;
-            firstFrameAt: number;
-            frameDraws: number;
-            frameStarted: number;
-            lastFrameAt: number;
-            maxFrameDuration: number;
-            measuring: boolean;
-            referenceFrames: number;
-          };
-        }
-      ).__leviathanSnowProbe,
+  const firstSequence = Number(
+    await canvas.getAttribute('data-frame-sequence'),
   );
-  // Compare with the browser's actual display clock so a loaded CI host does
-  // not look like an intentional renderer throttle. The optimized snow loop
-  // should draw on essentially every delivered display frame.
-  expect(probe.referenceFrames).toBeGreaterThanOrEqual(20);
-  expect(probe.clearCalls / probe.referenceFrames).toBeGreaterThanOrEqual(0.85);
-  expect(probe.drawImageCalls).toBeGreaterThanOrEqual(probe.clearCalls * 44);
-  expect(probe.arcCalls).toBe(0);
-  expect(probe.maxFrameDuration).toBeLessThan(50);
+  await expect
+    .poll(
+      async () => Number(await canvas.getAttribute('data-frame-sequence')),
+      { timeout: 3_000 },
+    )
+    .toBeGreaterThan(firstSequence);
   await session.send('Emulation.clearDeviceMetricsOverride');
 });
 
@@ -861,8 +739,8 @@ test('keeps the ambient snow backing store viewport-sized and DPR-capped', async
     const coarse = width < 768;
     expect(metrics.backingWidth / metrics.cssWidth).toBeLessThanOrEqual(1.26);
     expect(metrics.backingHeight / metrics.cssHeight).toBeLessThanOrEqual(1.26);
-    expect(metrics.particleCount).toBeGreaterThanOrEqual(coarse ? 44 : 80);
-    expect(metrics.particleCount).toBeLessThanOrEqual(coarse ? 80 : 160);
+    expect(metrics.particleCount).toBeGreaterThanOrEqual(coarse ? 60 : 120);
+    expect(metrics.particleCount).toBeLessThanOrEqual(coarse ? 100 : 220);
   }
 
   const session = await page.context().newCDPSession(page);
@@ -950,6 +828,35 @@ test('keeps closed trend geometry stable while the live bucket updates', async (
   const after = commands(updated!);
   expect(after).toHaveLength(before.length);
   expect(after.slice(0, -1)).toEqual(before.slice(0, -1));
+
+  const snow = page.getByTestId('ambient-snow');
+  await expect(snow).toHaveAttribute('data-renderer', 'worker');
+  const snowSequence = Number(await snow.getAttribute('data-frame-sequence'));
+  await page.evaluate(async (baseSnapshot) => {
+    const source = (
+      window as unknown as {
+        __leviathanEventSource: EventTarget;
+      }
+    ).__leviathanEventSource;
+    for (let index = 0; index < 12; index += 1) {
+      const update = structuredClone(baseSnapshot);
+      update.sequence += index + 2;
+      update.sampledAt = new Date(
+        Date.parse(baseSnapshot.sampledAt) + (index + 2) * 1_000,
+      ).toISOString();
+      update.gpus[0].metrics.gpu_activity.value = 25 + index;
+      update.gpus[0].metrics.gpu_activity.sampledAt = update.sampledAt;
+      source.dispatchEvent(
+        new MessageEvent('snapshot', { data: JSON.stringify(update) }),
+      );
+      await new Promise((resolve) => window.setTimeout(resolve, 16));
+    }
+  }, snapshot);
+  await expect
+    .poll(async () => Number(await snow.getAttribute('data-frame-sequence')), {
+      timeout: 3_000,
+    })
+    .toBeGreaterThan(snowSequence);
 });
 
 test('keeps chart hover tooltips above plot clipping and inside the viewport', async ({
@@ -976,6 +883,9 @@ test('keeps chart hover tooltips above plot clipping and inside the viewport', a
 
     const tooltip = page.getByTestId(tooltipTestId);
     await expect(tooltip).toBeVisible();
+    await expect(tooltip).not.toContainText(
+      /Trend|Latest|minimum|maximum|samples?|bucket|live bucket/iu,
+    );
     const geometry = await tooltip.evaluate((element) => {
       const portal = element.closest<HTMLElement>('.chart-tooltip-portal')!;
       const bounds = portal.getBoundingClientRect();
@@ -1018,6 +928,53 @@ test('keeps chart hover tooltips above plot clipping and inside the viewport', a
   const detailChart = page.getByTestId('detail-history-chart');
   await detailChart.scrollIntoViewIfNeeded();
   await assertFloatingTooltip(detailChart, 'detail-activity-tooltip');
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('link', { name: 'Workloads' }).click();
+  await selectWorkloadOwner(page, 'synthetic-owner');
+  const workloadChart = page
+    .locator('[data-workload-metric="activity"] .chart-plot-frame')
+    .first();
+  await workloadChart.scrollIntoViewIfNeeded();
+  await assertFloatingTooltip(workloadChart, 'assigned-activity-tooltip');
+});
+
+test('uses visible legend values without floating tooltips on mobile', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'chromium-narrow-dark',
+    'One narrow project verifies touch-first chart interaction.',
+  );
+
+  const overviewChart = page.getByTestId('utilization-chart');
+  await expect(
+    overviewChart.locator('.mobile-chart-legend-item').first(),
+  ).toContainText('%');
+  await overviewChart.locator('.recharts-wrapper').click();
+  await expect(page.locator('.chart-tooltip-portal')).toHaveCount(0);
+
+  await page.getByRole('link', { name: 'Resources' }).click();
+  await page
+    .getByRole('button', { name: 'Open GPU 0 full GPU details' })
+    .click();
+  const detail = page.getByTestId('detail-sheet');
+  await expect(
+    detail.getByRole('list', { name: 'Activity chart series' }),
+  ).toContainText('%');
+  await detail
+    .getByTestId('detail-history-chart')
+    .locator('.recharts-wrapper')
+    .click();
+  await expect(page.locator('.chart-tooltip-portal')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('link', { name: 'Workloads' }).click();
+  await selectWorkloadOwner(page, 'synthetic-owner');
+  const workloadActivity = page.locator('[data-workload-metric="activity"]');
+  await expect(workloadActivity.getByRole('list')).toContainText('%');
+  await workloadActivity.locator('.recharts-wrapper').click();
+  await expect(page.locator('.chart-tooltip-portal')).toHaveCount(0);
 });
 
 test('renders an explicit missing sample as separated path segments', async ({
@@ -1410,7 +1367,7 @@ test('switches workbench views without reloading charts or clearing process filt
   await expect(
     page.getByRole('heading', { name: 'Assigned telemetry', level: 4 }),
   ).toBeVisible();
-  await expect(page.locator('.workload-telemetry-chart')).toBeVisible();
+  await expect(page.locator('.workload-telemetry-chart')).toHaveCount(4);
   await expect.poll(() => alignedRequestCount(page)).toBe(6);
 
   await selectWorkloadOwner(page, 'second-synthetic-owner');
@@ -1426,7 +1383,7 @@ test('switches workbench views without reloading charts or clearing process filt
   await expect.poll(() => alignedRequestCount(page)).toBe(6);
 
   await selectWorkloadOwner(page, 'synthetic-owner');
-  await expect(page.locator('.workload-telemetry-chart')).toBeVisible();
+  await expect(page.locator('.workload-telemetry-chart')).toHaveCount(4);
   await expect.poll(() => alignedRequestCount(page)).toBe(6);
 
   await expect(page.getByTestId('process-section')).toHaveCount(0);
@@ -1942,7 +1899,20 @@ test('keeps equal-size resource hover shadows and an independent focus ring', as
     .poll(() =>
       surface.evaluate((element) => getComputedStyle(element).boxShadow),
     )
-    .toContain('0px 16px 36px');
+    .toContain('0px 20px 52px');
+  const hoverContainment = await surface.evaluate((element) => {
+    const card = element.closest<HTMLElement>('.gpu-card')!;
+    return {
+      cardContentVisibility: getComputedStyle(card).contentVisibility,
+      cardOverflow: getComputedStyle(card).overflow,
+      zIndex: getComputedStyle(element).zIndex,
+    };
+  });
+  expect(hoverContainment).toEqual({
+    cardContentVisibility: 'visible',
+    cardOverflow: 'visible',
+    zIndex: '3',
+  });
 
   await button.focus();
   await page.keyboard.press('Tab');
@@ -1956,6 +1926,26 @@ test('keeps equal-size resource hover shadows and an independent focus ring', as
       }),
     )
     .toBe('2px solid');
+
+  await page.getByRole('link', { name: 'Workloads' }).click();
+  await selectWorkloadOwner(page, 'synthetic-owner');
+  const workloadSurface = page
+    .getByRole('button', {
+      name: /^Open GPU \d+ · Full GPU details$/u,
+    })
+    .locator('xpath=..');
+  await workloadSurface.hover();
+  await expect
+    .poll(() =>
+      workloadSurface.evaluate(
+        (element) => getComputedStyle(element).boxShadow,
+      ),
+    )
+    .toContain('0px 20px 52px');
+  await expect(page.locator('.workload-person-detail')).toHaveCSS(
+    'overflow',
+    'visible',
+  );
 });
 
 test('has no serious or critical authored accessibility violations', async ({
@@ -2036,7 +2026,7 @@ test('removes spatial motion when reduced motion is requested', async ({
     .poll(() =>
       resource.evaluate((element) => getComputedStyle(element).boxShadow),
     )
-    .toContain('0px 16px 36px');
+    .toContain('0px 20px 52px');
   expect(motion.durationToken).toBe('240ms');
   if (!light) {
     await expect.poll(() => canvasFramesAreStable(ambientSnow)).toBe(true);
@@ -2264,7 +2254,14 @@ test('covers required responsive widths with a concise header', async ({
     }
     await selectWorkloadOwner(page, 'synthetic-owner');
     await expect(page.getByTestId('person-card')).toHaveCount(1);
-    await expect(page.locator('.workload-telemetry-chart')).toBeVisible();
+    await expect(page.locator('.workload-telemetry-chart')).toHaveCount(4);
+    const telemetryColumns = await workloads
+      .locator('.workload-telemetry-grid')
+      .evaluate(
+        (element) =>
+          getComputedStyle(element).gridTemplateColumns.split(' ').length,
+      );
+    expect(telemetryColumns).toBe(width >= 1024 ? 2 : 1);
     await expect(workloads).not.toContainText('Parent GI metrics');
     await expect(workloads).not.toContainText('Physical GPU metrics');
     await expect(workloads.getByText(/^(?:allocated|reserved)$/iu)).toHaveCount(
@@ -2294,7 +2291,7 @@ test('covers required responsive widths with a concise header', async ({
       await expect(mobileFooter).toContainText(
         '⚔️ Intellisys Dragoons × Codex',
       );
-      await expect(mobileFooter).toContainText('Leviathan v0.3.1');
+      await expect(mobileFooter).toContainText('Leviathan v0.3.2');
       await page.evaluate(() =>
         window.scrollTo({ top: document.documentElement.scrollHeight }),
       );
@@ -2311,7 +2308,7 @@ test('covers required responsive widths with a concise header', async ({
       await expect(desktopFooter).toBeVisible();
       await expect(mobileFooter).toBeHidden();
       await expect(desktopFooter).toContainText(
-        'Built with ⚔️ by Intellisys Dragoons and Codex · Leviathan v0.3.1',
+        'Built with ⚔️ by Intellisys Dragoons and Codex · Leviathan v0.3.2',
       );
     }
     expect(
@@ -2527,9 +2524,9 @@ test('matches targeted workbench and frost-dragon visual baselines', async ({
   const showAllocatedWorkloads = async () => {
     await page.getByRole('link', { name: 'Workloads' }).click();
     await selectWorkloadOwner(page, 'synthetic-owner');
-    await expect(page.locator('.workload-telemetry-chart')).toBeVisible();
+    await expect(page.locator('.workload-telemetry-chart')).toHaveCount(4);
     await expect(
-      page.locator('.workload-telemetry-chart .recharts-wrapper'),
+      page.locator('.workload-telemetry-chart .recharts-wrapper').first(),
     ).toBeVisible();
   };
   const openFullGPUDetail = async () => {

@@ -337,7 +337,7 @@ html[data-ambient-paused='true'] .app-shell::after {
 }
 
 .workload-person-detail {
-  overflow: clip;
+  overflow: visible;
 }
 
 .workload-telemetry-controls > * {
@@ -968,8 +968,9 @@ html[data-ambient-paused='true'] .app-shell::after {
 }
 
 .gpu-card {
-  content-visibility: auto;
-  contain-intrinsic-size: 0 330px;
+  overflow: visible;
+  content-visibility: visible;
+  contain-intrinsic-size: none;
 }
 
 ::selection {
@@ -995,10 +996,11 @@ html[data-ambient-paused='true'] .app-shell::after {
   }
 
   .interactive-resource:hover {
+    z-index: 3;
     border-color: color-mix(in oklch, var(--primary) 36%, var(--border));
     box-shadow:
       inset 0 1px 0 var(--glass-edge),
-      0 16px 36px oklch(0.08 0.025 235 / 18%);
+      0 20px 52px oklch(0.08 0.025 235 / 20%);
     transform: translateY(-2px) scale(1.005);
   }
 
@@ -1006,7 +1008,7 @@ html[data-ambient-paused='true'] .app-shell::after {
     border-color: color-mix(in oklch, var(--primary) 56%, var(--border));
     box-shadow:
       inset 0 1px 0 color-mix(in oklch, var(--primary) 30%, transparent),
-      0 16px 36px color-mix(in oklch, var(--primary) 24%, transparent);
+      0 20px 52px color-mix(in oklch, var(--primary) 30%, transparent);
   }
 
   .interactive-resource:has(.interactive-resource-button:active) {
@@ -1249,7 +1251,6 @@ html[data-ambient-paused='true'] .app-shell::after {
 
   .gpu-card {
     height: auto;
-    contain-intrinsic-size: 0 280px;
   }
 
   .gpu-card .gpu-resource-body,

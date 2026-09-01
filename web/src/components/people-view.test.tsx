@@ -139,8 +139,11 @@ function historyLoader(): ReturnType<typeof vi.fn<LoadAlignedHistory>> {
             descriptor.key,
             {
               [descriptor.metrics[0]]: 20,
+              [descriptor.metrics[1]]: 30,
               memory_used_bytes: 20,
               memory_total_bytes: 100,
+              pcie_rx_bytes_per_second: 100,
+              pcie_tx_bytes_per_second: 50,
             },
           ]),
         ),
@@ -152,8 +155,11 @@ function historyLoader(): ReturnType<typeof vi.fn<LoadAlignedHistory>> {
             descriptor.key,
             {
               [descriptor.metrics[0]]: 40,
+              [descriptor.metrics[1]]: 50,
               memory_used_bytes: 40,
               memory_total_bytes: 100,
+              pcie_rx_bytes_per_second: 200,
+              pcie_tx_bytes_per_second: 100,
             },
           ]),
         ),
@@ -390,7 +396,7 @@ describe('people resource view', () => {
     );
   });
 
-  it('loads only the selected owner allocated scopes and switches chart metrics', async () => {
+  it('loads one dataset and shows all four assigned telemetry charts', async () => {
     const loadHistory = historyLoader();
     const onChartWindowChange = vi.fn();
     render(
@@ -408,23 +414,34 @@ describe('people resource view', () => {
       {
         key: 'assigned_0',
         entity: 'GI-synthetic',
-        metrics: ['sm_activity', 'memory_used_bytes', 'memory_total_bytes'],
+        metrics: [
+          'sm_activity',
+          'dram_activity',
+          'memory_used_bytes',
+          'memory_total_bytes',
+          'pcie_rx_bytes_per_second',
+          'pcie_tx_bytes_per_second',
+        ],
       },
     ]);
     expect(
       await screen.findByRole('heading', { name: 'Assigned telemetry' }),
     ).toBeInTheDocument();
+    for (const chartName of [
+      'activity',
+      'memory usage',
+      'memory activity',
+      'pcie transfer',
+    ]) {
+      expect(
+        screen.getByRole('figure', {
+          name: `synthetic-owner assigned resource ${chartName} trend`,
+        }),
+      ).toBeInTheDocument();
+    }
     expect(
-      screen.getByRole('figure', {
-        name: 'synthetic-owner assigned resource activity trend',
-      }),
-    ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('radio', { name: 'Memory' }));
-    expect(
-      screen.getByRole('figure', {
-        name: 'synthetic-owner assigned resource memory trend',
-      }),
-    ).toBeInTheDocument();
+      screen.queryByRole('radiogroup', { name: 'Assigned telemetry metric' }),
+    ).toBeNull();
     fireEvent.click(
       screen.getByRole('radio', {
         name: '5m',

@@ -33,6 +33,7 @@ import {
 } from '../overview-history';
 import type { Snapshot } from '../types';
 import type { ConnectionState } from '../use-leviathan';
+import { useChartTooltips } from '../use-chart-tooltips';
 import { useTrendCeiling } from '../use-trend-ceiling';
 import {
   ChartTooltipPortal,
@@ -195,13 +196,6 @@ export function SeriesTooltip({
             typeof item.dataKey === 'string' || typeof item.dataKey === 'number'
               ? String(item.dataKey)
               : null;
-          const summary = dataKey
-            ? trendValueSummary(item.payload, dataKey)
-            : null;
-          const trendValue = summary?.trend ?? Number(item.value);
-          const hasStatistics = Boolean(summary && summary.count > 0);
-          const statisticLabel = (value: number | null | undefined) =>
-            value == null ? 'Unavailable' : chartValueLabel(value, unit);
           return (
             <div
               key={dataKey ?? String(item.name)}
@@ -218,33 +212,7 @@ export function SeriesTooltip({
                 </span>
               </span>
               <span className="text-right font-mono font-medium text-foreground">
-                {hasStatistics ? 'Trend ' : ''}
-                {chartValueLabel(trendValue, unit)}
-                {hasStatistics ? (
-                  <span className="mt-0.5 block whitespace-nowrap text-[13px] font-normal text-muted-foreground">
-                    Latest {statisticLabel(summary?.latest)} · {summary?.count}{' '}
-                    {summary?.count === 1 ? 'sample' : 'samples'}
-                    {summary?.partial ? ' · live bucket' : ''}
-                  </span>
-                ) : null}
-                {hasStatistics ? (
-                  <span className="mt-0.5 block whitespace-nowrap text-[13px] font-normal text-muted-foreground">
-                    Min {statisticLabel(summary?.minimum)} · Max{' '}
-                    {statisticLabel(summary?.maximum)}
-                  </span>
-                ) : null}
-                {unit === 'bytes_per_second' && dataKey ? (
-                  <span className="mt-0.5 block whitespace-nowrap text-[13px] font-normal text-muted-foreground">
-                    RX{' '}
-                    {formatBytesPerSecond(
-                      Number(item.payload?.[`${dataKey}_rx`]),
-                    )}{' '}
-                    · TX{' '}
-                    {formatBytesPerSecond(
-                      Number(item.payload?.[`${dataKey}_tx`]),
-                    )}
-                  </span>
-                ) : null}
+                {chartValueLabel(Number(item.value), unit)}
               </span>
             </div>
           );
@@ -354,6 +322,8 @@ export function chartRows(
 function ChartLegend({
   entities,
   valueKeys,
+  rows,
+  unit,
   activeKey,
   pinnedKey,
   onEnter,
@@ -362,6 +332,8 @@ function ChartLegend({
 }: {
   entities: OverviewEntity[];
   valueKeys: string[];
+  rows: ChartRow[];
+  unit: ChartUnit;
   activeKey: string | null;
   pinnedKey: string | null;
   onEnter: (key: string) => void;
@@ -376,52 +348,62 @@ function ChartLegend({
       className="mobile-chart-legend flex min-h-5 flex-wrap gap-x-3 gap-y-1"
       data-series-count={entities.length}
     >
-      {entities.map((entity, index) => (
-        <button
-          type="button"
-          key={entity.key}
-          className={`mobile-chart-legend-item inline-flex min-h-8 items-center gap-1.5 rounded-sm px-1.5 py-1 font-mono text-[13px] outline-none transition-[color,background-color,opacity] duration-[var(--duration-feedback)] ease-[var(--ease-out)] focus-visible:ring-2 focus-visible:ring-ring ${
-            activeKey === entity.key
-              ? 'bg-accent text-foreground'
-              : activeKey
-                ? 'text-muted-foreground opacity-40'
-                : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
-          }`}
-          data-series={valueKeys[index]}
-          aria-label={`Focus ${entity.label}`}
-          aria-pressed={pinnedKey === entity.key}
-          onMouseEnter={() => onEnter(entity.key)}
-          onMouseLeave={onLeave}
-          onFocus={() => onEnter(entity.key)}
-          onBlur={onLeave}
-          onClick={() => onToggle(entity.key)}
-        >
-          <svg aria-hidden="true" width="18" height="5" viewBox="0 0 18 5">
-            <line
-              x1="0"
-              y1="2.5"
-              x2="18"
-              y2="2.5"
-              stroke={colors[entity.colorIndex % colors.length]}
-              strokeWidth="2"
-              strokeDasharray={seriesDashPattern(entity.colorIndex)}
-              strokeLinecap="round"
-            />
-          </svg>
-          {mobileLabel(entity) === entity.label ? (
-            <span className="truncate">{entity.label}</span>
-          ) : (
-            <>
-              <span className="mobile-only-label truncate">
-                {mobileLabel(entity)}
-              </span>
-              <span className="desktop-only-label truncate">
-                {entity.label}
-              </span>
-            </>
-          )}
-        </button>
-      ))}
+      {entities.map((entity, index) => {
+        const current = summarizeSeries(rows, valueKeys[index]).current;
+        const currentLabel =
+          current == null ? '—' : chartValueLabel(current, unit);
+        const accessibleCurrent =
+          current == null ? 'Unavailable' : currentLabel;
+        return (
+          <button
+            type="button"
+            key={entity.key}
+            className={`mobile-chart-legend-item inline-flex min-h-8 items-center gap-1.5 rounded-sm px-1.5 py-1 font-mono text-[13px] outline-none transition-[color,background-color,opacity] duration-[var(--duration-feedback)] ease-[var(--ease-out)] focus-visible:ring-2 focus-visible:ring-ring ${
+              activeKey === entity.key
+                ? 'bg-accent text-foreground'
+                : activeKey
+                  ? 'text-muted-foreground opacity-40'
+                  : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
+            }`}
+            data-series={valueKeys[index]}
+            aria-label={`Focus ${entity.label}. Current ${accessibleCurrent}`}
+            aria-pressed={pinnedKey === entity.key}
+            onMouseEnter={() => onEnter(entity.key)}
+            onMouseLeave={onLeave}
+            onFocus={() => onEnter(entity.key)}
+            onBlur={onLeave}
+            onClick={() => onToggle(entity.key)}
+          >
+            <svg aria-hidden="true" width="18" height="5" viewBox="0 0 18 5">
+              <line
+                x1="0"
+                y1="2.5"
+                x2="18"
+                y2="2.5"
+                stroke={colors[entity.colorIndex % colors.length]}
+                strokeWidth="2"
+                strokeDasharray={seriesDashPattern(entity.colorIndex)}
+                strokeLinecap="round"
+              />
+            </svg>
+            {mobileLabel(entity) === entity.label ? (
+              <span className="truncate">{entity.label}</span>
+            ) : (
+              <>
+                <span className="mobile-only-label truncate">
+                  {mobileLabel(entity)}
+                </span>
+                <span className="desktop-only-label truncate">
+                  {entity.label}
+                </span>
+              </>
+            )}
+            <span className="ml-auto shrink-0 text-foreground">
+              {currentLabel}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -590,6 +572,7 @@ function ChartPanel({
   retentionMs,
   connection,
   rangeLabel,
+  tooltipsEnabled,
 }: {
   definition: PanelDefinition;
   snapshot: Snapshot;
@@ -598,6 +581,7 @@ function ChartPanel({
   retentionMs: number;
   connection: ConnectionState;
   rangeLabel: string;
+  tooltipsEnabled: boolean;
 }) {
   const { entities, metric, title, description, unit } = definition;
   const descriptors = useMemo<AlignedHistorySeriesDescriptor[]>(
@@ -760,6 +744,8 @@ function ChartPanel({
       <ChartLegend
         entities={entities}
         valueKeys={valueKeys}
+        rows={rows}
+        unit={unit}
         activeKey={activeKey}
         pinnedKey={currentPinnedKey}
         onEnter={setHoveredKey}
@@ -805,6 +791,7 @@ function ChartPanel({
                 activeDataKey={activeDataKey}
                 unit={unit}
                 definitionID={definition.id}
+                interactive={tooltipsEnabled}
               />
             </div>
             {outgoingData ? (
@@ -886,6 +873,7 @@ export function OverviewCharts({
   loadHistory,
 }: Props) {
   const entities = useMemo(() => buildOverviewEntities(snapshot), [snapshot]);
+  const tooltipsEnabled = useChartTooltips();
   const rangeLabel = formatDuration(chartWindowMs);
   const physicalEntities = useMemo(
     () => entities.filter((entity) => entity.scope === 'physical_gpu'),
@@ -970,6 +958,7 @@ export function OverviewCharts({
           retentionMs={retentionMs}
           connection={connection}
           rangeLabel={rangeLabel}
+          tooltipsEnabled={tooltipsEnabled}
         />
       ))}
     </section>

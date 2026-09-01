@@ -4,9 +4,12 @@ import type { LoadAlignedHistory } from './overview-history';
 import type { GPU, GpuInstance, Selection } from './types';
 import {
   buildWorkloadTelemetryEntities,
+  currentWorkloadRow,
   loadWorkloadHistory,
   workloadHistoryBatches,
   workloadHistoryDescriptors,
+  workloadHistoryKeys,
+  workloadRowsFromHistory,
 } from './workload-history';
 
 const sampledAt = '2026-08-30T12:00:00Z';
@@ -31,6 +34,30 @@ function topology() {
       sm_activity: {
         value: 50,
         unit: 'percent',
+        source: 'synthetic',
+        scope: 'gpu_instance',
+        sampledAt,
+        status: 'available',
+      },
+      dram_activity: {
+        value: 35,
+        unit: 'percent',
+        source: 'synthetic',
+        scope: 'gpu_instance',
+        sampledAt,
+        status: 'available',
+      },
+      pcie_rx_bytes_per_second: {
+        value: 100,
+        unit: 'bytes_per_second',
+        source: 'synthetic',
+        scope: 'gpu_instance',
+        sampledAt,
+        status: 'available',
+      },
+      pcie_tx_bytes_per_second: {
+        value: 50,
+        unit: 'bytes_per_second',
         source: 'synthetic',
         scope: 'gpu_instance',
         sampledAt,
@@ -105,14 +132,18 @@ describe('workload history mapping', () => {
     expect(entities[0]).toMatchObject({
       entity: 'GI-shared',
       activityMetric: 'sm_activity',
+      memoryActivityMetric: 'dram_activity',
       sharedAcrossOwners: true,
       label: 'GPU 0 · GI 3 · shared',
     });
     expect(entities[0].accessibleLabel).toContain('shared parent GI');
     expect(workloadHistoryDescriptors(entities)[0].metrics).toEqual([
       'sm_activity',
+      'dram_activity',
       'memory_used_bytes',
       'memory_total_bytes',
+      'pcie_rx_bytes_per_second',
+      'pcie_tx_bytes_per_second',
     ]);
   });
 
@@ -129,20 +160,73 @@ describe('workload history mapping', () => {
       {
         entity: 'GPU-shared',
         activityMetric: 'gpu_activity',
+        memoryActivityMetric: 'memory_activity',
         sharedAcrossOwners: false,
       },
     ]);
   });
 
-  it('batches aligned requests at 256 descriptors with three metrics each', async () => {
+  it('maps all four charts while keeping unavailable PCIe local', () => {
+    const { selections } = topology();
+    const entities = buildWorkloadTelemetryEntities(
+      [person('owner-a', 'alice', selections)],
+      'owner-a',
+    );
+    const keys = workloadHistoryKeys(0);
+    const [row] = workloadRowsFromHistory(
+      [
+        {
+          window: '30m',
+          series: workloadHistoryDescriptors(entities),
+          points: [
+            {
+              sampledAt,
+              values: {
+                assigned_0: {
+                  sm_activity: 45,
+                  dram_activity: 32,
+                  memory_used_bytes: 25,
+                  memory_total_bytes: 100,
+                  pcie_rx_bytes_per_second: 120,
+                },
+              },
+            },
+          ],
+        },
+      ],
+      entities,
+    );
+
+    expect(row).toMatchObject({
+      [keys.activity]: 45,
+      [keys.memory]: 25,
+      [keys.memoryActivity]: 32,
+      [keys.pcieTotal]: null,
+    });
+    expect(currentWorkloadRow(sampledAt, entities)).toMatchObject({
+      [keys.activity]: 50,
+      [keys.memory]: 40,
+      [keys.memoryActivity]: 35,
+      [keys.pcieTotal]: 150,
+    });
+  });
+
+  it('batches aligned requests under both series and metric limits', async () => {
     const descriptors = Array.from({ length: 257 }, (_, index) => ({
       key: `key_${index}`,
       entity: `GPU-${index}`,
-      metrics: ['gpu_activity', 'memory_used_bytes', 'memory_total_bytes'],
+      metrics: [
+        'gpu_activity',
+        'memory_activity',
+        'memory_used_bytes',
+        'memory_total_bytes',
+        'pcie_rx_bytes_per_second',
+        'pcie_tx_bytes_per_second',
+      ],
     }));
     expect(
       workloadHistoryBatches(descriptors).map((batch) => batch.length),
-    ).toEqual([256, 1]);
+    ).toEqual([170, 87]);
 
     const { gpu } = topology();
     const entities = Array.from({ length: 257 }, (_, index) => ({
@@ -151,6 +235,7 @@ describe('workload history mapping', () => {
       label: `GPU ${index}`,
       accessibleLabel: `GPU ${index}, assigned physical GPU telemetry`,
       activityMetric: 'gpu_activity' as const,
+      memoryActivityMetric: 'memory_activity' as const,
       source: gpu,
       sharedAcrossOwners: false,
     }));
@@ -163,9 +248,9 @@ describe('workload history mapping', () => {
     expect(loadHistory).toHaveBeenCalledTimes(2);
     expect(
       loadHistory.mock.calls.map(([request]) => request.series.length),
-    ).toEqual([256, 1]);
+    ).toEqual([170, 87]);
     for (const [request] of loadHistory.mock.calls)
-      expect(request.series.every(({ metrics }) => metrics.length === 3)).toBe(
+      expect(request.series.every(({ metrics }) => metrics.length === 6)).toBe(
         true,
       );
   });

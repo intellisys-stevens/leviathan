@@ -166,15 +166,16 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   setDocumentHidden(false);
 });
 
 describe('ambient snow particle helpers', () => {
   it('uses bounded mobile and desktop density and backing-store profiles', () => {
-    expect(snowParticleCount(320, 568)).toBe(44);
-    expect(snowParticleCount(1280, 720)).toBe(115);
-    expect(snowParticleCount(3840, 2160)).toBe(160);
-    expect(snowParticleCount(3840, 2160, true)).toBe(80);
+    expect(snowParticleCount(320, 568)).toBe(60);
+    expect(snowParticleCount(1280, 720)).toBe(154);
+    expect(snowParticleCount(3840, 2160)).toBe(220);
+    expect(snowParticleCount(3840, 2160, true)).toBe(100);
 
     expect(snowPixelRatio(Number.NaN)).toBe(1);
     expect(snowPixelRatio(0.75)).toBe(1);
@@ -199,7 +200,7 @@ describe('ambient snow particle helpers', () => {
     const far = first.filter(({ layer }) => layer === 'far');
     const mid = first.filter(({ layer }) => layer === 'mid');
     const near = first.filter(({ layer }) => layer === 'near');
-    expect([far.length, mid.length, near.length]).toEqual([67, 36, 12]);
+    expect([far.length, mid.length, near.length]).toEqual([89, 50, 15]);
     expect(far.length).toBeGreaterThan(mid.length);
     expect(mid.length).toBeGreaterThan(near.length);
     expect(new Set(first.map(({ layer }) => layer))).toEqual(
@@ -252,6 +253,121 @@ describe('ambient snow particle helpers', () => {
 });
 
 describe('AmbientSnow', () => {
+  it('handshakes with the worker, forwards lifecycle state, and falls back after failure', async () => {
+    const offscreen = { width: 1, height: 1 } as OffscreenCanvas;
+    const originalTransfer = Object.getOwnPropertyDescriptor(
+      HTMLCanvasElement.prototype,
+      'transferControlToOffscreen',
+    );
+    const workers: MockSnowWorker[] = [];
+
+    class MockSnowWorker {
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      readonly messages: Array<{
+        message: unknown;
+        transfer: readonly Transferable[];
+      }> = [];
+      readonly terminate = vi.fn();
+
+      constructor() {
+        workers.push(this);
+      }
+
+      postMessage(message: unknown, transfer: readonly Transferable[] = []) {
+        this.messages.push({ message, transfer });
+      }
+
+      emit(data: unknown) {
+        this.onmessage?.({ data } as MessageEvent);
+      }
+    }
+
+    vi.stubGlobal('Worker', MockSnowWorker);
+    vi.stubGlobal('OffscreenCanvas', class OffscreenCanvasMock {});
+    Object.defineProperty(
+      HTMLCanvasElement.prototype,
+      'transferControlToOffscreen',
+      {
+        configurable: true,
+        value: vi.fn(() => offscreen),
+      },
+    );
+    try {
+      render(<AmbientSnow enabled />);
+      const pendingCanvas = screen.getByTestId('ambient-snow');
+      expect(pendingCanvas).toHaveAttribute('data-renderer', 'worker-pending');
+      expect(workers).toHaveLength(1);
+      expect(workers[0].messages[0]?.message).toEqual({ type: 'probe' });
+
+      act(() => workers[0].emit({ type: 'probe-ready' }));
+      await act(
+        () => new Promise<void>((resolve) => window.setTimeout(resolve, 0)),
+      );
+      expect(pendingCanvas).toHaveAttribute('data-renderer', 'worker');
+      expect(workers[0].messages[1]).toMatchObject({
+        message: {
+          type: 'init',
+          width: 800,
+          height: 600,
+          pixelRatio: 1.25,
+          coarse: false,
+          mode: 'running',
+        },
+        transfer: [offscreen],
+      });
+
+      act(() =>
+        workers[0].emit({
+          type: 'state',
+          state: 'running',
+          particleCount: 120,
+          pixelRatio: 1.25,
+        }),
+      );
+      act(() => workers[0].emit({ type: 'frame', sequence: 30 }));
+      expect(pendingCanvas).toHaveAttribute('data-particle-count', '120');
+      expect(pendingCanvas).toHaveAttribute('data-frame-sequence', '30');
+
+      act(() => query('(pointer: coarse)').setMatches(true));
+      expect(workers[0].messages.at(-2)?.message).toMatchObject({
+        type: 'configure',
+        coarse: true,
+      });
+      expect(workers[0].messages.at(-1)?.message).toEqual({
+        type: 'mode',
+        mode: 'running',
+      });
+
+      setDocumentHidden(true);
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      expect(workers[0].messages.at(-1)?.message).toEqual({
+        type: 'mode',
+        mode: 'paused',
+      });
+
+      act(() => workers[0].onerror?.(new Event('error')));
+      const fallbackCanvas = screen.getByTestId('ambient-snow');
+      expect(fallbackCanvas).not.toBe(pendingCanvas);
+      expect(fallbackCanvas).toHaveAttribute('data-renderer', 'main');
+      expect(workers[0].terminate).toHaveBeenCalledOnce();
+    } finally {
+      if (originalTransfer)
+        Object.defineProperty(
+          HTMLCanvasElement.prototype,
+          'transferControlToOffscreen',
+          originalTransfer,
+        );
+      else
+        Reflect.deleteProperty(
+          HTMLCanvasElement.prototype,
+          'transferControlToOffscreen',
+        );
+    }
+  });
+
   it('draws cached sprites without path work and starts one DPR-capped loop', () => {
     const view = render(<AmbientSnow enabled />);
     const canvas = screen.getByTestId('ambient-snow');
@@ -301,7 +417,7 @@ describe('AmbientSnow', () => {
     expect(animationFrames.size).toBe(1);
   });
 
-  it('draws on every display frame without allocating another loop', () => {
+  it('caps the main-thread fallback at 30fps without another loop', () => {
     render(<AmbientSnow enabled />);
     const count = snowParticleCount(800, 600);
     expect(context.drawImage).toHaveBeenCalledTimes(count);
@@ -310,10 +426,13 @@ describe('AmbientSnow', () => {
     expect(context.drawImage).toHaveBeenCalledTimes(count);
 
     act(() => runNextFrame(16));
-    expect(context.drawImage).toHaveBeenCalledTimes(count * 2);
+    expect(context.drawImage).toHaveBeenCalledTimes(count);
 
     act(() => runNextFrame(32));
-    expect(context.drawImage).toHaveBeenCalledTimes(count * 3);
+    expect(context.drawImage).toHaveBeenCalledTimes(count);
+
+    act(() => runNextFrame(48));
+    expect(context.drawImage).toHaveBeenCalledTimes(count * 2);
     expect(animationFrames.size).toBe(1);
   });
 
@@ -324,10 +443,10 @@ describe('AmbientSnow', () => {
 
     expect(canvas).toHaveAttribute('width', '400');
     expect(canvas).toHaveAttribute('height', '1000');
-    expect(canvas).toHaveAttribute('data-particle-count', '44');
+    expect(canvas).toHaveAttribute('data-particle-count', '60');
     expect(canvas).toHaveAttribute('data-effective-dpr', '1.25');
     expect(context.setTransform).toHaveBeenCalledWith(1.25, 0, 0, 1.25, 0, 0);
-    expect(context.drawImage).toHaveBeenCalledTimes(44);
+    expect(context.drawImage).toHaveBeenCalledTimes(60);
   });
 
   it('uses the coarse profile when a coarse pointer is reported', () => {
@@ -337,7 +456,7 @@ describe('AmbientSnow', () => {
 
     expect(screen.getByTestId('ambient-snow')).toHaveAttribute('width', '1600');
     expect(screen.getByTestId('ambient-snow')).toHaveAttribute('height', '900');
-    expect(context.drawImage).toHaveBeenCalledTimes(80);
+    expect(context.drawImage).toHaveBeenCalledTimes(100);
   });
 
   it('coalesces resize work and reacts to DPR-only resize notifications', () => {
@@ -402,7 +521,7 @@ describe('AmbientSnow', () => {
       'data-state',
       'static',
     );
-    expect(context.drawImage).toHaveBeenCalledTimes(80);
+    expect(context.drawImage).toHaveBeenCalledTimes(120);
     expect(context.arc).not.toHaveBeenCalled();
     expect(animationFrames.size).toBe(0);
   });
@@ -504,7 +623,7 @@ describe('AmbientSnow', () => {
       'running',
     );
     expect(context.setTransform).toHaveBeenCalled();
-    expect(context.drawImage).toHaveBeenCalledTimes(80);
+    expect(context.drawImage).toHaveBeenCalledTimes(120);
     expect(context.arc).not.toHaveBeenCalled();
     expect(animationFrames.size).toBe(1);
   });

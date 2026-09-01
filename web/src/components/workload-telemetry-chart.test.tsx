@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { buildTrendRows, trendBucketMilliseconds } from '../chart-trend';
+import { buildTrendRows } from '../chart-trend';
 import type { ChartRow } from '../overview-history';
 import { AssignedTelemetryTooltip } from './workload-telemetry-chart';
 
@@ -26,14 +26,13 @@ function TooltipHarness({ row }: { row: ChartRow }) {
             payload: row,
           },
         ]}
-        bucketMilliseconds={trendBucketMilliseconds(windowMilliseconds)}
       />
     </>
   );
 }
 
 describe('assigned telemetry tooltip', () => {
-  it('separates the bucket trend from source statistics', () => {
+  it('shows only a timestamp and the plotted series value', () => {
     const bucketEnd = 1_000;
     const [row] = buildTrendRows(
       [
@@ -48,11 +47,9 @@ describe('assigned telemetry tooltip', () => {
 
     const tooltip = screen.getByTestId('assigned-telemetry-tooltip');
     expect(tooltip).toHaveTextContent('GPU 0');
-    expect(tooltip).toHaveTextContent('Trend 20%');
-    expect(tooltip).toHaveTextContent('Source latest 30%');
-    expect(tooltip).toHaveTextContent('min 10%');
-    expect(tooltip).toHaveTextContent('max 30%');
-    expect(tooltip).toHaveTextContent('2 samples');
-    expect(tooltip).toHaveTextContent('1s bucket trend');
+    expect(tooltip).toHaveTextContent('20%');
+    expect(tooltip).not.toHaveTextContent(
+      /Trend|Latest|min|max|sample|bucket/i,
+    );
   });
 });

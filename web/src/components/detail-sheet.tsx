@@ -48,6 +48,7 @@ import type {
   Metric,
   Selection,
 } from '../types';
+import { useChartTooltips } from '../use-chart-tooltips';
 import { useTrendCeiling } from '../use-trend-ceiling';
 import { ChartWindowControl } from './chart-window-control';
 import {
@@ -168,32 +169,52 @@ const physicalHistoryMetrics = [
 function MetricLegend({
   label,
   metrics,
+  rows,
+  format,
 }: {
   label: string;
   metrics: readonly ChartDescriptor[];
+  rows: readonly ChartRow[];
+  format: (value: number) => string;
 }) {
   return (
     <ul className="mb-2 flex flex-wrap gap-x-3 gap-y-1" aria-label={label}>
-      {metrics.map((metric, index) => (
-        <li
-          key={metric.key}
-          className="inline-flex items-center gap-1.5 font-mono text-[13px] text-muted-foreground"
-        >
-          <svg aria-hidden="true" width="18" height="5" viewBox="0 0 18 5">
-            <line
-              x1="0"
-              y1="2.5"
-              x2="18"
-              y2="2.5"
-              stroke={metric.color}
-              strokeWidth="2"
-              strokeDasharray={detailDashPatterns[index]}
-              strokeLinecap="round"
-            />
-          </svg>
-          {metric.label}
-        </li>
-      ))}
+      {metrics.map((metric, index) => {
+        const source = rows
+          .map((row) => trendValueSummary(row, metric.key))
+          .filter(({ count }) => count > 0);
+        const direct = rows.findLast(
+          (row) => typeof row[metric.key] === 'number',
+        )?.[metric.key];
+        const latest =
+          source.at(-1)?.latest ??
+          (typeof direct === 'number' && Number.isFinite(direct)
+            ? direct
+            : null);
+        const value = latest == null ? '—' : format(latest);
+        return (
+          <li
+            key={metric.key}
+            aria-label={`${metric.label}: ${latest == null ? 'Unavailable' : value}`}
+            className="inline-flex items-center gap-1.5 font-mono text-[13px] text-muted-foreground"
+          >
+            <svg aria-hidden="true" width="18" height="5" viewBox="0 0 18 5">
+              <line
+                x1="0"
+                y1="2.5"
+                x2="18"
+                y2="2.5"
+                stroke={metric.color}
+                strokeWidth="2"
+                strokeDasharray={detailDashPatterns[index]}
+                strokeLinecap="round"
+              />
+            </svg>
+            <span>{metric.label}</span>
+            <span className="text-foreground">{value}</span>
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -427,12 +448,6 @@ function DetailSeriesTooltip({
               typeof item.dataKey === 'number'
                 ? String(item.dataKey)
                 : null;
-            const summary = dataKey
-              ? trendValueSummary(item.payload, dataKey)
-              : null;
-            const trendValue = summary?.trend ?? Number(item.value);
-            const statisticLabel = (value: number | null | undefined) =>
-              value == null ? 'Unavailable' : valueFormatter(value);
             return (
               <div
                 key={dataKey ?? String(item.name)}
@@ -447,21 +462,7 @@ function DetailSeriesTooltip({
                   <span className="truncate">{item.name}</span>
                 </span>
                 <span className="whitespace-nowrap text-right font-mono font-medium text-foreground">
-                  {summary?.count ? 'Trend ' : ''}
-                  {valueFormatter(trendValue)}
-                  {summary?.count ? (
-                    <span className="mt-0.5 block text-[13px] font-normal text-muted-foreground">
-                      Latest {statisticLabel(summary.latest)} · {summary.count}{' '}
-                      {summary.count === 1 ? 'sample' : 'samples'}
-                      {summary.partial ? ' · live bucket' : ''}
-                    </span>
-                  ) : null}
-                  {summary?.count ? (
-                    <span className="mt-0.5 block text-[13px] font-normal text-muted-foreground">
-                      Min {statisticLabel(summary.minimum)} · Max{' '}
-                      {statisticLabel(summary.maximum)}
-                    </span>
-                  ) : null}
+                  {valueFormatter(Number(item.value))}
                 </span>
               </div>
             );
@@ -954,6 +955,7 @@ export default function DetailSheet({
     [outgoingPCIeChartData, outgoingTrendWindow],
   );
   const pcieAvailable = hasChartValues(pcieChartData, pcieChartMetrics);
+  const tooltipsEnabled = useChartTooltips();
   const memory = memoryPercent(source.memory);
 
   return (
@@ -1121,6 +1123,8 @@ export default function DetailSheet({
                 <MetricLegend
                   label="Activity chart series"
                   metrics={chartMetrics}
+                  rows={chartData}
+                  format={formatRoundedPercent}
                 />
                 <figure
                   className="detail-chart-frame chart-plot-frame h-[216px] p-2 md:h-56"
@@ -1156,6 +1160,7 @@ export default function DetailSheet({
                           data={chartData}
                           xDomain={chartDomain}
                           metrics={chartMetrics}
+                          interactive={tooltipsEnabled}
                         />
                       </div>
                       {outgoingChartData && outgoingChartDomain ? (
@@ -1209,6 +1214,8 @@ export default function DetailSheet({
                 <MetricLegend
                   label="PCIe transfer chart series"
                   metrics={pcieChartMetrics}
+                  rows={pcieChartData}
+                  format={formatBytesPerSecond}
                 />
                 <figure
                   className="detail-chart-frame chart-plot-frame h-[216px] p-2 md:h-56"
@@ -1232,6 +1239,7 @@ export default function DetailSheet({
                         <PCIeHistoryPlot
                           data={pcieChartData}
                           xDomain={pcieChartDomain}
+                          interactive={tooltipsEnabled}
                         />
                       </div>
                       {outgoingPCIeChartData && outgoingPCIeChartDomain ? (
