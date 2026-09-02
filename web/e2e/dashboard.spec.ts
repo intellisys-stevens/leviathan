@@ -522,6 +522,13 @@ test('renders frost-dragon branding with glass, aurora, and ambient snow layers'
   const ambientSnow = page.getByTestId('ambient-snow');
   await expect(ambientSnow).toHaveAttribute('aria-hidden', 'true');
   await expect(ambientSnow).toHaveJSProperty('tagName', 'CANVAS');
+  await expect(
+    page
+      .getByRole('region', { name: 'Host summary' })
+      .locator(':scope > [data-slot="snow-cap"]'),
+  ).toHaveCount(0);
+  await page.getByRole('link', { name: 'Resources' }).click();
+  await expect(page.locator('.gpu-card').first()).toBeVisible();
 
   const visual = await page.evaluate(() => {
     const cardElement = document.querySelector('.frost-panel')!;
@@ -535,9 +542,16 @@ test('renders frost-dragon branding with glass, aurora, and ambient snow layers'
       '[data-testid="ambient-snow"]',
     )!;
     const snowStyle = getComputedStyle(ambientSnow);
-    const snowCap = getComputedStyle(
-      document.querySelector('.snow-capped')!,
-      '::after',
+    const snowCapElement = document.querySelector<HTMLElement>('.snow-cap')!;
+    const snowCap = getComputedStyle(snowCapElement);
+    const snowCapBody = getComputedStyle(
+      snowCapElement.querySelector<HTMLElement>('.snow-cap-body')!,
+    );
+    const snowCapShadow = getComputedStyle(
+      snowCapElement.querySelector<SVGElement>('.snow-cap-shadow')!,
+    );
+    const snowCapHighlight = getComputedStyle(
+      snowCapElement.querySelector<SVGElement>('.snow-cap-highlight')!,
     );
     const root = getComputedStyle(document.documentElement);
     return {
@@ -551,8 +565,15 @@ test('renders frost-dragon branding with glass, aurora, and ambient snow layers'
       ambientSnowZIndex: snowStyle.zIndex,
       ambientSnowOverflow: snowStyle.overflow,
       ambientSnowState: ambientSnow.dataset.state,
-      snowCapBackground: snowCap.backgroundImage,
-      snowCapAnimation: snowCap.animationName,
+      snowCapDisplay: snowCap.display,
+      snowCapPointerEvents: snowCap.pointerEvents,
+      snowCapZIndex: snowCap.zIndex,
+      snowCapProfile: snowCapElement.dataset.snowProfile,
+      snowCapBodyFill: snowCapBody.fill,
+      snowCapShadowFill: snowCapShadow.fill,
+      snowCapHighlightStroke: snowCapHighlight.stroke,
+      snowCapAnimation: snowCapBody.animationName,
+      snowCapFilter: snowCap.filter,
       cardRail: cardRail.backgroundImage,
       cardRadius: Number.parseFloat(card.borderRadius),
       cardBackdrop: card.backdropFilter,
@@ -576,10 +597,19 @@ test('renders frost-dragon branding with glass, aurora, and ambient snow layers'
   expect(visual.ambientSnowZIndex).toBe('-1');
   expect(visual.ambientSnowOverflow).toBe('clip');
   expect(visual.ambientSnowState).toBe(light ? 'hidden' : 'running');
+  expect(visual.snowCapDisplay).toBe(light ? 'none' : 'block');
+  expect(visual.snowCapPointerEvents).toBe('none');
+  expect(visual.snowCapZIndex).toBe('6');
+  expect(['left', 'right', 'split', 'center', 'corner']).toContain(
+    visual.snowCapProfile,
+  );
   if (!light) {
-    expect(visual.snowCapBackground).not.toBe('none');
+    expect(visual.snowCapBodyFill).not.toBe('none');
+    expect(visual.snowCapShadowFill).not.toBe('none');
+    expect(visual.snowCapHighlightStroke).not.toBe('none');
   }
   expect(visual.snowCapAnimation).toBe('none');
+  expect(visual.snowCapFilter).toBe('none');
   expect(visual.cardRail).not.toBe('none');
   expect(visual.cardRadius).toBeLessThanOrEqual(8);
   expect(visual.cardBackdrop).toContain('blur');
@@ -1035,6 +1065,16 @@ test('lays out GPU cards responsively without rendering opaque identifiers', asy
   const topology = page.getByRole('region', { name: 'GPU topology' });
   const cards = topology.locator('.gpu-card');
   await expect(cards).toHaveCount(2);
+  await expect
+    .poll(() =>
+      cards.nth(0).evaluate((element) =>
+        element
+          .closest('.workbench-view')!
+          .getAnimations()
+          .every((animation) => animation.playState === 'finished'),
+      ),
+    )
+    .toBe(true);
   const fullMetrics = page.getByRole('region', {
     name: 'GPU 0 live telemetry',
   });
@@ -1058,6 +1098,37 @@ test('lays out GPU cards responsively without rendering opaque identifiers', asy
   ]);
   expect(first).not.toBeNull();
   expect(second).not.toBeNull();
+
+  const originalSnowVariant = await cards.nth(1).getAttribute('data-snow-cap');
+  for (const variant of ['left', 'right', 'split', 'center', 'corner']) {
+    await cards.nth(1).evaluate((element, nextVariant) => {
+      element.setAttribute('data-snow-cap', nextVariant);
+    }, variant);
+    const [variantBox, translation] = await Promise.all([
+      cards.nth(1).boundingBox(),
+      cards.nth(1).evaluate((element) => ({
+        host: getComputedStyle(element).translate,
+        cap: getComputedStyle(
+          element.querySelector<HTMLElement>(':scope > .snow-cap')!,
+        ).translate,
+      })),
+    ]);
+    expect(variantBox).not.toBeNull();
+    expect(Math.abs(variantBox!.x - second!.x)).toBeLessThanOrEqual(0.25);
+    expect(Math.abs(variantBox!.y - second!.y)).toBeLessThanOrEqual(0.25);
+    expect(translation.host).toBe('none');
+    if (variant === 'center') {
+      expect(translation.cap).toContain('-50%');
+    } else {
+      expect(translation.cap).toBe('none');
+    }
+  }
+  if (originalSnowVariant) {
+    await cards.nth(1).evaluate((element, variant) => {
+      element.setAttribute('data-snow-cap', variant);
+    }, originalSnowVariant);
+  }
+
   if (page.viewportSize()!.width >= 1280) {
     expect(Math.abs(first!.y - second!.y)).toBeLessThanOrEqual(1);
     expect(Math.abs(first!.height - second!.height)).toBeLessThanOrEqual(1);
@@ -1498,8 +1569,11 @@ test('switches workbench views without reloading charts or clearing process filt
   const personCards = page.getByTestId('person-card');
   await expect(personCards).toHaveCount(1);
   await expect(
-    page.getByRole('heading', { name: 'Assigned telemetry', level: 4 }),
+    page.getByRole('heading', { name: 'Telemetry', level: 4 }),
   ).toBeVisible();
+  await expect(peopleView).not.toContainText(
+    'Device-scoped signals, not user usage.',
+  );
   await expect(page.locator('.workload-telemetry-chart')).toHaveCount(4);
   await expect.poll(() => alignedRequestCount(page)).toBe(6);
 
@@ -1511,7 +1585,7 @@ test('switches workbench views without reloading charts or clearing process filt
     page.getByRole('button', { name: 'Open GPU 1 · GI 0 · CI 0 details' }),
   ).toBeVisible();
   await expect(page.getByTestId('person-card')).toContainText(
-    'No allocated GPU telemetry.',
+    'No GPU telemetry.',
   );
   await expect.poll(() => alignedRequestCount(page)).toBe(6);
 
@@ -2211,11 +2285,151 @@ test('keeps the breathing glow inside a stationary resource perimeter', async ({
         (element) => getComputedStyle(element).boxShadow,
       ),
     )
-    .toContain('0px 20px 52px');
+    .toContain(
+      testInfo.project.name.endsWith('-dark')
+        ? '0px 0px 52px'
+        : '0px 20px 52px',
+    );
   await expect(page.locator('.workload-person-detail')).toHaveCSS(
     'overflow',
     'visible',
   );
+  await expect(workloadSurface.locator('xpath=../..')).toHaveCSS(
+    'overflow',
+    'visible',
+  );
+  await expect(workloadSurface.locator('xpath=../../..')).toHaveCSS(
+    'overflow',
+    'visible',
+  );
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth,
+    ),
+  ).toBeLessThanOrEqual(0);
+});
+
+test('keeps Overview snow-free and card snow static above hover surfaces', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'chromium-desktop-dark',
+    'One dark fine-pointer project covers foreground snow compositing.',
+  );
+
+  await expect(
+    page
+      .getByRole('region', { name: 'Host summary' })
+      .locator(':scope > [data-slot="snow-cap"]'),
+  ).toHaveCount(0);
+
+  await page.getByRole('link', { name: 'Resources' }).click();
+  const card = page.locator('.gpu-card').first();
+  const cap = card.locator(':scope > [data-slot="snow-cap"]');
+  const body = cap.locator('[data-slot="snow-cap-body"]');
+  const shadow = cap.locator('[data-slot="snow-cap-shadow"]');
+  const highlight = cap.locator('[data-slot="snow-cap-highlight"]');
+  const resource = card.locator('.interactive-resource').first();
+
+  await expect(cap).toHaveCount(1);
+  await expect(cap).toBeVisible();
+  await resource.hover();
+
+  const readPhase = () =>
+    card.evaluate((element) => {
+      const cap = element.querySelector<HTMLElement>(
+        ':scope > [data-slot="snow-cap"]',
+      )!;
+      const body = cap.querySelector<SVGElement>(
+        '[data-slot="snow-cap-body"]',
+      )!;
+      const shadow = cap.querySelector<SVGElement>(
+        '[data-slot="snow-cap-shadow"]',
+      )!;
+      const highlight = cap.querySelector<SVGElement>(
+        '[data-slot="snow-cap-highlight"]',
+      )!;
+      const resource = element.querySelector<HTMLElement>(
+        '.interactive-resource',
+      )!;
+      const cardRect = element.getBoundingClientRect();
+      const capRect = cap.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        capRect.left + capRect.width / 2,
+        capRect.top + capRect.height / 2,
+      );
+      return {
+        cardRect: {
+          top: cardRect.top,
+          width: cardRect.width,
+        },
+        capRect: {
+          left: capRect.left,
+          top: capRect.top,
+          right: capRect.right,
+          bottom: capRect.bottom,
+          width: capRect.width,
+          height: capRect.height,
+        },
+        borderAlignment: Math.abs(
+          capRect.top + (capRect.height * 15) / 24 - cardRect.top,
+        ),
+        capZIndex: Number.parseInt(getComputedStyle(cap).zIndex, 10),
+        resourceZIndex: Number.parseInt(getComputedStyle(resource).zIndex, 10),
+        capPointerEvents: getComputedStyle(cap).pointerEvents,
+        capAnimation: getComputedStyle(cap).animationName,
+        capFilter: getComputedStyle(cap).filter,
+        bodyAnimation: getComputedStyle(body).animationName,
+        shadowAnimation: getComputedStyle(shadow).animationName,
+        highlightAnimation: getComputedStyle(highlight).animationName,
+        bodyPaths: body.querySelectorAll('path').length,
+        shadowPaths: shadow.querySelectorAll('path').length,
+        highlightPaths: highlight.querySelectorAll('path').length,
+        hitSnow: hit?.closest('[data-slot="snow-cap"]') != null,
+      };
+    });
+
+  const phases = [await readPhase()];
+  for (let phase = 0; phase < 2; phase += 1) {
+    await page.waitForTimeout(320);
+    phases.push(await readPhase());
+  }
+  for (const phase of phases) {
+    expect(phase.capZIndex).toBeGreaterThan(phase.resourceZIndex);
+    expect(phase.capPointerEvents).toBe('none');
+    expect(phase.capAnimation).toBe('none');
+    expect(phase.capFilter).toBe('none');
+    expect(phase.bodyAnimation).toBe('none');
+    expect(phase.shadowAnimation).toBe('none');
+    expect(phase.highlightAnimation).toBe('none');
+    expect(phase.bodyPaths).toBeGreaterThan(0);
+    expect(phase.shadowPaths).toBe(phase.bodyPaths);
+    expect(phase.highlightPaths).toBeGreaterThan(0);
+    expect(phase.hitSnow).toBe(false);
+    expect(phase.capRect.top).toBeLessThan(phase.cardRect.top);
+    expect(phase.capRect.bottom).toBeLessThanOrEqual(phase.cardRect.top + 20);
+    expect(phase.capRect.width / phase.cardRect.width).toBeGreaterThanOrEqual(
+      0.2,
+    );
+    expect(phase.capRect.width / phase.cardRect.width).toBeLessThanOrEqual(
+      0.43,
+    );
+    expect(phase.capRect.height).toBeGreaterThanOrEqual(16);
+    expect(phase.borderAlignment).toBeLessThanOrEqual(0.5);
+  }
+  expect(
+    new Set(phases.map(({ capRect }) => JSON.stringify(capRect))).size,
+  ).toBe(1);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth,
+    ),
+  ).toBeLessThanOrEqual(0);
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(body).toHaveCSS('animation-name', 'none');
+  await expect(shadow).toHaveCSS('animation-name', 'none');
+  await expect(highlight).toHaveCSS('animation-name', 'none');
 });
 
 test('keeps every flowing treatment rounded and pointer transparent', async ({
@@ -2252,7 +2466,12 @@ test('keeps every flowing treatment rounded and pointer transparent', async ({
     page.getByRole('link', { name: 'Overview' }).first(),
   );
   await assertRoundedPerimeter(page.locator('.summary-link').first());
-  await assertRoundedPerimeter(page.locator('.attribution-summary').first());
+  await expect(
+    page
+      .locator('.attribution-summary')
+      .first()
+      .locator(':scope > [data-slot="perimeter-light"]'),
+  ).toHaveCount(0);
   await assertRoundedPerimeter(page.locator('.segmented-control').first());
 
   await page.getByRole('link', { name: 'Resources' }).click();
@@ -2369,6 +2588,23 @@ test('removes spatial motion when reduced motion is requested', async ({
   if (!light) {
     await expect.poll(() => canvasFramesAreStable(ambientSnow)).toBe(true);
   }
+
+  await page.getByRole('link', { name: 'Workloads' }).click();
+  await selectWorkloadOwner(page, 'synthetic-owner');
+  const workloadResource = page
+    .getByRole('button', {
+      name: /^Open GPU \d+ · Full GPU details$/u,
+    })
+    .locator('xpath=..');
+  await workloadResource.hover();
+  await expect(workloadResource).toHaveCSS('transform', 'none');
+  await expect
+    .poll(() =>
+      workloadResource.evaluate(
+        (element) => getComputedStyle(element).boxShadow,
+      ),
+    )
+    .toContain(light ? '0px 20px 52px' : '0px 0px 52px');
 });
 
 test('removes ambient glass effects for visibility-oriented media preferences', async ({
@@ -2379,7 +2615,7 @@ test('removes ambient glass effects for visibility-oriented media preferences', 
     'One dark desktop project covers the ambient media fallbacks.',
   );
   const ambientSnow = page.getByTestId('ambient-snow');
-  const cap = page.locator('.snow-capped').first();
+  const cap = page.locator('.snow-cap').first();
   await page.getByRole('link', { name: 'Resources' }).click();
   const perimeter = page
     .getByRole('button', { name: 'Open GPU 0 full GPU details' })
@@ -2390,7 +2626,7 @@ test('removes ambient glass effects for visibility-oriented media preferences', 
   const visualState = () =>
     page.evaluate(() => {
       const snow = document.querySelector('[data-testid="ambient-snow"]')!;
-      const capped = document.querySelector('.snow-capped')!;
+      const cap = document.querySelector('.snow-cap')!;
       const panel = document.querySelector('.frost-panel')!;
       const perimeter = document.querySelector(
         '.interactive-resource > [data-slot="perimeter-light"]',
@@ -2398,7 +2634,7 @@ test('removes ambient glass effects for visibility-oriented media preferences', 
       return {
         snow: getComputedStyle(snow).display,
         snowState: (snow as HTMLElement).dataset.state,
-        cap: getComputedStyle(capped, '::after').display,
+        cap: getComputedStyle(cap).display,
         backdrop: getComputedStyle(panel).backdropFilter,
         perimeter: getComputedStyle(perimeter).display,
       };
@@ -2445,9 +2681,11 @@ test('removes ambient glass effects for visibility-oriented media preferences', 
             rule instanceof CSSMediaRule &&
             rule.conditionText.includes('update: slow')
           ) {
-            return [...rule.cssRules].some(
+            const slowRules = [...rule.cssRules].filter(
+              (child): child is CSSStyleRule => child instanceof CSSStyleRule,
+            );
+            return slowRules.some(
               (child) =>
-                child instanceof CSSStyleRule &&
                 child.selectorText.includes('.perimeter-light') &&
                 child.style.display === 'none',
             );
@@ -2584,6 +2822,13 @@ test('covers required responsive widths with a concise header', async ({
       await expect(page.getByTestId('process-card')).toHaveCount(0);
     }
 
+    await page.getByRole('link', { name: 'Overview' }).click();
+    await expect(
+      page
+        .getByRole('region', { name: 'Host summary' })
+        .locator(':scope > [data-slot="snow-cap"]'),
+    ).toHaveCount(0);
+
     await page.getByRole('link', { name: 'Resources' }).click();
     const fullMetrics = page.locator('.full-gpu-metrics');
     await expect(fullMetrics.locator('.full-gpu-metric-tile')).toHaveCount(6);
@@ -2644,6 +2889,12 @@ test('covers required responsive widths with a concise header', async ({
     }
     await selectWorkloadOwner(page, 'synthetic-owner');
     await expect(page.getByTestId('person-card')).toHaveCount(1);
+    await expect(
+      page.getByRole('heading', { name: 'Telemetry', level: 4 }),
+    ).toBeVisible();
+    await expect(workloads).not.toContainText(
+      'Device-scoped signals, not user usage.',
+    );
     await expect(page.locator('.workload-telemetry-chart')).toHaveCount(4);
     const telemetryColumns = await workloads
       .locator('.workload-telemetry-grid')
@@ -2851,6 +3102,11 @@ test('assigns stable varied snow caps without decorating the light theme', async
           element.textContent?.slice(0, 24).trim() ??
           '',
         variant: element.getAttribute('data-snow-cap'),
+        profile: element
+          .querySelector(':scope > [data-slot="snow-cap"]')
+          ?.getAttribute('data-snow-profile'),
+        layerCount: element.querySelectorAll(':scope > [data-slot="snow-cap"]')
+          .length,
       })),
     );
 
@@ -2868,7 +3124,8 @@ test('assigns stable varied snow caps without decorating the light theme', async
   await expect(
     page.getByRole('heading', { name: 'Overview', exact: true, level: 1 }),
   ).toBeFocused();
-  const allCaps = [...resourceCaps, ...workloadCaps, ...(await collectCaps())];
+  expect(await collectCaps()).toEqual([]);
+  const allCaps = [...resourceCaps, ...workloadCaps];
   expect(
     new Set(allCaps.map(({ variant }) => variant)).size,
   ).toBeGreaterThanOrEqual(3);
@@ -2877,6 +3134,10 @@ test('assigns stable varied snow caps without decorating the light theme', async
       ['left', 'right', 'split', 'center', 'corner'].includes(variant ?? ''),
     ),
   ).toBe(true);
+  expect(allCaps.every(({ variant, profile }) => profile === variant)).toBe(
+    true,
+  );
+  expect(allCaps.every(({ layerCount }) => layerCount === 1)).toBe(true);
 
   await page.reload();
   await page.getByRole('link', { name: 'Resources' }).click();
@@ -2887,9 +3148,9 @@ test('assigns stable varied snow caps without decorating the light theme', async
 
   await page.getByRole('button', { name: 'Use light theme' }).click();
   const capDisplay = await page
-    .locator('.snow-capped[data-snow-cap]')
+    .locator('.snow-capped[data-snow-cap] > .snow-cap')
     .first()
-    .evaluate((element) => getComputedStyle(element, '::after').content);
+    .evaluate((element) => getComputedStyle(element).display);
   expect(capDisplay).toBe('none');
 });
 
@@ -2972,6 +3233,14 @@ test('matches targeted workbench and frost-dragon visual baselines', async ({
     );
     await capturePage('resources-desktop.png');
     await showAllocatedWorkloads();
+    const hoveredWorkload = page
+      .getByRole('button', {
+        name: /^Open GPU \d+ · Full GPU details$/u,
+      })
+      .locator('xpath=..');
+    await hoveredWorkload.hover();
+    await captureViewport('workloads-resource-hover-dark.png');
+    await page.mouse.move(0, 0);
     await capturePage('workloads-desktop-dark.png');
     await openFullGPUDetail();
     await captureViewport('detail-desktop-dark.png');

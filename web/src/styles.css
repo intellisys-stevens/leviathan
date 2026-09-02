@@ -336,7 +336,9 @@ html[data-ambient-paused='true'] .app-shell::after {
   min-width: 0;
 }
 
-.workload-person-detail {
+.workload-person-detail,
+.mobile-workspace-card,
+.mobile-workload-list {
   overflow: visible;
 }
 
@@ -774,154 +776,92 @@ html[data-ambient-paused='true'] .app-shell::after {
   position: relative;
 }
 
-.dark .snow-capped::after {
+.snow-capped {
+  position: relative;
+  isolation: isolate;
+  overflow: visible;
+}
+
+.snow-cap {
+  display: none;
   position: absolute;
-  z-index: 2;
-  top: -1px;
+  z-index: 6;
+  top: 0;
   left: var(--snow-left, auto);
-  right: var(--snow-right, clamp(0.85rem, 7%, 3.75rem));
-  width: var(--snow-width, clamp(4.75rem, 19%, 9rem));
-  height: var(--snow-height, 0.62rem);
-  background:
-    linear-gradient(
-        90deg,
-        transparent,
-        oklch(0.97 0.025 210 / 72%) 14% 86%,
-        transparent
-      )
-      top / 100% 2px no-repeat,
-    radial-gradient(
-      ellipse 35% 100% at 16% 0%,
-      oklch(0.98 0.02 210 / 78%) 0 61%,
-      transparent 68%
-    ),
-    radial-gradient(
-      ellipse 43% 90% at 54% 0%,
-      oklch(0.94 0.04 215 / 64%) 0 61%,
-      transparent 68%
-    ),
-    radial-gradient(
-      ellipse 32% 75% at 86% 0%,
-      oklch(0.9 0.06 215 / 52%) 0 60%,
-      transparent 67%
-    );
-  clip-path: var(
-    --snow-clip,
-    polygon(
-      0 0,
-      100% 0,
-      96% 42%,
-      82% 50%,
-      71% 76%,
-      58% 54%,
-      43% 68%,
-      27% 48%,
-      12% 58%,
-      0 36%
-    )
-  );
-  content: '';
-  opacity: 0.9;
+  right: var(--snow-right, clamp(0.75rem, 5%, 2.75rem));
+  width: var(--snow-width, clamp(8rem, 34%, 14rem));
+  height: var(--snow-height, 1.25rem);
+  transform: translateY(-62.5%);
   pointer-events: none;
 }
 
+.dark .snow-cap {
+  display: block;
+}
+
+.snow-cap-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  shape-rendering: geometricPrecision;
+}
+
+.snow-cap-body {
+  fill: oklch(0.9 0.024 215 / 88%);
+}
+
+.snow-cap-shadow {
+  fill: color-mix(in oklch, var(--primary) 46%, oklch(0.28 0.045 225 / 72%));
+  opacity: 0.52;
+}
+
+.snow-cap-highlight {
+  fill: none;
+  stroke: oklch(0.96 0.012 210 / 62%);
+  stroke-width: 1.15;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
 .snow-capped[data-snow-cap='left'] {
-  --snow-left: clamp(0.7rem, 4%, 2rem);
+  --snow-left: clamp(0.65rem, 4%, 2rem);
   --snow-right: auto;
-  --snow-width: clamp(5.25rem, 25%, 10rem);
-  --snow-height: 0.68rem;
-  --snow-clip: polygon(
-    0 0,
-    100% 0,
-    96% 36%,
-    82% 48%,
-    68% 72%,
-    52% 48%,
-    35% 62%,
-    19% 42%,
-    7% 55%,
-    0 30%
-  );
+  --snow-width: clamp(8.5rem, 38%, 15rem);
+  --snow-height: 1.25rem;
 }
 
 .snow-capped[data-snow-cap='right'] {
   --snow-left: auto;
-  --snow-right: clamp(0.75rem, 5%, 2.75rem);
-  --snow-width: clamp(4.5rem, 22%, 8.5rem);
-  --snow-height: 0.58rem;
-  --snow-clip: polygon(
-    0 0,
-    100% 0,
-    100% 34%,
-    88% 54%,
-    73% 40%,
-    60% 69%,
-    44% 50%,
-    27% 73%,
-    12% 47%,
-    0 58%
-  );
+  --snow-right: clamp(0.65rem, 4%, 2.5rem);
+  --snow-width: clamp(7.75rem, 34%, 13.5rem);
+  --snow-height: 1.2rem;
 }
 
 .snow-capped[data-snow-cap='split'] {
-  --snow-left: 12%;
+  --snow-left: clamp(1rem, 8%, 3rem);
   --snow-right: auto;
-  --snow-width: 62%;
-  --snow-height: 0.66rem;
-  --snow-clip: polygon(
-    0 0,
-    39% 0,
-    36% 46%,
-    27% 70%,
-    15% 44%,
-    0 60%,
-    0 0,
-    100% 0,
-    100% 46%,
-    88% 59%,
-    78% 42%,
-    68% 72%,
-    61% 38%,
-    62% 0
-  );
+  --snow-width: clamp(9rem, 42%, 16rem);
+  --snow-height: 1.2rem;
 }
 
 .snow-capped[data-snow-cap='center'] {
-  --snow-left: 34%;
+  --snow-left: 50%;
   --snow-right: auto;
-  --snow-width: 32%;
-  --snow-height: 0.74rem;
-  --snow-clip: polygon(
-    0 0,
-    100% 0,
-    92% 48%,
-    78% 62%,
-    63% 46%,
-    50% 86%,
-    39% 48%,
-    22% 68%,
-    8% 43%,
-    0 58%
-  );
+  --snow-width: clamp(7.5rem, 32%, 12.5rem);
+  --snow-height: 1.3rem;
+}
+
+.snow-capped[data-snow-cap='center'] > .snow-cap {
+  translate: -50% 0;
 }
 
 .snow-capped[data-snow-cap='corner'] {
   --snow-left: auto;
   --snow-right: -1px;
-  --snow-width: clamp(4.25rem, 18%, 7.5rem);
-  --snow-height: 0.9rem;
-  --snow-clip: polygon(
-    0 0,
-    100% 0,
-    100% 60%,
-    86% 48%,
-    78% 88%,
-    68% 46%,
-    52% 65%,
-    37% 40%,
-    20% 58%,
-    0 36%
-  );
+  --snow-width: clamp(6.5rem, 26%, 10.5rem);
+  --snow-height: 1.35rem;
 }
 
 .frost-panel::before,
@@ -1023,6 +963,12 @@ html[data-ambient-paused='true'] .app-shell::after {
     box-shadow:
       inset 0 1px 0 color-mix(in oklch, var(--primary) 30%, transparent),
       0 20px 52px color-mix(in oklch, var(--primary) 30%, transparent);
+  }
+
+  .dark .mobile-workload-resource.interactive-resource:hover {
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklch, var(--primary) 30%, transparent),
+      0 0 52px color-mix(in oklch, var(--primary) 30%, transparent);
   }
 
   .interactive-resource:has(.interactive-resource-button:active) {
@@ -1386,7 +1332,7 @@ html[data-ambient-paused='true'] .app-shell::after {
     padding-inline: 0.45rem;
   }
 
-  [data-testid='person-card'] > div:first-child {
+  [data-testid='person-card'] > .workload-person-header {
     padding: 0.75rem;
   }
 
@@ -1462,9 +1408,28 @@ html[data-ambient-paused='true'] .app-shell::after {
     min-height: 2.75rem;
   }
 
-  .dark .snow-capped::after {
-    --snow-width: min(32%, 6.5rem);
-    --snow-height: 0.5rem;
+  .dark .snow-cap {
+    height: 1rem;
+  }
+
+  .snow-capped[data-snow-cap='left'] {
+    --snow-width: min(40%, 8.5rem);
+  }
+
+  .snow-capped[data-snow-cap='right'] {
+    --snow-width: min(36%, 7.75rem);
+  }
+
+  .snow-capped[data-snow-cap='split'] {
+    --snow-width: min(42%, 9rem);
+  }
+
+  .snow-capped[data-snow-cap='center'] {
+    --snow-width: min(34%, 7.5rem);
+  }
+
+  .snow-capped[data-snow-cap='corner'] {
+    --snow-width: min(28%, 6.5rem);
   }
 }
 
@@ -1576,7 +1541,7 @@ html[data-ambient-paused='true'] .app-shell::after {
   .app-shell::before,
   .app-shell::after,
   .ambient-snow,
-  .snow-capped::after,
+  .snow-cap,
   .perimeter-light {
     display: none !important;
   }

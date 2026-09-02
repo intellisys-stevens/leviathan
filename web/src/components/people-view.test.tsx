@@ -259,6 +259,18 @@ describe('people resource view', () => {
       expect(['left', 'right', 'split', 'center', 'corner']).toContain(
         personCard.getAttribute('data-snow-cap'),
       );
+      expect(
+        personCard.querySelectorAll(':scope > [data-slot="snow-cap"]'),
+      ).toHaveLength(1);
+      expect(
+        personCard.querySelector(':scope > [data-slot="snow-cap"]'),
+      ).toHaveAttribute(
+        'data-snow-profile',
+        personCard.getAttribute('data-snow-cap'),
+      );
+      expect(
+        personCard.querySelector(':scope > .workload-person-header'),
+      ).toBeInTheDocument();
     }
     for (const workspaceGrid of screen.getAllByTestId('workspace-grid')) {
       expect(workspaceGrid).toHaveClass(
@@ -431,7 +443,16 @@ describe('people resource view', () => {
       },
     ]);
     expect(
-      await screen.findByRole('heading', { name: 'Assigned telemetry' }),
+      await screen.findByRole('heading', { name: 'Telemetry' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText('Device-scoped signals, not user usage.'),
+    ).toBeNull();
+    expect(
+      screen.queryByRole('heading', { name: 'Assigned telemetry' }),
+    ).toBeNull();
+    expect(
+      screen.getByRole('radiogroup', { name: 'Telemetry window' }),
     ).toBeInTheDocument();
     for (const chartName of [
       'activity',
@@ -441,12 +462,12 @@ describe('people resource view', () => {
     ]) {
       expect(
         screen.getByRole('figure', {
-          name: `synthetic-owner assigned resource ${chartName} trend`,
+          name: `synthetic-owner resource ${chartName} trend`,
         }),
       ).toBeInTheDocument();
     }
     expect(
-      screen.queryByRole('radiogroup', { name: 'Assigned telemetry metric' }),
+      screen.queryByRole('radiogroup', { name: 'Telemetry metric' }),
     ).toBeNull();
     fireEvent.click(
       screen.getByRole('radio', {
@@ -476,7 +497,7 @@ describe('people resource view', () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole('figure', {
-        name: 'synthetic-owner assigned resource activity trend',
+        name: 'synthetic-owner resource activity trend',
       }),
     ).toBeInTheDocument();
 
@@ -499,7 +520,7 @@ describe('people resource view', () => {
       />,
     );
 
-    expect(screen.getByText('No allocated GPU telemetry.')).toBeInTheDocument();
+    expect(screen.getByText('No GPU telemetry.')).toBeInTheDocument();
     await Promise.resolve();
     expect(loadHistory).not.toHaveBeenCalled();
   });
@@ -579,7 +600,7 @@ describe('people resource view', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('figure', {
-          name: 'synthetic-owner assigned resource activity trend',
+          name: 'synthetic-owner resource activity trend',
         }),
       ).toHaveAttribute('aria-busy', 'false'),
     );

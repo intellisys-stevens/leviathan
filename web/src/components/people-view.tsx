@@ -18,22 +18,12 @@ import type { Selection, Snapshot } from '../types';
 import { buildWorkloadTelemetryEntities } from '../workload-history';
 import { MetricIcon } from './metric-icon';
 import { PerimeterLight } from './perimeter-light';
+import { SnowCap, snowCapVariant } from './snow-cap';
 
 const WorkloadTelemetryChart = lazy(() => import('./workload-telemetry-chart'));
 
 function countLabel(count: number, singular: string, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
-}
-
-const snowCapVariants = ['left', 'right', 'split', 'center', 'corner'] as const;
-
-function snowCapVariant(key: string): (typeof snowCapVariants)[number] {
-  let hash = 2_166_136_261;
-  for (const character of key) {
-    hash ^= character.codePointAt(0) ?? 0;
-    hash = Math.imul(hash, 16_777_619);
-  }
-  return snowCapVariants[(hash >>> 0) % snowCapVariants.length];
 }
 
 function ResourceRow({
@@ -198,7 +188,6 @@ function PeopleViewComponent({
         : [],
     [selectedPerson, view.people],
   );
-
   useEffect(() => {
     if (!selectedPerson || selectedPerson.key === selectedPersonKey) return;
     onSelectedPersonChange(selectedPerson.key);
@@ -253,6 +242,7 @@ function PeopleViewComponent({
   }
 
   if (!selectedPerson) return null;
+  const selectedSnowVariant = snowCapVariant(selectedPerson.key);
   const selectAndFocusPerson = (index: number) => {
     const person = view.people[index];
     if (!person) return;
@@ -351,9 +341,10 @@ function PeopleViewComponent({
           aria-labelledby="workload-owner-heading"
           className="workload-person-detail mobile-person-card frost-panel snow-capped min-w-0 border border-border/75 bg-card/90"
           data-testid="person-card"
-          data-snow-cap={snowCapVariant(selectedPerson.key)}
+          data-snow-cap={selectedSnowVariant}
         >
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-4 py-3">
+          <SnowCap variant={selectedSnowVariant} />
+          <div className="workload-person-header flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-4 py-3">
             <div className="flex min-w-0 items-center gap-2.5">
               <span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
                 <UserRound className="size-4" aria-hidden="true" />
@@ -382,9 +373,9 @@ function PeopleViewComponent({
               fallback={
                 <div
                   className="workload-telemetry grid h-48 place-items-center border border-dashed border-border/80 bg-background/45 text-[13px] text-muted-foreground"
-                  aria-label="Loading assigned telemetry"
+                  aria-label="Loading telemetry"
                 >
-                  Preparing assigned telemetry…
+                  Preparing telemetry…
                 </div>
               }
             >

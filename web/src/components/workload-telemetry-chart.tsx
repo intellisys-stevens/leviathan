@@ -458,14 +458,14 @@ function TelemetryPanel({
       />
       <figure
         className="workload-telemetry-chart chart-plot-frame mt-2 h-[200px] min-w-0 lg:h-[216px]"
-        aria-label={`${ownerName} assigned resource ${definition.title.toLowerCase()} trend`}
+        aria-label={`${ownerName} resource ${definition.title.toLowerCase()} trend`}
         aria-busy={loading}
       >
         {!hasValues ? (
           <div className="grid h-full place-items-center px-4 text-center text-[13px] text-muted-foreground">
             <span>
               {loading
-                ? 'Loading assigned telemetry…'
+                ? 'Loading telemetry…'
                 : `${definition.title} unavailable.`}
               {error ? (
                 <Button
@@ -570,7 +570,7 @@ export default function WorkloadTelemetryChart({
           error:
             reason instanceof Error
               ? reason.message
-              : 'Assigned telemetry history unavailable',
+              : 'Telemetry history unavailable',
         }));
       });
     return () => {
@@ -637,9 +637,9 @@ export default function WorkloadTelemetryChart({
     return (
       <section
         className="workload-telemetry border border-dashed border-border/80 bg-background/45 px-4 py-5 text-center text-[13px] text-muted-foreground"
-        aria-label="Assigned telemetry"
+        aria-label="Telemetry"
       >
-        No allocated GPU telemetry.
+        No GPU telemetry.
       </section>
     );
   }
@@ -655,18 +655,15 @@ export default function WorkloadTelemetryChart({
             id="workload-telemetry-heading"
             className="text-[15px] font-semibold"
           >
-            Assigned telemetry
+            Telemetry
           </h4>
-          <p className="text-[13px] text-muted-foreground">
-            Device-scoped signals, not user usage.
-          </p>
         </div>
         <div className="workload-telemetry-controls min-w-0 shrink-0">
           <ChartWindowControl
             chartWindowMs={chartWindowMs}
             retentionMs={retentionMs}
             onChartWindowChange={onChartWindowChange}
-            ariaLabel="Assigned telemetry window"
+            ariaLabel="Telemetry window"
           />
         </div>
       </div>

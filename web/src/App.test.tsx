@@ -845,7 +845,11 @@ describe('Leviathan dashboard states', () => {
     expect(within(summary).getByText('Processes')).toHaveClass(
       'mobile-only-label',
     );
-    expect(summary).toHaveAttribute('data-snow-cap', 'split');
+    expect(summary).not.toHaveClass('snow-capped');
+    expect(summary).not.toHaveAttribute('data-snow-cap');
+    expect(
+      summary.querySelectorAll(':scope > [data-slot="snow-cap"]'),
+    ).toHaveLength(0);
     expect(within(summary).queryByText('Compute instances')).toBeNull();
 
     fireEvent.click(
