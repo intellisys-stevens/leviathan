@@ -852,8 +852,7 @@ export function App() {
             {activeView === 'overview' ? (
               <div className="mt-6 space-y-5">
                 <section
-                  className="overview-summary frost-panel snow-capped"
-                  data-snow-cap="split"
+                  className="overview-summary frost-panel"
                   aria-label="Host summary"
                 >
                   <div className="overview-attribution-cell">

@@ -317,6 +317,15 @@ describe('GPU resource interactions', () => {
       expect(['left', 'right', 'split', 'center', 'corner']).toContain(
         card.getAttribute('data-snow-cap'),
       );
+      expect(
+        card.querySelectorAll(':scope > [data-slot="snow-cap"]'),
+      ).toHaveLength(1);
+      expect(
+        card.querySelector(':scope > [data-slot="snow-cap"]'),
+      ).toHaveAttribute(
+        'data-snow-profile',
+        card.getAttribute('data-snow-cap'),
+      );
     }
     for (const body of resourceBodies) {
       expect(body).toHaveClass(

@@ -24,6 +24,7 @@ import { gpuAttributionTargets } from '../attribution';
 import type { Attribution, GPU, GpuInstance, Selection } from '../types';
 import { MetricIcon } from './metric-icon';
 import { PerimeterLight } from './perimeter-light';
+import { SnowCap, snowCapVariant } from './snow-cap';
 import { WorkspaceBadges } from './workspace-attribution';
 
 type Props = {
@@ -31,17 +32,6 @@ type Props = {
   attribution?: Attribution;
   onSelect: (selection: Selection) => void;
 };
-
-const snowCapVariants = ['left', 'right', 'split', 'center', 'corner'] as const;
-
-function snowCapVariant(key: string): (typeof snowCapVariants)[number] {
-  let hash = 2_166_136_261;
-  for (const character of key) {
-    hash ^= character.codePointAt(0) ?? 0;
-    hash = Math.imul(hash, 16_777_619);
-  }
-  return snowCapVariants[(hash >>> 0) % snowCapVariants.length];
-}
 
 const temperatureTone = {
   unavailable: 'border-border bg-muted/40 text-muted-foreground',
@@ -551,11 +541,13 @@ function MigBlock({
 }
 
 function GPUCardComponent({ gpu, attribution, onSelect }: Props) {
+  const snowVariant = snowCapVariant(gpu.uuid);
   return (
     <Card
       className="frost-panel snow-capped gpu-card mobile-resource-card h-full border-border/75 bg-card/90 py-0 shadow-[0_14px_35px_rgb(0_0_0/13%)] ring-0"
-      data-snow-cap={snowCapVariant(gpu.uuid)}
+      data-snow-cap={snowVariant}
     >
+      <SnowCap variant={snowVariant} />
       <CardHeader className="border-b border-border/70 py-4">
         <div className="flex min-w-0 items-center gap-3">
           <span className="grid size-9 shrink-0 place-items-center rounded-md border border-primary/20 bg-primary/10 text-primary">

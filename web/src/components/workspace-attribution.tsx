@@ -10,7 +10,6 @@ import {
   type AttributionTarget,
 } from '../attribution';
 import type { Attribution, Snapshot } from '../types';
-import { PerimeterLight } from './perimeter-light';
 
 function observedLabel(observedAt: string | undefined): string | null {
   if (!observedAt) return null;
@@ -173,15 +172,14 @@ function AttributionSummaryComponent({
   return (
     <PopoverPrimitive.Root>
       <PopoverPrimitive.Trigger
-        className={`attribution-summary flowing-surface group mt-2 flex max-w-full items-center gap-2.5 rounded-md border px-3 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+        className={`attribution-summary group mt-2 flex max-w-full items-center gap-2.5 rounded-md border px-3 py-2 text-left outline-none transition-[color,background-color,border-color] duration-[var(--duration-feedback)] focus-visible:ring-2 focus-visible:ring-ring ${
           available
-            ? 'border-primary/20 bg-primary/[0.055] text-primary'
-            : 'border-amber-500/30 bg-amber-500/[0.06] text-amber-700 dark:text-amber-300'
+            ? 'border-primary/20 bg-primary/[0.055] text-primary hover:border-primary/35 hover:bg-primary/[0.075]'
+            : 'border-amber-500/30 bg-amber-500/[0.06] text-amber-700 hover:border-amber-500/45 hover:bg-amber-500/[0.09] dark:text-amber-300'
         }`}
         aria-label={accessibleSummary}
         title={observed ? `Observed ${observed}` : undefined}
       >
-        <PerimeterLight />
         {statusSummary}
         <ChevronDown
           className="motion-chevron size-3.5 shrink-0 group-data-[popup-open]:rotate-180"
