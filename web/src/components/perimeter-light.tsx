@@ -7,7 +7,7 @@ export const PerimeterLight = memo(function PerimeterLight() {
       data-slot="perimeter-light"
       aria-hidden="true"
     >
-      <span className="perimeter-light-beam" data-slot="perimeter-light-beam" />
+      <span className="perimeter-light-glow" data-slot="perimeter-light-glow" />
     </span>
   );
 });

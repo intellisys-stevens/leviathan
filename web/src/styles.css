@@ -1086,22 +1086,17 @@ html[data-ambient-paused='true'] .app-shell::after {
     inset: 0;
   }
 
-  .perimeter-light-beam {
+  .perimeter-light-glow {
     position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 200%;
-    height: 200%;
-    background: conic-gradient(
-      from 12deg,
-      transparent 0 60%,
-      color-mix(in oklch, var(--primary) 20%, transparent) 68%,
-      color-mix(in oklch, white 82%, var(--primary)) 76%,
-      color-mix(in oklch, var(--primary) 42%, transparent) 84%,
-      transparent 92% 100%
+    inset: 0;
+    background: linear-gradient(
+      135deg,
+      color-mix(in oklch, var(--primary) 68%, var(--border)),
+      color-mix(in oklch, white 76%, var(--primary)) 48%,
+      color-mix(in oklch, var(--primary) 78%, var(--border))
     );
-    transform: translate3d(-50%, -50%, 0) rotate(12deg);
-    transform-origin: center;
+    opacity: 0.52;
+    transform: translateZ(0);
     will-change: auto;
   }
 
@@ -1114,18 +1109,20 @@ html[data-ambient-paused='true'] .app-shell::after {
   .dark
     .flowing-surface:hover:not(:focus-within)
     > .perimeter-light
-    .perimeter-light-beam {
-    animation: perimeter-light-sweep 2.8s linear infinite;
-    will-change: transform;
+    .perimeter-light-glow {
+    animation: perimeter-light-breathe 2.8s ease-in-out infinite;
+    will-change: opacity;
   }
 }
 
-@keyframes perimeter-light-sweep {
-  from {
-    transform: translate3d(-50%, -50%, 0) rotate(12deg);
+@keyframes perimeter-light-breathe {
+  0%,
+  100% {
+    opacity: 0.42;
   }
-  to {
-    transform: translate3d(-50%, -50%, 0) rotate(372deg);
+
+  50% {
+    opacity: 1;
   }
 }
 
@@ -1559,9 +1556,10 @@ html[data-ambient-paused='true'] .app-shell::after {
     will-change: auto;
   }
 
-  .perimeter-light-beam {
+  .perimeter-light-glow {
     animation: none !important;
-    transform: translate3d(-50%, -50%, 0) rotate(12deg) !important;
+    opacity: 0.72 !important;
+    transform: translateZ(0) !important;
     will-change: auto;
   }
 

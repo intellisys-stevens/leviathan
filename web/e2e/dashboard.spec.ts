@@ -2018,7 +2018,7 @@ test('opens resource details from card whitespace with one full-surface button',
   await activateWhitespace(/^Open GPU \d+ · Full GPU details$/u);
 });
 
-test('keeps the flowing beam inside a stationary resource perimeter', async ({
+test('keeps the breathing glow inside a stationary resource perimeter', async ({
   page,
 }, testInfo) => {
   test.skip(
@@ -2051,7 +2051,7 @@ test('keeps the flowing beam inside a stationary resource perimeter', async ({
   });
   if (testInfo.project.name.endsWith('-dark')) {
     const mask = surface.locator(':scope > [data-slot="perimeter-light"]');
-    const beam = mask.locator('[data-slot="perimeter-light-beam"]');
+    const glow = mask.locator('[data-slot="perimeter-light-glow"]');
     await expect(mask).toHaveCSS('opacity', '1');
     await expect(mask).toHaveCSS('pointer-events', 'none');
     await expect(mask).toHaveCSS('overflow', 'hidden');
@@ -2061,14 +2061,14 @@ test('keeps the flowing beam inside a stationary resource perimeter', async ({
         const mask = element.querySelector<HTMLElement>(
           ':scope > [data-slot="perimeter-light"]',
         )!;
-        const beam = mask.querySelector<HTMLElement>(
-          '[data-slot="perimeter-light-beam"]',
+        const glow = mask.querySelector<HTMLElement>(
+          '[data-slot="perimeter-light-glow"]',
         )!;
         const hostRect = element.getBoundingClientRect();
         const maskRect = mask.getBoundingClientRect();
         const hostStyle = getComputedStyle(element);
         const maskStyle = getComputedStyle(mask);
-        const beamStyle = getComputedStyle(beam);
+        const glowStyle = getComputedStyle(glow);
         return {
           host: {
             left: hostRect.left,
@@ -2088,22 +2088,38 @@ test('keeps the flowing beam inside a stationary resource perimeter', async ({
           hostRadius: hostStyle.borderRadius,
           maskRadius: maskStyle.borderRadius,
           maskImage: maskStyle.maskImage,
-          beamTransform: beamStyle.transform,
-          beamAnimation: beamStyle.animationName,
-          beamBackground: beamStyle.backgroundImage,
+          glowTransform: glowStyle.transform,
+          glowAnimation: glowStyle.animationName,
+          glowBackground: glowStyle.backgroundImage,
+          glowOpacity: Number.parseFloat(glowStyle.opacity),
+          animatedProperties: glow
+            .getAnimations()
+            .flatMap((animation) =>
+              animation.effect instanceof KeyframeEffect
+                ? animation.effect.getKeyframes()
+                : [],
+            )
+            .flatMap((keyframe) => Object.keys(keyframe))
+            .filter(
+              (property) =>
+                !['offset', 'computedOffset', 'easing', 'composite'].includes(
+                  property,
+                ),
+            ),
         };
       });
 
     const phases = [await readPhase()];
     for (let phase = 0; phase < 2; phase += 1) {
-      await page.waitForTimeout(180);
+      await page.waitForTimeout(320);
       phases.push(await readPhase());
     }
     for (const phase of phases) {
       expect(phase.maskTransform).toBe('none');
       expect(phase.maskAnimation).toBe('none');
-      expect(phase.beamAnimation).toBe('perimeter-light-sweep');
-      expect(phase.beamBackground).toContain('conic-gradient');
+      expect(phase.glowAnimation).toBe('perimeter-light-breathe');
+      expect(phase.glowBackground).toContain('linear-gradient');
+      expect(new Set(phase.animatedProperties)).toEqual(new Set(['opacity']));
       expect(phase.maskImage).toContain('linear-gradient');
       expect(phase.maskRadius).toBe(phase.hostRadius);
       expect(Math.abs(phase.host.left - phase.mask.left)).toBeLessThanOrEqual(
@@ -2119,12 +2135,14 @@ test('keeps the flowing beam inside a stationary resource perimeter', async ({
         Math.abs(phase.mask.bottom - phase.host.bottom),
       ).toBeLessThanOrEqual(2.1);
     }
-    expect(new Set(phases.map((phase) => phase.beamTransform)).size).toBe(
-      phases.length,
-    );
+    expect(new Set(phases.map((phase) => phase.glowTransform)).size).toBe(1);
+    const glowOpacities = phases.map((phase) => phase.glowOpacity);
+    expect(
+      Math.max(...glowOpacities) - Math.min(...glowOpacities),
+    ).toBeGreaterThan(0.03);
     expect(new Set(phases.map((phase) => phase.hostTransform)).size).toBe(1);
     expect(
-      await beam.evaluate((element) => element.getAttribute('style')),
+      await glow.evaluate((element) => element.getAttribute('style')),
     ).toBe(null);
     expect(
       await surface.evaluate((element) => {
@@ -2166,7 +2184,7 @@ test('keeps the flowing beam inside a stationary resource perimeter', async ({
     );
     await expect(focusedMask).toHaveCSS('opacity', '1');
     await expect(
-      focusedMask.locator('[data-slot="perimeter-light-beam"]'),
+      focusedMask.locator('[data-slot="perimeter-light-glow"]'),
     ).toHaveCSS('animation-name', 'none');
   }
 
@@ -2334,7 +2352,7 @@ test('removes spatial motion when reduced motion is requested', async ({
   if (!light) {
     const mask = resource.locator(':scope > [data-slot="perimeter-light"]');
     await expect(mask).toHaveCSS('opacity', '1');
-    await expect(mask.locator('[data-slot="perimeter-light-beam"]')).toHaveCSS(
+    await expect(mask.locator('[data-slot="perimeter-light-glow"]')).toHaveCSS(
       'animation-name',
       'none',
     );
@@ -2928,12 +2946,10 @@ test('matches targeted workbench and frost-dragon visual baselines', async ({
     await page.getByRole('link', { name: 'Resources' }).click();
     await page.addStyleTag({
       content: `
-        @media (prefers-reduced-motion: reduce) {
-          .dark .flowing-surface:hover:not(:focus-within)
-            > .perimeter-light .perimeter-light-beam {
-            animation: none !important;
-            transform: translate3d(-50%, -50%, 0) rotate(102deg) !important;
-          }
+        .dark .flowing-surface:hover:not(:focus-within)
+          > .perimeter-light .perimeter-light-glow {
+          animation: none !important;
+          opacity: 0.82 !important;
         }
       `,
     });
