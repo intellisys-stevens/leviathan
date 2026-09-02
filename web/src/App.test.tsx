@@ -354,7 +354,7 @@ function result(
   connection = 'live',
   error: string | null = null,
   settings: RuntimeSettings = {
-    samplingIntervalMs: 1000,
+    samplingIntervalMs: 500,
     profileIntervalMs: 1000,
     processIntervalMs: 1000,
     historyWindowMs: 60 * 60 * 1000,
@@ -917,11 +917,16 @@ describe('Leviathan dashboard states', () => {
     expect(within(capsule).getByText('Live')).toBeInTheDocument();
     expect(within(capsule).queryByText(/#12/)).not.toBeInTheDocument();
     expect(within(capsule).queryByText('Sampling')).toBeNull();
-    expect(within(capsule).getByText('Host 1s')).toBeInTheDocument();
+    expect(within(capsule).queryByText('Host 0.5s')).not.toBeInTheDocument();
     const sampling = within(capsule).getByRole('radiogroup', {
       name: 'View updates',
     });
     expect(sampling).toHaveClass('segmented-control');
+    expect(
+      within(sampling).getByRole('radio', {
+        name: '0.5s, every host sample',
+      }),
+    ).toBeInTheDocument();
     const selectedSampling = within(sampling).getByRole('radio', {
       name: '1s',
     });
@@ -950,7 +955,7 @@ describe('Leviathan dashboard states', () => {
     expect(screen.queryByText('Sampling')).toBeNull();
     expect(
       screen.getByTitle(
-        'Host samples 1s · profiles 2s · processes 5s. Browser view updates 1s.',
+        'Host samples 1s · profiles 2s · processes 5s. Browser view updates 1s, every host sample.',
       ),
     ).toBeInTheDocument();
   });
@@ -966,7 +971,7 @@ describe('Leviathan dashboard states', () => {
     fireEvent.click(trigger);
     const popup = await screen.findByRole('dialog');
     expect(
-      within(popup).getByText(/Host samples 1s · profiles 1s · processes 1s/),
+      within(popup).getByText(/Host samples 0.5s · profiles 1s · processes 1s/),
     ).toBeVisible();
 
     fireEvent.click(within(popup).getByRole('radio', { name: '2s' }));
@@ -1451,20 +1456,24 @@ describe('Leviathan dashboard states', () => {
     const cadenceControl = screen.getByRole('radiogroup', {
       name: 'View updates',
     });
-    fireEvent.click(screen.getByRole('radio', { name: 'Every sample' }));
+    fireEvent.click(
+      screen.getByRole('radio', {
+        name: '0.25s, every host sample',
+      }),
+    );
     expect(screen.getByRole('radiogroup', { name: 'View updates' })).toBe(
       cadenceControl,
     );
     expect(
       within(screen.getByTestId('desktop-live-sampling')).getByRole('radio', {
-        name: 'Every sample',
+        name: '0.25s, every host sample',
       }),
     ).toBeChecked();
     expect(localStorage.getItem('leviathan.displayCadence.v1')).toBe('0');
     expect(dashboard.updateSamplingInterval).not.toHaveBeenCalled();
     expect(
       screen.getByTitle(
-        'Host samples 0.25s · profiles 0.25s · processes 0.25s. Browser view updates Every sample.',
+        'Host samples 0.25s · profiles 0.25s · processes 0.25s. Browser view updates 0.25s, every host sample.',
       ),
     ).toBeInTheDocument();
   });
