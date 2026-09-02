@@ -10,7 +10,12 @@ import {
 import { memo } from 'react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { formatSamplingInterval } from '../chart-window';
-import { displayCadenceLabel, displayCadenceOptions } from '../display-cadence';
+import {
+  accessibleDisplayCadenceLabel,
+  availableDisplayCadenceOptions,
+  effectiveDisplayCadenceOption,
+  visibleDisplayCadenceLabel,
+} from '../display-cadence';
 import type { RuntimeSettings } from '../types';
 import { useMediaQuery } from '../use-media-query';
 import type { ConnectionState } from '../use-leviathan';
@@ -34,6 +39,7 @@ type Props = {
 
 type ViewCadenceChoicesProps = {
   current: number;
+  hostSamplingIntervalMs?: number | null;
   mobile?: boolean;
   onSelect: (milliseconds: number) => void;
 };
@@ -57,23 +63,28 @@ function titleCase(value: string): string {
 
 function ViewCadenceChoices({
   current,
+  hostSamplingIntervalMs,
   mobile = false,
   onSelect,
 }: ViewCadenceChoicesProps) {
-  const options: SegmentedControlOption<number>[] = displayCadenceOptions.map(
-    (milliseconds) => ({
-      value: milliseconds,
-      label: milliseconds === 0 ? 'Every' : displayCadenceLabel(milliseconds),
-      ariaLabel: displayCadenceLabel(milliseconds),
-    }),
-  );
+  const options: SegmentedControlOption<number>[] =
+    availableDisplayCadenceOptions(hostSamplingIntervalMs).map(
+      (milliseconds) => ({
+        value: milliseconds,
+        label: visibleDisplayCadenceLabel(milliseconds, hostSamplingIntervalMs),
+        ariaLabel: accessibleDisplayCadenceLabel(
+          milliseconds,
+          hostSamplingIntervalMs,
+        ),
+      }),
+    );
 
   return (
     <SegmentedControl
       ariaLabel="View updates"
       className={mobile ? 'w-full' : ''}
       options={options}
-      value={current}
+      value={effectiveDisplayCadenceOption(current, hostSamplingIntervalMs)}
       onValueChange={onSelect}
     />
   );
@@ -101,12 +112,23 @@ function StatusHeaderComponent({
       : 'Live'
     : titleCase(connection);
   const healthy = live && !degraded;
-  const displayedCadenceText =
-    displayCadenceMs === 0 ? 'Every' : displayCadenceLabel(displayCadenceMs);
+  const hostSamplingIntervalMs = settings?.samplingIntervalMs;
+  const displayedCadenceOption = effectiveDisplayCadenceOption(
+    displayCadenceMs,
+    hostSamplingIntervalMs,
+  );
+  const displayedCadenceText = visibleDisplayCadenceLabel(
+    displayedCadenceOption,
+    hostSamplingIntervalMs,
+  );
+  const displayedCadenceAccessibleLabel = accessibleDisplayCadenceLabel(
+    displayedCadenceOption,
+    hostSamplingIntervalMs,
+  );
   const hostSamplingText =
-    settings?.samplingIntervalMs == null
+    hostSamplingIntervalMs == null
       ? 'unavailable'
-      : formatSamplingInterval(settings.samplingIntervalMs);
+      : formatSamplingInterval(hostSamplingIntervalMs);
   const cadenceDetails = [
     settings?.profileIntervalMs
       ? `profiles ${formatSamplingInterval(settings.profileIntervalMs)}`
@@ -176,15 +198,13 @@ function StatusHeaderComponent({
               </output>
               <div
                 className="flex items-center gap-2"
-                title={`${cadenceTitle}. Browser view updates ${displayCadenceLabel(displayCadenceMs)}.`}
+                title={`${cadenceTitle}. Browser view updates ${displayedCadenceAccessibleLabel}.`}
               >
                 <ViewCadenceChoices
                   current={displayCadenceMs}
+                  hostSamplingIntervalMs={hostSamplingIntervalMs}
                   onSelect={onDisplayCadenceChange}
                 />
-                <span className="hidden font-mono text-[13px] text-muted-foreground xl:inline">
-                  Host {hostSamplingText}
-                </span>
               </div>
             </fieldset>
             {settingsError ? (
@@ -214,7 +234,7 @@ function StatusHeaderComponent({
             <PopoverPrimitive.Root key={desktop ? 'desktop' : 'mobile'}>
               <PopoverPrimitive.Trigger
                 className="flex size-10 items-center justify-center gap-1.5 rounded-md border border-input bg-popover px-2 font-mono text-[13px] font-semibold text-foreground shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label={`${statusName} status, view updates ${displayCadenceLabel(displayCadenceMs)}`}
+                aria-label={`${statusName} status, view updates ${displayedCadenceAccessibleLabel}`}
               >
                 {indicator}
                 <span className="whitespace-nowrap">
@@ -238,7 +258,7 @@ function StatusHeaderComponent({
                         </PopoverPrimitive.Title>
                         <PopoverPrimitive.Description className="mt-0.5 text-[13px] text-muted-foreground">
                           This browser updates{' '}
-                          {displayCadenceLabel(displayCadenceMs).toLowerCase()}.
+                          {displayedCadenceAccessibleLabel.toLowerCase()}.
                           {' · '}
                           {cadenceTitle}.
                         </PopoverPrimitive.Description>
@@ -253,6 +273,7 @@ function StatusHeaderComponent({
                     <div className="relative">
                       <ViewCadenceChoices
                         current={displayCadenceMs}
+                        hostSamplingIntervalMs={hostSamplingIntervalMs}
                         mobile
                         onSelect={onDisplayCadenceChange}
                       />

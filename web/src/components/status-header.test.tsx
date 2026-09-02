@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RuntimeSettings } from '../types';
 import { StatusHeader } from './status-header';
 
-function settings(samplingIntervalMs = 1000): RuntimeSettings {
+function settings(samplingIntervalMs = 500): RuntimeSettings {
   return {
     samplingIntervalMs,
     profileIntervalMs: 2000,
@@ -71,7 +71,7 @@ describe('StatusHeader view cadence controls', () => {
       within(control)
         .getAllByRole('radio')
         .map((radio) => radio.getAttribute('aria-label')),
-    ).toEqual(['Every sample', '1s', '2s']);
+    ).toEqual(['0.5s, every host sample', '1s', '2s']);
     expect(within(control).getByRole('radio', { name: '1s' })).toBeChecked();
     expect(control.querySelector('.segmented-thumb')).toHaveClass(
       'transition-transform',
@@ -90,6 +90,7 @@ describe('StatusHeader view cadence controls', () => {
     expect(repositoryLink).toHaveAttribute('target', '_blank');
     expect(repositoryLink).toHaveAttribute('rel', 'noreferrer');
     expect(screen.getByRole('banner')).not.toHaveTextContent('NVML + GPM');
+    expect(desktop).not.toHaveTextContent('Host 0.5s');
   });
 
   it('changes only the browser-local display cadence', () => {
@@ -117,7 +118,39 @@ describe('StatusHeader view cadence controls', () => {
     );
     fireEvent.click(within(desktop).getByRole('button', { name: 'Retry' }));
     expect(retry).toHaveBeenCalledOnce();
-    expect(within(desktop).queryByRole('radio', { name: '0.25s' })).toBeNull();
+    expect(
+      within(desktop).getByRole('radio', {
+        name: '0.25s, every host sample',
+      }),
+    ).toBeInTheDocument();
+    expect(desktop).not.toHaveTextContent('Host 0.25s');
+  });
+
+  it('uses an honest fallback and removes rates that a slower host cannot deliver', () => {
+    const view = render(header({ settings: null, displayCadenceMs: 0 }));
+    const desktop = screen.getByTestId('desktop-live-sampling');
+    expect(
+      within(desktop).getByRole('radio', {
+        name: 'Auto, every host sample',
+      }),
+    ).toBeChecked();
+    expect(within(desktop).getAllByRole('radio')).toHaveLength(3);
+
+    view.rerender(header({ settings: settings(1000), displayCadenceMs: 1000 }));
+    expect(within(desktop).getAllByRole('radio')).toHaveLength(2);
+    expect(
+      within(desktop).getByRole('radio', {
+        name: '1s, every host sample',
+      }),
+    ).toBeChecked();
+    expect(
+      within(desktop).queryByRole('radio', { name: '1s' }),
+    ).not.toBeInTheDocument();
+    expect(within(desktop).getByRole('radio', { name: '2s' })).toBeVisible();
+
+    view.rerender(header({ settings: settings(500), displayCadenceMs: 1000 }));
+    expect(within(desktop).getAllByRole('radio')).toHaveLength(3);
+    expect(within(desktop).getByRole('radio', { name: '1s' })).toBeChecked();
   });
 
   it('uses the same neutral compact treatment for the mobile popover', async () => {
@@ -134,7 +167,9 @@ describe('StatusHeader view cadence controls', () => {
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('View updates')).toBeInTheDocument();
     expect(
-      within(dialog).getByText(/Host samples 1s · profiles 2s · processes 5s/),
+      within(dialog).getByText(
+        /Host samples 0.5s · profiles 2s · processes 5s/,
+      ),
     ).toBeInTheDocument();
     expect(
       within(dialog).getByRole('radiogroup', { name: 'View updates' }),

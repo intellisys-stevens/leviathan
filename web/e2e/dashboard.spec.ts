@@ -195,7 +195,7 @@ const snapshot = {
 };
 
 const settings = {
-  samplingIntervalMs: 1_000,
+  samplingIntervalMs: 500,
   profileIntervalMs: 2_000,
   processIntervalMs: 2_000,
   historyWindowMs: 43_200_000,
@@ -1128,6 +1128,7 @@ test('keeps browser-local view updates concise and visually balanced', async ({
     await expect(desktop).toBeVisible();
     await expect(mobile).toBeHidden();
     await expect(desktop.getByText('Live', { exact: true })).toBeVisible();
+    await expect(desktop).not.toContainText('Host 0.5s');
     await expect(samplingGroup).toHaveClass(/\bsegmented-control\b/u);
     await expect(
       samplingGroup.getByRole('radio', { checked: true }),
@@ -1217,15 +1218,15 @@ test('keeps browser-local view updates concise and visually balanced', async ({
   }
 
   const everySample = samplingGroup.getByRole('radio', {
-    name: 'Every sample',
+    name: '0.5s, every host sample',
   });
-  const everySampleItem = samplingItems.filter({ hasText: /^Every$/u });
+  const everySampleItem = samplingItems.filter({ hasText: /^0\.5s$/u });
   const beforeUpdate = await everySampleItem.evaluate((element) => ({
     width: (element as HTMLElement).offsetWidth,
     height: (element as HTMLElement).offsetHeight,
   }));
   await everySampleItem.click();
-  await expect(everySampleItem).toHaveText('Every');
+  await expect(everySampleItem).toHaveText('0.5s');
   await expect(everySampleItem.locator('svg')).toHaveCount(0);
   await expect(everySampleItem.locator('.animate-spin')).toHaveCount(0);
   await expect(everySample).toBeChecked();
@@ -1240,6 +1241,14 @@ test('keeps browser-local view updates concise and visually balanced', async ({
     ),
   ).toBe('0');
   expect(settingsPatches).toEqual([]);
+
+  if (viewport!.width < 768) {
+    await page.keyboard.press('Escape');
+    const trigger = mobile.getByRole('button', {
+      name: 'Live status, view updates 0.5s, every host sample',
+    });
+    await expect(trigger).toHaveText('Live · 0.5s');
+  }
 
   await expect(page.getByText('Sampling', { exact: true })).toHaveCount(0);
 });
