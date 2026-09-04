@@ -23,14 +23,25 @@ type NullableAttribution = Omit<Attribution, 'workloads' | 'assignments'> & {
   assignments?: Attribution['assignments'] | null;
 };
 
+type LegacyCapabilities = Omit<Capabilities, 'system'> & {
+  system?: Capabilities['system'] | null;
+};
+
 export type SnapshotPayload = Omit<
   Snapshot,
-  'gpus' | 'processes' | 'diagnostics' | 'attribution'
+  | 'system'
+  | 'gpus'
+  | 'processes'
+  | 'diagnostics'
+  | 'attribution'
+  | 'capabilities'
 > & {
+  system?: Snapshot['system'] | null;
   gpus?: Snapshot['gpus'] | null;
   processes?: Snapshot['processes'] | null;
   diagnostics?: Snapshot['diagnostics'] | null;
   attribution?: NullableAttribution | null;
+  capabilities: LegacyCapabilities;
 };
 
 function arrayOrEmpty<T>(value: T[] | null | undefined): T[] {
@@ -42,11 +53,80 @@ function arrayOrEmpty<T>(value: T[] | null | undefined): T[] {
 // empty Go slice as null; normalizing at the boundary keeps rendering safe.
 export function normalizeSnapshot(payload: SnapshotPayload): Snapshot {
   const attribution = payload.attribution;
+  const legacySystem = {
+    name: 'Linux host telemetry',
+    available: false,
+    status: 'unsupported' as const,
+    message: 'This server predates whole-machine telemetry.',
+  };
+  const unavailableMetric = (unit: string) => ({
+    value: null,
+    unit,
+    source: 'procfs' as const,
+    scope: 'host' as const,
+    sampledAt: payload.sampledAt,
+    status: 'unsupported' as const,
+    message: legacySystem.message,
+  });
+  const system =
+    payload.system ??
+    ({
+      cpu: {
+        model: '',
+        logicalProcessors: 0,
+        utilization: unavailableMetric('percent'),
+        load1: unavailableMetric('load'),
+        load5: unavailableMetric('load'),
+        load15: unavailableMetric('load'),
+        source: 'procfs',
+        sampledAt: payload.sampledAt,
+        status: 'unsupported',
+        message: legacySystem.message,
+      },
+      memory: {
+        totalBytes: null,
+        usedBytes: null,
+        availableBytes: null,
+        utilization: unavailableMetric('percent'),
+        source: 'procfs',
+        scope: 'host',
+        sampledAt: payload.sampledAt,
+        status: 'unsupported',
+        message: legacySystem.message,
+      },
+      storage: {
+        totalBytes: null,
+        usedBytes: null,
+        availableBytes: null,
+        readBytesPerSecond: unavailableMetric('bytes_per_second'),
+        writeBytesPerSecond: unavailableMetric('bytes_per_second'),
+        filesystems: [],
+        source: 'statfs',
+        scope: 'host',
+        sampledAt: payload.sampledAt,
+        status: 'unsupported',
+        message: legacySystem.message,
+      },
+      sampledAt: payload.sampledAt,
+      status: 'unsupported',
+      message: legacySystem.message,
+    } satisfies Snapshot['system']);
   return {
     ...payload,
+    system: {
+      ...system,
+      storage: {
+        ...system.storage,
+        filesystems: arrayOrEmpty(system.storage.filesystems),
+      },
+    },
     gpus: arrayOrEmpty(payload.gpus),
     processes: arrayOrEmpty(payload.processes),
     diagnostics: arrayOrEmpty(payload.diagnostics),
+    capabilities: {
+      ...payload.capabilities,
+      system: payload.capabilities.system ?? legacySystem,
+    },
     attribution:
       attribution == null
         ? undefined
@@ -95,7 +175,7 @@ function sameDiagnostic(left: Diagnostic, right: Diagnostic): boolean {
 }
 
 function sameCapabilities(left: Capabilities, right: Capabilities): boolean {
-  const providers = ['nvml', 'gpm', 'dcgm', 'proc'] as const;
+  const providers = ['system', 'nvml', 'gpm', 'dcgm', 'proc'] as const;
   return (
     left.profileMetrics === right.profileMetrics &&
     providers.every((name) => {
@@ -199,6 +279,7 @@ export function useLeviathan(displayCadenceMs = 0) {
   );
   const displayCadenceRef = useRef(displayCadenceMs);
   const lastSnapshotCommitRef = useRef(0);
+  const remoteCSRFRef = useRef<string | null>(null);
 
   const commitSnapshot = useCallback((next: Snapshot) => {
     const current = snapshotRef.current;
@@ -302,6 +383,9 @@ export function useLeviathan(displayCadenceMs = 0) {
       .then(async (response) => {
         if (!response.ok)
           throw new Error(`Settings request failed (${response.status})`);
+        const remoteCSRF = response.headers.get('X-Leviathan-CSRF-Token');
+        remoteCSRFRef.current =
+          remoteCSRF && remoteCSRF.length <= 128 ? remoteCSRF : null;
         return response.json() as Promise<RuntimeSettings>;
       })
       .then((data) => {
@@ -436,9 +520,14 @@ export function useLeviathan(displayCadenceMs = 0) {
   const updateSamplingInterval = useCallback(
     async (samplingIntervalMs: number): Promise<RuntimeSettings> => {
       const eventGeneration = settingsEventGeneration.current;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (remoteCSRFRef.current)
+        headers['X-Leviathan-CSRF-Token'] = remoteCSRFRef.current;
       const response = await fetch('/api/v1/settings', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ samplingIntervalMs }),
       });
       if (!response.ok) {

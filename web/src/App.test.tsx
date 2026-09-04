@@ -24,6 +24,7 @@ import type {
   RuntimeSettings,
   Snapshot,
 } from './types';
+import { systemCapability, systemFixture } from './test/system-fixture';
 
 const mockUseLeviathan = vi.hoisted(() => vi.fn());
 const scrollIntoViewMock = vi.fn();
@@ -42,6 +43,7 @@ const unavailable = {
   status: 'unsupported' as const,
 };
 const capabilities: Capabilities = {
+  system: systemCapability,
   nvml: available,
   gpm: available,
   dcgm: unavailable,
@@ -319,6 +321,7 @@ function snapshot(
     sequence: 12,
     sampledAt,
     host: { hostname: 'fixture-host', os: 'linux', arch: 'amd64' },
+    system: systemFixture(sampledAt),
     gpus,
     processes: gpuProcesses,
     capabilities,

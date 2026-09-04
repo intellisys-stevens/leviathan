@@ -10,6 +10,7 @@ import {
   type OverviewPoint,
 } from './overview-history';
 import type { AlignedHistory, Snapshot } from './types';
+import { systemCapability, systemFixture } from './test/system-fixture';
 
 const sampledAt = '2026-08-29T12:00:00Z';
 
@@ -19,9 +20,11 @@ function fixture(): Snapshot {
     sequence: 1,
     sampledAt,
     host: { hostname: 'fixture', os: 'linux', arch: 'amd64' },
+    system: systemFixture(sampledAt),
     processes: [],
     diagnostics: [],
     capabilities: {
+      system: systemCapability,
       nvml: { name: 'NVML', available: true, status: 'available' },
       gpm: { name: 'GPM', available: true, status: 'available' },
       dcgm: { name: 'DCGM', available: false, status: 'unsupported' },

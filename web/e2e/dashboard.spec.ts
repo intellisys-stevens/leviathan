@@ -30,6 +30,17 @@ function giMetric(value: number, unit: string) {
   return { ...metric(value, unit), scope: 'gpu_instance' };
 }
 
+function hostMetric(value: number, unit: string) {
+  return {
+    value,
+    unit,
+    source: 'synthetic',
+    scope: 'host',
+    sampledAt,
+    status: 'available',
+  };
+}
+
 const memory = {
   totalBytes: 103_079_215_104,
   usedBytes: 41_231_686_042,
@@ -45,6 +56,56 @@ const snapshot = {
   sequence: 42,
   sampledAt,
   host: { hostname: 'synthetic-host', os: 'linux', arch: 'amd64' },
+  system: {
+    cpu: {
+      model: 'Synthetic 16-Core CPU',
+      logicalProcessors: 32,
+      utilization: hostMetric(37, 'percent'),
+      load1: hostMetric(3.2, 'load'),
+      load5: hostMetric(2.8, 'load'),
+      load15: hostMetric(2.4, 'load'),
+      source: 'synthetic',
+      sampledAt,
+      status: 'available',
+    },
+    memory: {
+      totalBytes: 137_438_953_472,
+      usedBytes: 55_834_574_848,
+      availableBytes: 81_604_378_624,
+      utilization: hostMetric(40.625, 'percent'),
+      source: 'synthetic',
+      scope: 'host',
+      sampledAt,
+      status: 'available',
+    },
+    storage: {
+      totalBytes: 1_099_511_627_776,
+      usedBytes: 450_971_566_080,
+      availableBytes: 648_540_061_696,
+      readBytesPerSecond: hostMetric(188_743_680, 'bytes_per_second'),
+      writeBytesPerSecond: hostMetric(75_497_472, 'bytes_per_second'),
+      filesystems: [
+        {
+          id: 'fs_synthetic_root',
+          mountPoint: '/',
+          fsType: 'ext4',
+          totalBytes: 1_099_511_627_776,
+          usedBytes: 450_971_566_080,
+          availableBytes: 648_540_061_696,
+          source: 'synthetic',
+          scope: 'host',
+          sampledAt,
+          status: 'available',
+        },
+      ],
+      source: 'synthetic',
+      scope: 'host',
+      sampledAt,
+      status: 'available',
+    },
+    sampledAt,
+    status: 'available',
+  },
   gpus: [
     {
       uuid: gpuUUID,
@@ -150,6 +211,11 @@ const snapshot = {
         : {}),
   })),
   capabilities: {
+    system: {
+      name: 'Synthetic host telemetry',
+      available: true,
+      status: 'available',
+    },
     nvml: { name: 'Synthetic NVML', available: true, status: 'available' },
     gpm: { name: 'Synthetic GPM', available: true, status: 'available' },
     dcgm: { name: 'DCGM', available: false, status: 'unsupported' },
@@ -219,6 +285,10 @@ const historyPoints = Array.from({ length: 9 }, (_, index) => {
       pcie_tx_bytes_per_second: 134_217_728 + index * 50_331_648,
       memory_used_bytes: 31_138_545_664 + index * 1_258_291_200,
       memory_total_bytes: memory.totalBytes,
+      cpu_utilization: 29 + index,
+      memory_utilization: 36 + index * 0.578125,
+      storage_used_bytes: 442_381_631_488 + index * 1_073_741_824,
+      storage_total_bytes: 1_099_511_627_776,
     },
   };
 });
@@ -314,7 +384,7 @@ async function installSyntheticBackend(
     }
     if (url.pathname === '/api/v1/version') {
       await route.fulfill({
-        json: { version: '0.3.2', commit: 'synthetic', buildDate: sampledAt },
+        json: { version: '0.4.0', commit: 'synthetic', buildDate: sampledAt },
       });
       return;
     }
@@ -527,7 +597,28 @@ test('renders frost-dragon branding with glass, aurora, and ambient snow layers'
       .getByRole('region', { name: 'Host summary' })
       .locator(':scope > [data-slot="snow-cap"]'),
   ).toHaveCount(0);
+  await expect(
+    page.getByRole('heading', { name: 'Machine', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'CPU', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'RAM', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Storage', exact: true }),
+  ).toBeVisible();
   await page.getByRole('link', { name: 'Resources' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Filesystems', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('cell', { name: '/', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('cell', { name: 'ext4', exact: true }),
+  ).toBeVisible();
   await expect(page.locator('.gpu-card').first()).toBeVisible();
 
   const visual = await page.evaluate(() => {
@@ -1335,7 +1426,7 @@ test('uses one smooth segmented-control motion contract for cadence and chart wi
     .getByTestId('desktop-live-sampling')
     .getByRole('radiogroup', { name: 'View updates' });
   const telemetryHeader = page
-    .getByRole('heading', { name: 'Telemetry', exact: true, level: 2 })
+    .getByRole('heading', { name: 'GPU telemetry', exact: true, level: 2 })
     .locator('xpath=..');
   const chartWindow = telemetryHeader.getByRole('radiogroup', {
     name: 'Chart window',
@@ -1384,7 +1475,7 @@ test('offers functional 4h and 12h windows with a native narrow selector', async
     }
   });
   const header = page
-    .getByRole('heading', { name: 'Telemetry', exact: true, level: 2 })
+    .getByRole('heading', { name: 'GPU telemetry', exact: true, level: 2 })
     .locator('xpath=..');
   const narrow = header.locator('.chart-window-mobile');
   const wide = header.locator('.chart-window-desktop');
@@ -2932,7 +3023,7 @@ test('covers required responsive widths with a concise header', async ({
       await expect(mobileFooter).toContainText(
         '⚔️ Intellisys Dragoons × Codex',
       );
-      await expect(mobileFooter).toContainText('Leviathan v0.3.2');
+      await expect(mobileFooter).toContainText('Leviathan v0.4.0');
       await page.evaluate(() =>
         window.scrollTo({ top: document.documentElement.scrollHeight }),
       );
@@ -2949,7 +3040,7 @@ test('covers required responsive widths with a concise header', async ({
       await expect(desktopFooter).toBeVisible();
       await expect(mobileFooter).toBeHidden();
       await expect(desktopFooter).toContainText(
-        'Built with ⚔️ by Intellisys Dragoons and Codex · Leviathan v0.3.2',
+        'Built with ⚔️ by Intellisys Dragoons and Codex · Leviathan v0.4.0',
       );
     }
     expect(

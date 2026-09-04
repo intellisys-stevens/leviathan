@@ -39,6 +39,7 @@ import { PerimeterLight } from './components/perimeter-light';
 import { PeopleView } from './components/people-view';
 import { ProcessTable } from './components/process-table';
 import { StatusHeader } from './components/status-header';
+import { FilesystemTable, SystemOverview } from './components/system-overview';
 import { AttributionSummary } from './components/workspace-attribution';
 import {
   readBrowserSetting,
@@ -901,10 +902,15 @@ export function App() {
                   </div>
                 </section>
 
+                <SystemOverview
+                  snapshot={snapshot}
+                  chartWindowMs={chartWindowMs}
+                />
+
                 <section aria-labelledby="host-telemetry-heading">
                   <div className="section-heading-row">
                     <h2 id="host-telemetry-heading" className="section-title">
-                      Telemetry
+                      GPU telemetry
                     </h2>
                     <ChartWindowControl
                       chartWindowMs={chartWindowMs}
@@ -915,10 +921,11 @@ export function App() {
                   {snapshot.gpus.length === 0 ? (
                     <div className="mt-4 border border-dashed border-border bg-card p-10 text-center">
                       <p className="text-[15px] font-medium">
-                        Host telemetry unavailable
+                        GPU telemetry unavailable
                       </p>
                       <p className="mt-1 text-[13px] text-muted-foreground">
-                        No GPU entities are available for history collection.
+                        System telemetry remains available above; no GPU
+                        entities are available for GPU history.
                       </p>
                     </div>
                   ) : (
@@ -954,12 +961,15 @@ export function App() {
             ) : null}
 
             {activeView === 'resources' ? (
-              <section className="mt-6" aria-labelledby="gpu-topology-heading">
-                <h2 id="gpu-topology-heading" className="section-title mb-3">
-                  GPU topology
-                </h2>
-                <GPUGrid snapshot={snapshot} onSelect={openSelection} />
-              </section>
+              <div className="mt-6 space-y-6">
+                <FilesystemTable snapshot={snapshot} />
+                <section aria-labelledby="gpu-topology-heading">
+                  <h2 id="gpu-topology-heading" className="section-title mb-3">
+                    GPU topology
+                  </h2>
+                  <GPUGrid snapshot={snapshot} onSelect={openSelection} />
+                </section>
+              </div>
             ) : null}
 
             {activeView === 'workloads' ? (

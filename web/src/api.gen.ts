@@ -131,7 +131,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Report whether a snapshot is available. */
+        /** Report independent system and GPU telemetry health. */
         get: operations["healthz"];
         put?: never;
         post?: never;
@@ -146,9 +146,9 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /** @enum {string} */
-        MetricStatus: "available" | "unsupported" | "permission_denied" | "stale" | "error";
+        MetricStatus: "available" | "unsupported" | "permission_denied" | "estimated" | "stale" | "error";
         /** @enum {string} */
-        MetricSource: "nvml" | "nvml_gpm" | "dcgm" | "proc" | "synthetic";
+        MetricSource: "nvml" | "nvml_gpm" | "dcgm" | "proc" | "procfs" | "statfs" | "synthetic";
         /** @enum {string} */
         MetricScope: "host" | "physical_gpu" | "gpu_instance" | "compute_instance";
         Metric: {
@@ -266,6 +266,7 @@ export interface components {
             message?: string;
         };
         Capabilities: {
+            system: components["schemas"]["ProviderState"];
             nvml: components["schemas"]["ProviderState"];
             gpm: components["schemas"]["ProviderState"];
             dcgm: components["schemas"]["ProviderState"];
@@ -325,6 +326,78 @@ export interface components {
             os: string;
             arch: string;
         };
+        CPU: {
+            model: string;
+            logicalProcessors: number;
+            utilization: components["schemas"]["Metric"];
+            load1: components["schemas"]["Metric"];
+            load5: components["schemas"]["Metric"];
+            load15: components["schemas"]["Metric"];
+            source: components["schemas"]["MetricSource"];
+            /** Format: date-time */
+            sampledAt: string;
+            status: components["schemas"]["MetricStatus"];
+            message?: string;
+        };
+        SystemMemory: {
+            /** Format: uint64 */
+            totalBytes: number | null;
+            /** Format: uint64 */
+            usedBytes: number | null;
+            /** Format: uint64 */
+            availableBytes: number | null;
+            utilization: components["schemas"]["Metric"];
+            source: components["schemas"]["MetricSource"];
+            scope: components["schemas"]["MetricScope"];
+            /** Format: date-time */
+            sampledAt: string;
+            status: components["schemas"]["MetricStatus"];
+            message?: string;
+        };
+        /** @description Sanitized persistent local filesystem capacity. The opaque ID is not a device path or filesystem UUID. */
+        Filesystem: {
+            id: string;
+            mountPoint: string;
+            fsType: string;
+            /** Format: uint64 */
+            totalBytes: number | null;
+            /** Format: uint64 */
+            usedBytes: number | null;
+            /** Format: uint64 */
+            availableBytes: number | null;
+            source: components["schemas"]["MetricSource"];
+            scope: components["schemas"]["MetricScope"];
+            /** Format: date-time */
+            sampledAt: string;
+            status: components["schemas"]["MetricStatus"];
+            message?: string;
+        };
+        Storage: {
+            /** Format: uint64 */
+            totalBytes: number | null;
+            /** Format: uint64 */
+            usedBytes: number | null;
+            /** Format: uint64 */
+            availableBytes: number | null;
+            readBytesPerSecond: components["schemas"]["Metric"];
+            writeBytesPerSecond: components["schemas"]["Metric"];
+            filesystems: components["schemas"]["Filesystem"][];
+            source: components["schemas"]["MetricSource"];
+            scope: components["schemas"]["MetricScope"];
+            /** Format: date-time */
+            sampledAt: string;
+            status: components["schemas"]["MetricStatus"];
+            message?: string;
+        };
+        System: {
+            cpu: components["schemas"]["CPU"];
+            memory: components["schemas"]["SystemMemory"];
+            storage: components["schemas"]["Storage"];
+            /** Format: date-time */
+            sampledAt: string;
+            status: components["schemas"]["MetricStatus"];
+            message?: string;
+        };
         Snapshot: {
             /** @constant */
             schemaVersion: "v1";
@@ -333,6 +406,7 @@ export interface components {
             /** Format: date-time */
             sampledAt: string;
             host: components["schemas"]["Host"];
+            system: components["schemas"]["System"];
             gpus: components["schemas"]["GPU"][];
             /** @description GPU-connected processes detected through open NVIDIA UVM device handles in the current PID namespace. Leviathan itself is excluded. */
             processes: components["schemas"]["Process"][];
@@ -380,10 +454,19 @@ export interface components {
             points: components["schemas"]["AlignedHistoryPoint"][];
         };
         Health: {
-            /** @constant */
-            status: "ok";
+            /** @enum {string} */
+            status: "ok" | "degraded" | "unavailable";
             /** Format: date-time */
-            sampledAt: string;
+            sampledAt?: string | null;
+            error?: string;
+            domains: {
+                system: components["schemas"]["HealthDomain"];
+                gpu: components["schemas"]["HealthDomain"];
+            };
+        };
+        HealthDomain: {
+            available: boolean;
+            status: components["schemas"]["MetricStatus"];
         };
         Error: {
             error: string;
@@ -622,7 +705,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Healthy. */
+            /** @description Healthy or degraded with at least one current telemetry domain. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -631,7 +714,15 @@ export interface operations {
                     "application/json": components["schemas"]["Health"];
                 };
             };
-            503: components["responses"]["Unavailable"];
+            /** @description No telemetry domain has a valid current snapshot. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Health"];
+                };
+            };
         };
     };
 }

@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { buildTrendRows } from '../chart-trend';
 import type { Snapshot } from '../types';
+import { systemCapability, systemFixture } from '../test/system-fixture';
 import {
   OverviewCharts,
   SeriesTooltip,
@@ -176,10 +177,12 @@ describe('overview metric presentation', () => {
       sequence: 1,
       sampledAt: '2026-08-29T12:00:00Z',
       host: { hostname: 'synthetic', os: 'linux', arch: 'amd64' },
+      system: systemFixture('2026-08-29T12:00:00Z'),
       gpus: [],
       processes: [],
       diagnostics: [],
       capabilities: {
+        system: systemCapability,
         nvml: provider,
         gpm: provider,
         dcgm: provider,
