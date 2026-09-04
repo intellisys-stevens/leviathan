@@ -38,6 +38,9 @@ func TestConfigPrecedenceAndRedactedJSON(t *testing.T) {
 	if len(snapshot.GPUs) != 1 || len(snapshot.GPUs[0].GPUInstances[0].ComputeInstances) != 2 {
 		t.Fatalf("CLI flags did not override config/env: %+v", snapshot.GPUs)
 	}
+	if snapshot.System.Status != model.StatusAvailable || snapshot.System.Memory.Utilization.Value == nil || len(snapshot.System.Storage.Filesystems) == 0 {
+		t.Fatalf("whole-machine telemetry missing from snapshot: %+v", snapshot.System)
+	}
 	// The fixture contains no command arguments; empty fields must stay absent on the wire.
 	if strings.Contains(stdout.String(), "commandLine") || strings.Contains(stdout.String(), "SECRET=") {
 		t.Fatalf("redacted output leaked fields: %s", stdout.String())

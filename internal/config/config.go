@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net"
@@ -9,11 +10,23 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
+	"github.com/intellisys-stevens/leviathan/internal/uplink"
 	"github.com/pelletier/go-toml/v2"
 )
 
-const DefaultListen = "127.0.0.1:1397"
+const (
+	DefaultListen         = "127.0.0.1:1397"
+	DefaultUplinkInterval = uplink.DefaultInterval
+)
+
+type UplinkConfig struct {
+	Enabled   bool          `toml:"enabled"`
+	BaseURL   string        `toml:"base_url"`
+	TokenFile string        `toml:"token_file"`
+	Interval  time.Duration `toml:"interval"`
+}
 
 type Config struct {
 	Interval          time.Duration `toml:"interval"`
@@ -30,6 +43,7 @@ type Config struct {
 	ASCII             bool          `toml:"ascii"`
 	Fixture           string        `toml:"fixture"`
 	AttributionSocket string        `toml:"attribution_socket"`
+	Uplink            UplinkConfig  `toml:"uplink"`
 	ConfigFile        string        `toml:"-"`
 }
 
@@ -45,20 +59,28 @@ func (d *fileDuration) UnmarshalText(text []byte) error {
 }
 
 type fileConfig struct {
-	Interval          fileDuration `toml:"interval"`
-	ProfileInterval   fileDuration `toml:"profile_interval"`
-	ProcessInterval   fileDuration `toml:"process_interval"`
-	HistoryWindow     fileDuration `toml:"history_window"`
-	TopologyInterval  fileDuration `toml:"topology_interval"`
-	Provider          string       `toml:"provider"`
-	DCGMAddress       string       `toml:"dcgm_address"`
-	ShowCommandLine   bool         `toml:"show_command_line"`
-	NoProfile         bool         `toml:"no_profile"`
-	Listen            string       `toml:"listen"`
-	NoColor           bool         `toml:"no_color"`
-	ASCII             bool         `toml:"ascii"`
-	Fixture           string       `toml:"fixture"`
-	AttributionSocket string       `toml:"attribution_socket"`
+	Interval          fileDuration     `toml:"interval"`
+	ProfileInterval   fileDuration     `toml:"profile_interval"`
+	ProcessInterval   fileDuration     `toml:"process_interval"`
+	HistoryWindow     fileDuration     `toml:"history_window"`
+	TopologyInterval  fileDuration     `toml:"topology_interval"`
+	Provider          string           `toml:"provider"`
+	DCGMAddress       string           `toml:"dcgm_address"`
+	ShowCommandLine   bool             `toml:"show_command_line"`
+	NoProfile         bool             `toml:"no_profile"`
+	Listen            string           `toml:"listen"`
+	NoColor           bool             `toml:"no_color"`
+	ASCII             bool             `toml:"ascii"`
+	Fixture           string           `toml:"fixture"`
+	AttributionSocket string           `toml:"attribution_socket"`
+	Uplink            fileUplinkConfig `toml:"uplink"`
+}
+
+type fileUplinkConfig struct {
+	Enabled   bool         `toml:"enabled"`
+	BaseURL   string       `toml:"base_url"`
+	TokenFile string       `toml:"token_file"`
+	Interval  fileDuration `toml:"interval"`
 }
 
 // RejectLegacyEnv prevents a partial migration from silently starting with
@@ -134,6 +156,7 @@ func Defaults() Config {
 		Interval: time.Second, ProfileInterval: 2 * time.Second, ProcessInterval: 2 * time.Second,
 		HistoryWindow: 12 * time.Hour, TopologyInterval: 10 * time.Second,
 		Provider: "auto", DCGMAddress: "127.0.0.1:5555", Listen: DefaultListen,
+		Uplink: UplinkConfig{Interval: DefaultUplinkInterval},
 	}
 }
 
@@ -165,8 +188,10 @@ func LoadFile(path string, cfg *Config) error {
 		HistoryWindow: fileDuration(cfg.HistoryWindow), TopologyInterval: fileDuration(cfg.TopologyInterval),
 		Provider: cfg.Provider, DCGMAddress: cfg.DCGMAddress, ShowCommandLine: cfg.ShowCommandLine, NoProfile: cfg.NoProfile,
 		Listen: cfg.Listen, NoColor: cfg.NoColor, ASCII: cfg.ASCII, Fixture: cfg.Fixture, AttributionSocket: cfg.AttributionSocket,
+		Uplink: fileUplinkConfig{Enabled: cfg.Uplink.Enabled, BaseURL: cfg.Uplink.BaseURL, TokenFile: cfg.Uplink.TokenFile, Interval: fileDuration(cfg.Uplink.Interval)},
 	}
-	if err := toml.Unmarshal(data, &decoded); err != nil {
+	decoder := toml.NewDecoder(bytes.NewReader(data)).DisallowUnknownFields()
+	if err := decoder.Decode(&decoded); err != nil {
 		return fmt.Errorf("parse %s: %w", path, err)
 	}
 	cfg.Interval, cfg.ProfileInterval, cfg.ProcessInterval = time.Duration(decoded.Interval), time.Duration(decoded.ProfileInterval), time.Duration(decoded.ProcessInterval)
@@ -174,6 +199,10 @@ func LoadFile(path string, cfg *Config) error {
 	cfg.Provider, cfg.DCGMAddress = decoded.Provider, decoded.DCGMAddress
 	cfg.ShowCommandLine, cfg.NoProfile, cfg.Listen = decoded.ShowCommandLine, decoded.NoProfile, decoded.Listen
 	cfg.NoColor, cfg.ASCII, cfg.Fixture, cfg.AttributionSocket = decoded.NoColor, decoded.ASCII, decoded.Fixture, decoded.AttributionSocket
+	cfg.Uplink = UplinkConfig{
+		Enabled: decoded.Uplink.Enabled, BaseURL: decoded.Uplink.BaseURL, TokenFile: decoded.Uplink.TokenFile,
+		Interval: time.Duration(decoded.Uplink.Interval),
+	}
 	cfg.ConfigFile = path
 	return nil
 }
@@ -205,6 +234,28 @@ func Validate(cfg Config) error {
 		}
 		if cleaned := filepath.Clean(cfg.AttributionSocket); cleaned != cfg.AttributionSocket {
 			return fmt.Errorf("attribution socket must be a clean path; got %q", cfg.AttributionSocket)
+		}
+	}
+	if cfg.Uplink.Interval < uplink.MinimumInterval || cfg.Uplink.Interval > uplink.MaximumInterval {
+		return fmt.Errorf("uplink interval must be between %s and %s", uplink.MinimumInterval, uplink.MaximumInterval)
+	}
+	if cfg.Uplink.BaseURL != "" {
+		if err := uplink.ValidateBaseURL(cfg.Uplink.BaseURL); err != nil {
+			return fmt.Errorf("uplink base URL must be a credential-free HTTPS origin")
+		}
+	}
+	if cfg.Uplink.TokenFile != "" {
+		if len(cfg.Uplink.TokenFile) > 4096 || !filepath.IsAbs(cfg.Uplink.TokenFile) || filepath.Clean(cfg.Uplink.TokenFile) != cfg.Uplink.TokenFile ||
+			strings.IndexFunc(cfg.Uplink.TokenFile, unicode.IsControl) >= 0 {
+			return fmt.Errorf("uplink token file must be an absolute clean path")
+		}
+	}
+	if cfg.Uplink.Enabled {
+		if cfg.Uplink.BaseURL == "" {
+			return fmt.Errorf("uplink base URL is required when uplink is enabled")
+		}
+		if cfg.Uplink.TokenFile == "" {
+			return fmt.Errorf("uplink token file is required when uplink is enabled")
 		}
 	}
 	return nil

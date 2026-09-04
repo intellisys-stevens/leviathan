@@ -37,8 +37,91 @@ func TestLoadFileParsesHumanDurationsAndPreservesDefaults(t *testing.T) {
 
 func TestDefaultsRetainOneHourOfHistory(t *testing.T) {
 	cfg := Defaults()
-	if cfg.HistoryWindow != 12*time.Hour || cfg.Interval != time.Second || cfg.ProfileInterval != 2*time.Second || cfg.ProcessInterval != 2*time.Second {
+	if cfg.HistoryWindow != 12*time.Hour || cfg.Interval != time.Second || cfg.ProfileInterval != 2*time.Second || cfg.ProcessInterval != 2*time.Second || cfg.Uplink.Enabled || cfg.Uplink.Interval != 15*time.Second {
 		t.Fatalf("unexpected defaults: interval=%s history=%s", cfg.Interval, cfg.HistoryWindow)
+	}
+}
+
+func TestLoadFileParsesUplinkAndRejectsUnknownFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	document := `[uplink]
+enabled = true
+base_url = "https://yggdrasil.example.test"
+token_file = "/run/credentials/leviathan@root.service/leviathan-uplink-token"
+interval = "27s"
+`
+	if err := os.WriteFile(path, []byte(document), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Defaults()
+	if err := LoadFile(path, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Uplink.Enabled || cfg.Uplink.BaseURL != "https://yggdrasil.example.test" ||
+		cfg.Uplink.TokenFile != "/run/credentials/leviathan@root.service/leviathan-uplink-token" || cfg.Uplink.Interval != 27*time.Second {
+		t.Fatalf("uplink config = %+v", cfg.Uplink)
+	}
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("valid uplink rejected: %v", err)
+	}
+
+	unknown := filepath.Join(t.TempDir(), "unknown.toml")
+	if err := os.WriteFile(unknown, []byte("[uplink]\ntoken = \"DO-NOT-ECHO-THIS-SECRET\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg = Defaults()
+	err := LoadFile(unknown, &cfg)
+	if err == nil || !strings.Contains(err.Error(), "fields in the document are missing in the target struct") || strings.Contains(err.Error(), "DO-NOT-ECHO-THIS-SECRET") {
+		t.Fatalf("unknown uplink field error = %v", err)
+	}
+}
+
+func TestLoadFilePreservesDefaultUplinkIntervalWhenOmitted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[uplink]\nenabled = false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Defaults()
+	if err := LoadFile(path, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Uplink.Interval != DefaultUplinkInterval {
+		t.Fatalf("uplink interval = %s, want %s", cfg.Uplink.Interval, DefaultUplinkInterval)
+	}
+}
+
+func TestValidateUplinkRequiresSafeCompleteConfiguration(t *testing.T) {
+	valid := Defaults()
+	valid.Uplink = UplinkConfig{
+		Enabled: true, BaseURL: "https://yggdrasil.example.test", TokenFile: "/run/credentials/leviathan/uplink-token", Interval: 15 * time.Second,
+	}
+	if err := Validate(valid); err != nil {
+		t.Fatalf("valid uplink config rejected: %v", err)
+	}
+	tests := []struct {
+		name      string
+		configure func(*Config)
+		contains  string
+	}{
+		{name: "missing base URL", configure: func(cfg *Config) { cfg.Uplink.BaseURL = "" }, contains: "base URL is required"},
+		{name: "missing token file", configure: func(cfg *Config) { cfg.Uplink.TokenFile = "" }, contains: "token file is required"},
+		{name: "HTTP", configure: func(cfg *Config) { cfg.Uplink.BaseURL = "http://yggdrasil.example.test" }, contains: "HTTPS origin"},
+		{name: "URL path", configure: func(cfg *Config) { cfg.Uplink.BaseURL = "https://yggdrasil.example.test/uplink" }, contains: "HTTPS origin"},
+		{name: "URL credential", configure: func(cfg *Config) { cfg.Uplink.BaseURL = "https://secret@yggdrasil.example.test" }, contains: "HTTPS origin"},
+		{name: "relative token file", configure: func(cfg *Config) { cfg.Uplink.TokenFile = "uplink-token" }, contains: "absolute clean path"},
+		{name: "unclean token file", configure: func(cfg *Config) { cfg.Uplink.TokenFile = "/run/../tmp/token" }, contains: "absolute clean path"},
+		{name: "short interval", configure: func(cfg *Config) { cfg.Uplink.Interval = 999 * time.Millisecond }, contains: "uplink interval"},
+		{name: "long interval", configure: func(cfg *Config) { cfg.Uplink.Interval = time.Hour + time.Second }, contains: "uplink interval"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := valid
+			test.configure(&cfg)
+			err := Validate(cfg)
+			if err == nil || !strings.Contains(err.Error(), test.contains) || strings.Contains(err.Error(), "secret@yggdrasil") {
+				t.Fatalf("validation error = %v", err)
+			}
+		})
 	}
 }
 

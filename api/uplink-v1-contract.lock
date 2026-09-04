@@ -1,0 +1,7 @@
+# Yggdrasil is the canonical owner of this independently versioned wire contract.
+contract_version=1.0.0
+canonical_repository=https://github.com/intellisys-stevens/yggdrasil
+canonical_path=api/uplink-v1-openapi.yaml
+generator=github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0
+spec_sha256=62765ca6a02d93ebd0f6e179fef4244d38c3a251632f79c37bdab0dc20bf3344
+golden_sha256=68ca428f98d2aee8bd3f60f9200be737959cd10d67941a34ea72b5d81ba43fae
