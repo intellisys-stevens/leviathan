@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 lock_file="$repo_root/api/uplink-v1-contract.lock"
 spec_file="$repo_root/api/uplink-v1-openapi.yaml"
 golden_file="$repo_root/internal/uplink/testdata/uplink-v1.golden.json"

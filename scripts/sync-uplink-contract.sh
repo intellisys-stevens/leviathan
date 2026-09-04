@@ -1,13 +1,13 @@
 #!/bin/sh
 set -eu
 
-repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 canonical_root=${1:-${YGGDRASIL_CHECKOUT:-}}
 if [ -z "$canonical_root" ]; then
 	printf '%s\n' "usage: scripts/sync-uplink-contract.sh /path/to/yggdrasil" >&2
 	exit 2
 fi
-canonical_root=$(CDPATH= cd -- "$canonical_root" && pwd)
+canonical_root=$(CDPATH='' cd -- "$canonical_root" && pwd)
 source_spec="$canonical_root/api/uplink-v1-openapi.yaml"
 source_lock="$canonical_root/api/uplink-v1-contract.lock"
 
