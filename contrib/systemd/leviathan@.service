@@ -1,5 +1,5 @@
 [Unit]
-Description=Leviathan GPU monitoring dashboard for %i
+Description=Leviathan host and GPU monitoring dashboard for %i
 Documentation=https://github.com/intellisys-stevens/leviathan
 Wants=nvidia-persistenced.service
 After=nvidia-persistenced.service

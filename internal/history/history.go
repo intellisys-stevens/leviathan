@@ -2,6 +2,7 @@ package history
 
 import (
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -138,17 +139,20 @@ func Limit(series Series, maxPoints int) Series {
 }
 
 type Buffer struct {
-	mu                sync.RWMutex
-	window            time.Duration
-	rawWindow         time.Duration
-	interval          time.Duration
-	capacity          int
-	aggregateCapacity int
-	series            map[string]*ring
-	timeline          timelineRing
-	aggregates        map[string]*aggregateRing
-	aggregateTimeline aggregateTimelineRing
-	lastTimeline      timelineSample
+	mu                      sync.RWMutex
+	window                  time.Duration
+	rawWindow               time.Duration
+	interval                time.Duration
+	capacity                int
+	aggregateCapacity       int
+	series                  map[string]*ring
+	timeline                timelineRing
+	systemTimeline          timelineRing
+	aggregates              map[string]*aggregateRing
+	aggregateTimeline       aggregateTimelineRing
+	systemAggregateTimeline aggregateTimelineRing
+	lastTimeline            timelineSample
+	lastSystemTimeline      timelineSample
 }
 
 const (
@@ -237,39 +241,128 @@ func New(window, interval time.Duration) *Buffer {
 }
 
 func (b *Buffer) Add(snapshot model.Snapshot) {
+	b.addSnapshot(snapshot, true, true, true)
+}
+
+// AddSystem records one system-domain publication without carrying the last
+// GPU observation forward to the new timestamp.
+func (b *Buffer) AddSystem(snapshot model.Snapshot) {
+	b.addSnapshot(snapshot, true, false, true)
+}
+
+// AddGPU records one GPU-domain publication without carrying the last system
+// observation forward to the new timestamp.
+func (b *Buffer) AddGPU(snapshot model.Snapshot) {
+	b.addSnapshot(snapshot, false, true, true)
+}
+
+func (b *Buffer) addSnapshot(snapshot model.Snapshot, includeSystem, includeGPU, includeTimeline bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	timeline := timelineSample{
 		sampledAt: snapshot.SampledAt,
 		interval:  b.interval,
-		sequence:  snapshot.Sequence,
 	}
-	b.addTimeline(timeline)
-	b.addAggregateTimeline(timeline)
+	// A combined provider publishes one sequence for both domains. Independent
+	// workers share a global snapshot sequence, so their per-domain values jump
+	// whenever the other worker publishes; time and explicit gap markers are the
+	// authoritative continuity signals in that mode.
+	if includeSystem && includeGPU {
+		timeline.sequence = snapshot.Sequence
+	}
+	if includeTimeline {
+		if includeGPU {
+			b.addTimeline(timeline)
+			b.addAggregateTimeline(timeline)
+		}
+		if includeSystem {
+			b.addSystemTimeline(timeline)
+			b.addSystemAggregateTimeline(timeline)
+		}
+	}
 	b.prune(snapshot.SampledAt)
-	for _, gpu := range snapshot.GPUs {
-		values := valuesFor(gpu.Metrics, gpu.Memory)
-		b.add(gpu.UUID, snapshot.SampledAt, values)
-		b.addAggregate(gpu.UUID, snapshot.SampledAt, values)
-		for _, gi := range gpu.GPUInstances {
-			entity := gi.Generation
-			if entity == "" {
-				entity = gi.UUID
+	if includeSystem {
+		hostValues := valuesForSystem(snapshot.System)
+		if len(hostValues) > 0 {
+			b.add("@host", snapshot.SampledAt, hostValues)
+			b.addAggregate("@host", snapshot.SampledAt, hostValues)
+		}
+		for _, filesystem := range snapshot.System.Storage.Filesystems {
+			values := valuesForFilesystem(filesystem)
+			if len(values) == 0 {
+				continue
 			}
-			values := valuesFor(gi.Metrics, gi.Memory)
-			b.add(entity, snapshot.SampledAt, values)
-			b.addAggregate(entity, snapshot.SampledAt, values)
-			for _, ci := range gi.ComputeInstances {
-				entity := ci.Generation
+			b.add(filesystem.ID, snapshot.SampledAt, values)
+			b.addAggregate(filesystem.ID, snapshot.SampledAt, values)
+		}
+	}
+	if includeGPU {
+		for _, gpu := range snapshot.GPUs {
+			values := valuesFor(gpu.Metrics, gpu.Memory)
+			b.add(gpu.UUID, snapshot.SampledAt, values)
+			b.addAggregate(gpu.UUID, snapshot.SampledAt, values)
+			for _, gi := range gpu.GPUInstances {
+				entity := gi.Generation
 				if entity == "" {
-					entity = ci.UUID
+					entity = gi.UUID
 				}
-				values := valuesFor(ci.Metrics, ci.Memory)
+				values := valuesFor(gi.Metrics, gi.Memory)
 				b.add(entity, snapshot.SampledAt, values)
 				b.addAggregate(entity, snapshot.SampledAt, values)
+				for _, ci := range gi.ComputeInstances {
+					entity := ci.Generation
+					if entity == "" {
+						entity = ci.UUID
+					}
+					values := valuesFor(ci.Metrics, ci.Memory)
+					b.add(entity, snapshot.SampledAt, values)
+					b.addAggregate(entity, snapshot.SampledAt, values)
+				}
 			}
 		}
 	}
+}
+
+func valuesForSystem(system model.System) map[string]float64 {
+	values := make(map[string]float64, 13)
+	addMetricValue(values, "cpu_utilization", system.CPU.Utilization)
+	addMetricValue(values, "load_1", system.CPU.Load1)
+	addMetricValue(values, "load_5", system.CPU.Load5)
+	addMetricValue(values, "load_15", system.CPU.Load15)
+	addIntegralValue(values, "memory_total_bytes", system.Memory.TotalBytes, system.Memory.Status)
+	addIntegralValue(values, "memory_used_bytes", system.Memory.UsedBytes, system.Memory.Status)
+	addIntegralValue(values, "memory_available_bytes", system.Memory.AvailableBytes, system.Memory.Status)
+	addMetricValue(values, "memory_utilization", system.Memory.Utilization)
+	addIntegralValue(values, "storage_total_bytes", system.Storage.TotalBytes, system.Storage.Status)
+	addIntegralValue(values, "storage_used_bytes", system.Storage.UsedBytes, system.Storage.Status)
+	addIntegralValue(values, "storage_available_bytes", system.Storage.AvailableBytes, system.Storage.Status)
+	addMetricValue(values, "disk_read_bytes_per_second", system.Storage.ReadBytesPerSecond)
+	addMetricValue(values, "disk_write_bytes_per_second", system.Storage.WriteBytesPerSecond)
+	return values
+}
+
+func valuesForFilesystem(filesystem model.Filesystem) map[string]float64 {
+	values := make(map[string]float64, 3)
+	addIntegralValue(values, "storage_total_bytes", filesystem.TotalBytes, filesystem.Status)
+	addIntegralValue(values, "storage_used_bytes", filesystem.UsedBytes, filesystem.Status)
+	addIntegralValue(values, "storage_available_bytes", filesystem.AvailableBytes, filesystem.Status)
+	return values
+}
+
+func addMetricValue(values map[string]float64, name string, metric model.Metric) {
+	if usableStatus(metric.Status) && metric.Value != nil {
+		values[name] = *metric.Value
+	}
+}
+
+func addIntegralValue(values map[string]float64, name string, value *uint64, status model.MetricStatus) {
+	if (usableStatus(status) || status == model.StatusStale) && value != nil {
+		values[name] = float64(*value)
+	}
+}
+
+func usableStatus(status model.MetricStatus) bool {
+	return status == model.StatusAvailable || status == model.StatusEstimated
 }
 
 // AddGap records a failed collection timestamp for aligned history without
@@ -281,6 +374,8 @@ func (b *Buffer) AddGap(at time.Time) {
 	timeline := timelineSample{sampledAt: at, interval: b.interval, gap: true}
 	b.addTimeline(timeline)
 	b.addAggregateTimeline(timeline)
+	b.addSystemTimeline(timeline)
+	b.addSystemAggregateTimeline(timeline)
 	b.prune(at)
 }
 
@@ -302,11 +397,11 @@ func (b *Buffer) prune(at time.Time) {
 func valuesFor(metrics model.MetricSet, memory model.Memory) map[string]float64 {
 	values := make(map[string]float64, len(metrics)+3)
 	for name, metric := range metrics {
-		if metric.Status == model.StatusAvailable && metric.Value != nil {
+		if usableStatus(metric.Status) && metric.Value != nil {
 			values[name] = *metric.Value
 		}
 	}
-	if memory.Status == model.StatusAvailable {
+	if usableStatus(memory.Status) {
 		if memory.UsedBytes != nil {
 			values["memory_used_bytes"] = float64(*memory.UsedBytes)
 		}
@@ -342,17 +437,25 @@ func (b *Buffer) add(entity string, at time.Time, values map[string]float64) {
 }
 
 func (b *Buffer) addTimeline(sample timelineSample) {
-	if len(b.timeline.samples) < b.capacity {
-		b.timeline.samples = append(b.timeline.samples, sample)
-		if len(b.timeline.samples) == b.capacity {
-			b.timeline.next = 0
-			b.timeline.full = true
+	b.addTimelineTo(&b.timeline, sample)
+}
+
+func (b *Buffer) addSystemTimeline(sample timelineSample) {
+	b.addTimelineTo(&b.systemTimeline, sample)
+}
+
+func (b *Buffer) addTimelineTo(timeline *timelineRing, sample timelineSample) {
+	if len(timeline.samples) < b.capacity {
+		timeline.samples = append(timeline.samples, sample)
+		if len(timeline.samples) == b.capacity {
+			timeline.next = 0
+			timeline.full = true
 		}
 		return
 	}
-	b.timeline.samples[b.timeline.next] = sample
-	b.timeline.next = (b.timeline.next + 1) % b.capacity
-	b.timeline.full = true
+	timeline.samples[timeline.next] = sample
+	timeline.next = (timeline.next + 1) % b.capacity
+	timeline.full = true
 }
 
 func aggregateBucketStart(at time.Time) time.Time {
@@ -360,17 +463,25 @@ func aggregateBucketStart(at time.Time) time.Time {
 }
 
 func (b *Buffer) addAggregateTimeline(sample timelineSample) {
+	b.addAggregateTimelineTo(&b.aggregateTimeline, &b.lastTimeline, sample)
+}
+
+func (b *Buffer) addSystemAggregateTimeline(sample timelineSample) {
+	b.addAggregateTimelineTo(&b.systemAggregateTimeline, &b.lastSystemTimeline, sample)
+}
+
+func (b *Buffer) addAggregateTimelineTo(timeline *aggregateTimelineRing, previous *timelineSample, sample timelineSample) {
 	if b.aggregateCapacity == 0 {
 		return
 	}
 	start := aggregateBucketStart(sample.sampledAt)
 	gap := sample.gap
-	if !b.lastTimeline.sampledAt.IsZero() && timelineBreak(b.lastTimeline, sample) {
+	if !previous.sampledAt.IsZero() && timelineBreak(*previous, sample) {
 		gap = true
 	}
-	b.lastTimeline = sample
+	*previous = sample
 
-	point := b.aggregateTimeline.current(start, b.aggregateCapacity)
+	point := timeline.current(start, b.aggregateCapacity)
 	point.gap = point.gap || gap
 }
 
@@ -588,7 +699,7 @@ func (b *Buffer) aggregateQueryBuckets(entities []string, window time.Duration, 
 	}
 
 	buckets := make([]aggregateQueryBucket, 0, int(window/resolution)+1)
-	for _, timeline := range b.aggregateTimeline.ordered() {
+	for _, timeline := range b.aggregateTimelineForEntities(entities) {
 		bucketStart := timeline.start.Truncate(resolution)
 		if bucketStart.Before(start) || !bucketStart.Before(end) {
 			continue
@@ -682,7 +793,11 @@ func (b *Buffer) QueryAligned(descriptors []SeriesDescriptor, window time.Durati
 		b.mu.RUnlock()
 		return LimitAligned(result, maxPoints)
 	}
-	timeline := b.timeline.ordered()
+	entities := make([]string, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		entities = append(entities, descriptor.Entity)
+	}
+	timeline := b.timelineForEntities(entities)
 	entityPoints := make(map[string][]Point, len(descriptors))
 	for _, descriptor := range descriptors {
 		if _, exists := entityPoints[descriptor.Entity]; exists {
@@ -1052,7 +1167,96 @@ func (b *Buffer) EnsureCapacity(interval time.Duration) {
 	b.timeline.samples = b.timeline.ordered()
 	b.timeline.next = 0
 	b.timeline.full = false
+	b.systemTimeline.samples = b.systemTimeline.ordered()
+	b.systemTimeline.next = 0
+	b.systemTimeline.full = false
 	b.capacity = capacity
+}
+
+func systemHistoryEntity(entity string) bool {
+	return entity == "@host" || strings.HasPrefix(entity, "fs_")
+}
+
+func historyDomains(entities []string) (system, gpu bool) {
+	for _, entity := range entities {
+		if systemHistoryEntity(entity) {
+			system = true
+		} else {
+			gpu = true
+		}
+	}
+	if !system && !gpu {
+		gpu = true
+	}
+	return system, gpu
+}
+
+// timelineForEntities keeps independent workers from creating alternating
+// false gaps. Mixed-domain requests receive the timestamp union without
+// carrying either domain's values forward.
+func (b *Buffer) timelineForEntities(entities []string) []timelineSample {
+	system, gpu := historyDomains(entities)
+	switch {
+	case system && gpu:
+		return mergeTimelineSamples(b.systemTimeline.ordered(), b.timeline.ordered())
+	case system:
+		return b.systemTimeline.ordered()
+	default:
+		return b.timeline.ordered()
+	}
+}
+
+func (b *Buffer) aggregateTimelineForEntities(entities []string) []aggregateTimelinePoint {
+	system, gpu := historyDomains(entities)
+	switch {
+	case system && gpu:
+		return mergeAggregateTimelinePoints(b.systemAggregateTimeline.ordered(), b.aggregateTimeline.ordered())
+	case system:
+		return b.systemAggregateTimeline.ordered()
+	default:
+		return b.aggregateTimeline.ordered()
+	}
+}
+
+func mergeTimelineSamples(left, right []timelineSample) []timelineSample {
+	result := make([]timelineSample, 0, len(left)+len(right))
+	for len(left) > 0 || len(right) > 0 {
+		switch {
+		case len(right) == 0 || len(left) > 0 && left[0].sampledAt.Before(right[0].sampledAt):
+			value := left[0]
+			value.sequence = 0
+			result, left = append(result, value), left[1:]
+		case len(left) == 0 || right[0].sampledAt.Before(left[0].sampledAt):
+			value := right[0]
+			value.sequence = 0
+			result, right = append(result, value), right[1:]
+		default:
+			value := left[0]
+			value.sequence = 0
+			value.gap = left[0].gap && right[0].gap
+			if right[0].interval > value.interval {
+				value.interval = right[0].interval
+			}
+			result, left, right = append(result, value), left[1:], right[1:]
+		}
+	}
+	return result
+}
+
+func mergeAggregateTimelinePoints(left, right []aggregateTimelinePoint) []aggregateTimelinePoint {
+	result := make([]aggregateTimelinePoint, 0, len(left)+len(right))
+	for len(left) > 0 || len(right) > 0 {
+		switch {
+		case len(right) == 0 || len(left) > 0 && left[0].start.Before(right[0].start):
+			result, left = append(result, left[0]), left[1:]
+		case len(left) == 0 || right[0].start.Before(left[0].start):
+			result, right = append(result, right[0]), right[1:]
+		default:
+			result = append(result, aggregateTimelinePoint{start: left[0].start, gap: left[0].gap && right[0].gap})
+			left, right = left[1:], right[1:]
+		}
+	}
+	return result
 }
 
 func (r *ring) ordered() []Point {

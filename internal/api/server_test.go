@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -32,6 +33,11 @@ type stubSource struct {
 	alignedWindow    time.Duration
 	alignedMaxPoints int
 }
+
+type unavailableSource struct{ *stubSource }
+
+func (unavailableSource) Current() (model.Snapshot, bool) { return model.Snapshot{}, false }
+func (unavailableSource) LastError() error                { return errors.New("no telemetry domains") }
 
 func newStubSource() *stubSource {
 	at := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
@@ -117,6 +123,7 @@ func TestSnapshotEncodesNilCollectionsAsArrays(t *testing.T) {
 	source.snapshot.GPUs = nil
 	source.snapshot.Processes = nil
 	source.snapshot.Diagnostics = nil
+	source.snapshot.System.Storage.Filesystems = nil
 	source.snapshot.Attribution = &model.Attribution{}
 	server := newTestServer(source, nil)
 	response := httptest.NewRecorder()
@@ -132,12 +139,77 @@ func TestSnapshotEncodesNilCollectionsAsArrays(t *testing.T) {
 	if string(payload["gpus"]) != "[]" || string(payload["processes"]) != "[]" || string(payload["diagnostics"]) != "[]" {
 		t.Fatalf("empty snapshot collections encoded as gpus=%s processes=%s diagnostics=%s", payload["gpus"], payload["processes"], payload["diagnostics"])
 	}
+	var systemPayload struct {
+		Storage struct {
+			Filesystems []model.Filesystem `json:"filesystems"`
+		} `json:"storage"`
+	}
+	if err := json.Unmarshal(payload["system"], &systemPayload); err != nil || systemPayload.Storage.Filesystems == nil {
+		t.Fatalf("empty filesystem collection was not encoded as an array: %s (%v)", payload["system"], err)
+	}
 	var attribution map[string]json.RawMessage
 	if err := json.Unmarshal(payload["attribution"], &attribution); err != nil {
 		t.Fatal(err)
 	}
 	if string(attribution["workloads"]) != "[]" || string(attribution["assignments"]) != "[]" {
 		t.Fatalf("empty attribution collections encoded as workloads=%s assignments=%s", attribution["workloads"], attribution["assignments"])
+	}
+}
+
+func TestHealthReflectsIndependentTelemetryDomains(t *testing.T) {
+	tests := []struct {
+		name       string
+		system     model.ProviderState
+		gpu        model.ProviderState
+		wantCode   int
+		wantStatus string
+	}{
+		{name: "all current", system: model.ProviderState{Available: true, Status: model.StatusAvailable}, gpu: model.ProviderState{Available: true, Status: model.StatusAvailable}, wantCode: http.StatusOK, wantStatus: "ok"},
+		{name: "CPU only", system: model.ProviderState{Available: true, Status: model.StatusAvailable}, gpu: model.ProviderState{Status: model.StatusUnsupported}, wantCode: http.StatusOK, wantStatus: "degraded"},
+		{name: "GPU only", system: model.ProviderState{Status: model.StatusStale}, gpu: model.ProviderState{Available: true, Status: model.StatusAvailable}, wantCode: http.StatusOK, wantStatus: "degraded"},
+		{name: "partial system", system: model.ProviderState{Available: true, Status: model.StatusStale}, gpu: model.ProviderState{Status: model.StatusError}, wantCode: http.StatusOK, wantStatus: "degraded"},
+		{name: "none", system: model.ProviderState{Status: model.StatusStale}, gpu: model.ProviderState{Status: model.StatusError}, wantCode: http.StatusServiceUnavailable, wantStatus: "unavailable"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			source := newStubSource()
+			source.snapshot.Capabilities.System = test.system
+			source.snapshot.Capabilities.NVML = test.gpu
+			response := httptest.NewRecorder()
+			newTestServer(source, nil).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+			if response.Code != test.wantCode {
+				t.Fatalf("status code = %d body=%s", response.Code, response.Body.String())
+			}
+			var body struct {
+				Status string `json:"status"`
+			}
+			if err := json.NewDecoder(response.Body).Decode(&body); err != nil || body.Status != test.wantStatus {
+				t.Fatalf("health = %+v err=%v", body, err)
+			}
+		})
+	}
+}
+
+func TestHealthWithoutSnapshotUsesTypedUnavailableResponse(t *testing.T) {
+	response := httptest.NewRecorder()
+	newTestServer(unavailableSource{newStubSource()}, nil).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status code = %d body=%s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Status    string     `json:"status"`
+		SampledAt *time.Time `json:"sampledAt"`
+		Error     string     `json:"error"`
+		Domains   map[string]struct {
+			Available bool               `json:"available"`
+			Status    model.MetricStatus `json:"status"`
+		} `json:"domains"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "unavailable" || body.SampledAt != nil || body.Error != "no telemetry domains" || body.Domains["system"].Available || body.Domains["gpu"].Available {
+		t.Fatalf("health = %+v", body)
 	}
 }
 

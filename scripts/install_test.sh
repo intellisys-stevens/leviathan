@@ -4,6 +4,7 @@ set -euo pipefail
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 installer="${repository_root}/scripts/install.sh"
 test_root="$(mktemp -d)"
+test_root="$(cd -P "${test_root}" && pwd)"
 
 cleanup() {
   rm -rf -- "${test_root}"
@@ -41,6 +42,8 @@ release_directory="${test_root}/release"
 fixture_root="${test_root}/fixtures"
 fake_bin="${test_root}/fake-bin"
 mkdir -p "${release_directory}" "${fixture_root}" "${fake_bin}"
+sha256sum_path=$(command -v sha256sum) || fail "sha256sum is required to run installer tests"
+ln -s "${sha256sum_path}" "${fake_bin}/sha256sum"
 
 create_archive() {
   local architecture=$1

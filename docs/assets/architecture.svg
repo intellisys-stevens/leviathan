@@ -1,135 +1,129 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2123.644 473.85" width="2123.644" height="473.85" style="--bg:#ffffff;--fg:#1f2328;--line:#d1d9e0;--accent:#0969da;--muted:#59636e;background:var(--bg)">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1995.4509999999998 441.4" width="1995.4509999999998" height="441.4" style="--bg:#ffffff;--fg:#1f2328;--line:#d1d9e0;--accent:#0969da;--muted:#59636e;background:#ffffff"><rect data-pretty-mermaid-background="true" x="0" y="0" width="100%" height="100%" fill="#ffffff"/>
 <style>
-  text { font-family: 'Inter', system-ui, sans-serif; }
+  text { font-family: 'Inter', system-ui, sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI'; }
   svg {
     /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
-    --_text:          var(--fg);
-    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
-    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
-    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
-    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
-    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
-    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
-    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
-    --_group-fill:    var(--bg);
-    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
-    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
-    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
+    --_text:          #1f2328;
+    --_text-sec:      #59636e;
+    --_text-muted:    #59636e;
+    --_text-faint:    #c7c8c9;
+    --_line:          #d1d9e0;
+    --_arrow:         #0969da;
+    --_node-fill:     #f8f8f9;
+    --_node-stroke:   #d2d3d4;
+    --_group-fill:    #ffffff;
+    --_group-hdr:     #f4f4f4;
+    --_inner-stroke:  #e4e5e5;
+    --_key-badge:     #e9e9ea;
   }
 </style>
 <defs>
   <marker id="arrowhead" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
-    <polygon points="0 0, 8 2.5, 0 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+    <polygon points="0 0, 8 2.5, 0 5" fill="#0969da" stroke="#0969da" stroke-width="0.75" stroke-linejoin="round"/>
   </marker>
   <marker id="arrowhead-start" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
-    <polygon points="8 0, 0 2.5, 8 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+    <polygon points="8 0, 0 2.5, 8 5" fill="#0969da" stroke="#0969da" stroke-width="0.75" stroke-linejoin="round"/>
   </marker>
 </defs>
-<polyline class="edge" data-from="driver" data-to="nvml" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="492.156,114.12500000000001 521.08575,114.12500000000001 521.08575,58.45 550.0155,58.45" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="driver" data-to="gpm" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="492.156,114.12500000000001 521.08575,114.12500000000001 521.08575,123.35000000000001 550.0155,123.35000000000001" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="hostengine" data-to="dcgm" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="562.5509999999999,188.25 636.63,188.25" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="nvml" data-to="merge" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="792.0355,58.45 808.95475,58.45 808.95475,123.34999999999998 814.8415,123.34999999999998" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="gpm" data-to="merge" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="815.0065,123.35000000000002 814.8415,123.34999999999997" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="dcgm" data-to="merge" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="803.068,188.25 808.95475,188.25 808.95475,123.34999999999998 814.8415,123.34999999999998" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="proc" data-to="identity" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="765.3594999999999,253.14999999999998 792.694,253.14999999999998 792.694,308.825 814.8415,308.825" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="uvm" data-to="identity" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="770.5464999999999,318.05 792.694,318.05 792.694,308.825 814.8415,308.825" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="merge" data-to="sampler" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1032.4085,123.34999999999998 1062.74825,123.34999999999998 1062.74825,285.59999999999997 1068.635,285.59999999999997" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="identity" data-to="sampler" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1029.4445,308.825 1062.74825,308.825 1062.74825,285.59999999999997 1068.635,285.59999999999997" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="claims" data-to="bridge" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="270.905,350.5 303.86899999999997,350.5 303.86899999999997,382.95 323.495,382.95" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="slices" data-to="bridge" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="284.24299999999994,415.4 303.86899999999997,415.4 303.86899999999997,382.95 323.495,382.95" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="bridge" data-to="socket" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="535.875,382.95 550.0155,382.95" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="socket" data-to="attribution" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="718.6765,382.95 814.8415,382.95" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="attribution" data-to="sampler" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1056.8615,382.95 1062.74825,382.95 1062.74825,285.59999999999997 1068.635,285.59999999999997" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="sampler" data-to="current" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1296.576,285.59999999999997 1320.576,285.59999999999997 1320.576,250.075 1344.576,250.075" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="sampler" data-to="history" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1296.576,285.59999999999997 1320.576,285.59999999999997 1320.576,319.5875 1344.576,319.5875" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="current" data-to="tui" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1546.5819999999999,250.075 1570.5819999999999,250.075 1570.5819999999999,280.9875 1625.704,280.9875" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="current" data-to="cli" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1546.5819999999999,250.075 1570.5819999999999,250.075 1570.5819999999999,216.08749999999998 1594.5819999999999,216.08749999999998" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="current" data-to="api" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1546.5819999999999,250.075 1570.5819999999999,250.075 1570.5819999999999,345.8875 1625.704,345.8875" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="history" data-to="tui" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1577.704,319.5875 1601.704,319.5875 1601.704,280.9875 1625.704,280.9875" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="history" data-to="api" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1577.704,319.5875 1601.704,319.5875 1601.704,345.8875 1625.704,345.8875" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<polyline class="edge" data-from="api" data-to="browser" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1827.7099999999998,345.8875 1875.7099999999998,345.8875" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
-<g class="node" data-id="driver" data-label="NVIDIA driver / NVML" data-shape="rectangle">
-  <rect x="323.495" y="95.67500000000001" width="168.661" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="407.82550000000003" y="114.12500000000001" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">NVIDIA driver / NVML</text>
+<polyline class="edge" data-from="procfs" data-to="system" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="781.2084999999998,58.45 788.2067499999998,58.45 788.2067499999998,114.73999999999997 795.2049999999999,114.73999999999997" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="mounts" data-to="system" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="742.6764999999999,123.34999999999998 788.2067499999998,123.34999999999998 788.2067499999998,114.73999999999997 795.2049999999999,114.73999999999997" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="driver" data-to="gpu" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="775.8774999999998,188.24999999999994 785.5412499999999,188.24999999999994 785.5412499999999,285.59999999999997 795.2049999999999,285.59999999999997" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="hostengine" data-to="gpu" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="763.4244999999999,253.14999999999998 785.5412499999999,253.14999999999998 785.5412499999999,285.59999999999997 795.2049999999999,285.59999999999997" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="processes" data-to="gpu" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="761.2014999999999,382.95 785.5412499999999,382.95 785.5412499999999,285.59999999999997 795.2049999999999,285.59999999999997" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="claims" data-to="bridge" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="270.905,350.5 304.90849999999995,350.5 304.90849999999995,318.04999999999995 325.57399999999996,318.04999999999995" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="slices" data-to="bridge" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="284.24299999999994,285.59999999999997 304.90849999999995,285.59999999999997 304.90849999999995,318.04999999999995 325.57399999999996,318.04999999999995" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="bridge" data-to="socket" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="537.954,318.04999999999995 588.6914999999999,318.04999999999995" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="socket" data-to="gpu" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="757.3525,318.04999999999995 785.5412499999999,318.04999999999995 785.5412499999999,285.59999999999997 795.2049999999999,285.59999999999997" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="system" data-to="coordinator" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="998.693,114.73999999999997 1006.9879999999999,114.73999999999997 1006.9879999999999,218.23999999999995 1015.2829999999999,218.23999999999995" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="gpu" data-to="coordinator" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="983.8729999999999,285.59999999999997 1006.9879999999999,285.59999999999997 1006.9879999999999,218.23999999999995 1015.2829999999999,218.23999999999995" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="coordinator" data-to="current" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1185.426,218.23999999999995 1209.426,218.23999999999995 1209.426,180.86999999999995 1233.426,180.86999999999995" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="coordinator" data-to="history" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1185.426,218.23999999999995 1209.426,218.23999999999995 1209.426,254.99499999999995 1233.426,254.99499999999995" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="current" data-to="tui" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1435.4319999999998,180.86999999999995 1453.4319999999998,180.86999999999995 1453.4319999999998,216.39499999999998 1471.4319999999998,216.39499999999998" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="current" data-to="cli" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1435.4319999999998,180.86999999999995 1453.4319999999998,180.86999999999995 1453.4319999999998,86.59499999999998 1471.4319999999998,86.59499999999998" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="current" data-to="api" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1435.4319999999998,180.86999999999995 1453.4319999999998,180.86999999999995 1453.4319999999998,281.29499999999996 1471.4319999999998,281.29499999999996" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="history" data-to="tui" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1434.6909999999998,254.99499999999995 1453.0614999999998,254.99499999999995 1453.0614999999998,216.39499999999998 1471.4319999999998,216.39499999999998" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="history" data-to="api" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1434.6909999999998,254.99499999999995 1453.0614999999998,254.99499999999995 1453.0614999999998,281.29499999999996 1471.4319999999998,281.29499999999996" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="api" data-to="browser" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1688.2579999999998,281.29499999999996 1737.8839999999998,281.29499999999996" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="current" data-to="projection" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1435.4319999999998,180.86999999999995 1453.4319999999998,180.86999999999995 1453.4319999999998,151.49499999999995 1471.4319999999998,151.49499999999995" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<polyline class="edge" data-from="projection" data-to="yggdrasil" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="1668.2509999999997,151.49499999999995 1737.8839999999998,151.49499999999995" fill="none" stroke="#d1d9e0" stroke-width="1" marker-end="url(#arrowhead)"/>
+<g class="node" data-id="procfs" data-label="Linux procfs CPU and RAM counters" data-shape="rectangle">
+  <rect x="524.3684999999999" y="40" width="256.8399999999999" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="652.7884999999999" y="58.45" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Linux procfs CPU and RAM counters</text>
 </g>
-<g class="node" data-id="nvml" data-label="NVML hierarchy, profiles, memory" data-shape="rectangle">
-  <rect x="550.0155" y="40" width="242.01999999999992" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="671.0255" y="58.45" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">NVML hierarchy, profiles, memory</text>
+<g class="node" data-id="system" data-label="Independent system worker" data-shape="rectangle">
+  <rect x="795.2049999999999" y="96.28999999999996" width="203.488" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="896.949" y="114.73999999999997" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Independent system worker</text>
 </g>
-<g class="node" data-id="gpm" data-label="NVML GPM activity and PCIe counters" data-shape="rectangle">
-  <rect x="550.0155" y="104.9" width="264.991" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="682.511" y="123.35000000000001" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">NVML GPM activity and PCIe counters</text>
+<g class="node" data-id="mounts" data-label="Mountinfo, statfs, and diskstats" data-shape="rectangle">
+  <rect x="524.3684999999999" y="104.89999999999998" width="218.308" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="633.5224999999999" y="123.34999999999998" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Mountinfo, statfs, and diskstats</text>
+</g>
+<g class="node" data-id="driver" data-label="NVIDIA driver and NVML" data-shape="rectangle">
+  <rect x="588.6914999999999" y="169.79999999999995" width="187.18599999999998" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="682.2844999999999" y="188.24999999999994" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">NVIDIA driver and NVML</text>
+</g>
+<g class="node" data-id="gpu" data-label="Independent GPU worker" data-shape="rectangle">
+  <rect x="795.2049999999999" y="267.15" width="188.668" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="889.539" y="285.59999999999997" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Independent GPU worker</text>
 </g>
 <g class="node" data-id="hostengine" data-label="Local DCGM hostengine (optional)" data-shape="rectangle">
-  <rect x="323.495" y="169.8" width="239.05599999999995" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="443.02299999999997" y="188.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Local DCGM hostengine (optional)</text>
+  <rect x="524.3684999999999" y="234.7" width="239.05599999999995" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="643.8965" y="253.14999999999998" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Local DCGM hostengine (optional)</text>
 </g>
-<g class="node" data-id="dcgm" data-label="DCGM per-GI fallback" data-shape="rectangle">
-  <rect x="636.63" y="169.8" width="166.438" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="719.8489999999999" y="188.25" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">DCGM per-GI fallback</text>
-</g>
-<g class="node" data-id="merge" data-label="Capability-aware metric merge" data-shape="rectangle">
-  <rect x="814.8415" y="104.89999999999998" width="217.56699999999995" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="923.625" y="123.34999999999998" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Capability-aware metric merge</text>
-</g>
-<g class="node" data-id="proc" data-label="Current PID namespace /proc" data-shape="rectangle">
-  <rect x="550.0155" y="234.7" width="215.34399999999997" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="657.6875" y="253.14999999999998" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Current PID namespace /proc</text>
-</g>
-<g class="node" data-id="identity" data-label="GPU-connected process filter" data-shape="rectangle">
-  <rect x="814.8415" y="290.375" width="214.60299999999995" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="922.143" y="308.825" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">GPU-connected process filter</text>
-</g>
-<g class="node" data-id="uvm" data-label="/dev/nvidia-uvm device identity" data-shape="rectangle">
-  <rect x="550.0155" y="299.6" width="220.53099999999995" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="660.281" y="318.05" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">/dev/nvidia-uvm device identity</text>
-</g>
-<g class="node" data-id="sampler" data-label="Single non-overlapping sampler" data-shape="rectangle">
-  <rect x="1068.635" y="267.15" width="227.94099999999995" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="1182.6055" y="285.59999999999997" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Single non-overlapping sampler</text>
+<g class="node" data-id="processes" data-label="Current PID namespace (optional)" data-shape="rectangle">
+  <rect x="524.3684999999999" y="364.5" width="236.8329999999999" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="642.7849999999999" y="382.95" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Current PID namespace (optional)</text>
 </g>
 <g class="node" data-id="claims" data-label="DRA ResourceClaims (optional)" data-shape="rectangle">
-  <rect x="46.66900000000001" y="332.05" width="224.23599999999993" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="158.78699999999998" y="350.5" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">DRA ResourceClaims (optional)</text>
+  <rect x="46.66900000000001" y="332.05" width="224.23599999999993" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="158.78699999999998" y="350.5" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">DRA ResourceClaims (optional)</text>
 </g>
 <g class="node" data-id="bridge" data-label="Kubernetes attribution bridge" data-shape="rectangle">
-  <rect x="323.495" y="364.5" width="212.38" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="429.685" y="382.95" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Kubernetes attribution bridge</text>
+  <rect x="325.57399999999996" y="299.59999999999997" width="212.38" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="431.76399999999995" y="318.04999999999995" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Kubernetes attribution bridge</text>
 </g>
 <g class="node" data-id="slices" data-label="NVIDIA ResourceSlices (optional)" data-shape="rectangle">
-  <rect x="46.66900000000001" y="396.95" width="237.57399999999996" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="165.456" y="415.4" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">NVIDIA ResourceSlices (optional)</text>
+  <rect x="46.66900000000001" y="267.15" width="237.57399999999996" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="165.456" y="285.59999999999997" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">NVIDIA ResourceSlices (optional)</text>
 </g>
 <g class="node" data-id="socket" data-label="Root-only Unix socket" data-shape="rectangle">
-  <rect x="550.0155" y="364.5" width="168.661" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="634.346" y="382.95" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Root-only Unix socket</text>
+  <rect x="588.6914999999999" y="299.59999999999997" width="168.661" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="673.0219999999999" y="318.04999999999995" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Root-only Unix socket</text>
 </g>
-<g class="node" data-id="attribution" data-label="Sanitized workspace + scope refs" data-shape="rectangle">
-  <rect x="814.8415" y="364.5" width="242.01999999999998" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="935.8515" y="382.95" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Sanitized workspace + scope refs</text>
+<g class="node" data-id="coordinator" data-label="Snapshot coordinator" data-shape="rectangle">
+  <rect x="1015.2829999999999" y="199.78999999999996" width="170.14299999999997" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="1100.3545" y="218.23999999999995" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Snapshot coordinator</text>
 </g>
 <g class="node" data-id="current" data-label="Immutable current snapshot" data-shape="rectangle">
-  <rect x="1344.576" y="231.625" width="202.00599999999997" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="1445.579" y="250.075" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Immutable current snapshot</text>
+  <rect x="1233.426" y="162.41999999999996" width="202.00599999999997" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="1334.4289999999999" y="180.86999999999995" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Immutable current snapshot</text>
 </g>
-<g class="node" data-id="history" data-label="Bounded in-memory UUID history" data-shape="rectangle">
-  <rect x="1344.576" y="301.1375" width="233.12799999999996" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="1461.14" y="319.5875" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Bounded in-memory UUID history</text>
+<g class="node" data-id="history" data-label="Bounded in-memory history" data-shape="rectangle">
+  <rect x="1233.426" y="236.54499999999996" width="201.26499999999993" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="1334.0584999999999" y="254.99499999999995" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Bounded in-memory history</text>
 </g>
 <g class="node" data-id="tui" data-label="Bubble Tea TUI" data-shape="rectangle">
-  <rect x="1625.704" y="262.5375" width="132.352" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="1691.8799999999999" y="280.9875" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Bubble Tea TUI</text>
+  <rect x="1471.4319999999998" y="197.94499999999996" width="132.352" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="1537.6079999999997" y="216.39499999999998" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Bubble Tea TUI</text>
 </g>
-<g class="node" data-id="cli" data-label="Table / JSON / JSONL" data-shape="rectangle">
-  <rect x="1594.5819999999999" y="197.6375" width="172.36599999999996" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="1680.7649999999999" y="216.08749999999998" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Table / JSON / JSONL</text>
+<g class="node" data-id="cli" data-label="Table, JSON, and JSONL" data-shape="rectangle">
+  <rect x="1471.4319999999998" y="68.14499999999998" width="190.89099999999996" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="1566.8774999999998" y="86.59499999999998" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Table, JSON, and JSONL</text>
 </g>
-<g class="node" data-id="api" data-label="Loopback HTTP + SSE API" data-shape="rectangle">
-  <rect x="1625.704" y="327.4375" width="202.00599999999994" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="1726.7069999999999" y="345.8875" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Loopback HTTP + SSE API</text>
+<g class="node" data-id="api" data-label="Loopback HTTP and SSE API" data-shape="rectangle">
+  <rect x="1471.4319999999998" y="262.84499999999997" width="216.82599999999994" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="1579.8449999999998" y="281.29499999999996" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Loopback HTTP and SSE API</text>
 </g>
 <g class="node" data-id="browser" data-label="Embedded React dashboard" data-shape="rectangle">
-  <rect x="1875.7099999999998" y="327.4375" width="207.934" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="1979.677" y="345.8875" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)" dy="4.55">Embedded React dashboard</text>
+  <rect x="1737.8839999999998" y="262.84499999999997" width="207.934" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="1841.8509999999999" y="281.29499999999996" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Embedded React dashboard</text>
+</g>
+<g class="node" data-id="projection" data-label="Sanitized latest-only uplink" data-shape="rectangle">
+  <rect x="1471.4319999999998" y="133.04499999999996" width="196.81899999999996" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="1569.8414999999998" y="151.49499999999995" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Sanitized latest-only uplink</text>
+</g>
+<g class="node" data-id="yggdrasil" data-label="Yggdrasil uplink-v1 ingress" data-shape="rectangle">
+  <rect x="1737.8839999999998" y="133.04499999999996" width="199.783" height="36.900000000000006" rx="0" ry="0" fill="#f8f8f9" stroke="#d2d3d4" stroke-width="0.75"/>
+  <text x="1837.7754999999997" y="151.49499999999995" text-anchor="middle" font-size="13" font-weight="500" fill="#1f2328" dy="4.55">Yggdrasil uplink-v1 ingress</text>
 </g>
 </svg>

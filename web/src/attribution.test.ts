@@ -7,6 +7,7 @@ import {
   workloadLabel,
 } from './attribution';
 import type { Attribution, Snapshot } from './types';
+import { systemCapability, systemFixture } from './test/system-fixture';
 
 const attribution: Attribution = {
   provider: 'coder-kubernetes',
@@ -91,7 +92,9 @@ describe('workspace attribution joins', () => {
       sequence: 1,
       sampledAt: memory.sampledAt,
       host: { hostname: 'synthetic', os: 'linux', arch: 'amd64' },
+      system: systemFixture(memory.sampledAt),
       capabilities: {
+        system: systemCapability,
         nvml: { name: 'NVML', available: true, status: 'available' },
         gpm: { name: 'GPM', available: true, status: 'available' },
         dcgm: { name: 'DCGM', available: false, status: 'unsupported' },

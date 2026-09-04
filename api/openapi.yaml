@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Leviathan local API
-  version: 0.3.2
-  description: Single-host NVIDIA GPU and MIG telemetry with a process-local sampling control.
+  version: 0.4.0
+  description: Single-host CPU, memory, storage, NVIDIA GPU, and MIG telemetry with a process-local sampling control.
   license:
     name: MIT
     identifier: MIT
@@ -134,14 +134,18 @@ paths:
   /healthz:
     get:
       operationId: healthz
-      summary: Report whether a snapshot is available.
+      summary: Report independent system and GPU telemetry health.
       responses:
         "200":
-          description: Healthy.
+          description: Healthy or degraded with at least one current telemetry domain.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Health" }
-        "503": { $ref: "#/components/responses/Unavailable" }
+        "503":
+          description: No telemetry domain has a valid current snapshot.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
 components:
   responses:
     BadRequest:
@@ -157,10 +161,10 @@ components:
   schemas:
     MetricStatus:
       type: string
-      enum: [available, unsupported, permission_denied, stale, error]
+      enum: [available, unsupported, permission_denied, estimated, stale, error]
     MetricSource:
       type: string
-      enum: [nvml, nvml_gpm, dcgm, proc, synthetic]
+      enum: [nvml, nvml_gpm, dcgm, proc, procfs, statfs, synthetic]
     MetricScope:
       type: string
       enum: [host, physical_gpu, gpu_instance, compute_instance]
@@ -298,8 +302,9 @@ components:
         message: { type: string }
     Capabilities:
       type: object
-      required: [nvml, gpm, dcgm, proc, profileMetrics]
+      required: [system, nvml, gpm, dcgm, proc, profileMetrics]
       properties:
+        system: { $ref: "#/components/schemas/ProviderState" }
         nvml: { $ref: "#/components/schemas/ProviderState" }
         gpm: { $ref: "#/components/schemas/ProviderState" }
         dcgm: { $ref: "#/components/schemas/ProviderState" }
@@ -372,14 +377,86 @@ components:
         hostname: { type: string }
         os: { type: string }
         arch: { type: string }
+    CPU:
+      type: object
+      required: [model, logicalProcessors, utilization, load1, load5, load15, source, sampledAt, status]
+      properties:
+        model: { type: string }
+        logicalProcessors: { type: integer, minimum: 0 }
+        utilization: { $ref: "#/components/schemas/Metric" }
+        load1: { $ref: "#/components/schemas/Metric" }
+        load5: { $ref: "#/components/schemas/Metric" }
+        load15: { $ref: "#/components/schemas/Metric" }
+        source: { $ref: "#/components/schemas/MetricSource" }
+        sampledAt: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/MetricStatus" }
+        message: { type: string }
+    SystemMemory:
+      type: object
+      required: [totalBytes, usedBytes, availableBytes, utilization, source, scope, sampledAt, status]
+      properties:
+        totalBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        usedBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        availableBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        utilization: { $ref: "#/components/schemas/Metric" }
+        source: { $ref: "#/components/schemas/MetricSource" }
+        scope: { $ref: "#/components/schemas/MetricScope" }
+        sampledAt: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/MetricStatus" }
+        message: { type: string }
+    Filesystem:
+      type: object
+      description: Sanitized persistent local filesystem capacity. The opaque ID is not a device path or filesystem UUID.
+      required: [id, mountPoint, fsType, totalBytes, usedBytes, availableBytes, source, scope, sampledAt, status]
+      properties:
+        id: { type: string }
+        mountPoint: { type: string }
+        fsType: { type: string }
+        totalBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        usedBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        availableBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        source: { $ref: "#/components/schemas/MetricSource" }
+        scope: { $ref: "#/components/schemas/MetricScope" }
+        sampledAt: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/MetricStatus" }
+        message: { type: string }
+    Storage:
+      type: object
+      required: [totalBytes, usedBytes, availableBytes, readBytesPerSecond, writeBytesPerSecond, filesystems, source, scope, sampledAt, status]
+      properties:
+        totalBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        usedBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        availableBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        readBytesPerSecond: { $ref: "#/components/schemas/Metric" }
+        writeBytesPerSecond: { $ref: "#/components/schemas/Metric" }
+        filesystems:
+          type: array
+          maxItems: 256
+          items: { $ref: "#/components/schemas/Filesystem" }
+        source: { $ref: "#/components/schemas/MetricSource" }
+        scope: { $ref: "#/components/schemas/MetricScope" }
+        sampledAt: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/MetricStatus" }
+        message: { type: string }
+    System:
+      type: object
+      required: [cpu, memory, storage, sampledAt, status]
+      properties:
+        cpu: { $ref: "#/components/schemas/CPU" }
+        memory: { $ref: "#/components/schemas/SystemMemory" }
+        storage: { $ref: "#/components/schemas/Storage" }
+        sampledAt: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/MetricStatus" }
+        message: { type: string }
     Snapshot:
       type: object
-      required: [schemaVersion, sequence, sampledAt, host, gpus, processes, capabilities, diagnostics]
+      required: [schemaVersion, sequence, sampledAt, host, system, gpus, processes, capabilities, diagnostics]
       properties:
         schemaVersion: { type: string, const: v1 }
         sequence: { type: integer, format: uint64, minimum: 0 }
         sampledAt: { type: string, format: date-time }
         host: { $ref: "#/components/schemas/Host" }
+        system: { $ref: "#/components/schemas/System" }
         gpus: { type: array, items: { $ref: "#/components/schemas/GPU" } }
         processes:
           type: array
@@ -458,10 +535,23 @@ components:
           items: { $ref: "#/components/schemas/AlignedHistoryPoint" }
     Health:
       type: object
-      required: [status, sampledAt]
+      required: [status, domains]
       properties:
-        status: { type: string, const: ok }
-        sampledAt: { type: string, format: date-time }
+        status: { type: string, enum: [ok, degraded, unavailable] }
+        sampledAt: { type: [string, "null"], format: date-time }
+        error: { type: string }
+        domains:
+          type: object
+          required: [system, gpu]
+          properties:
+            system: { $ref: "#/components/schemas/HealthDomain" }
+            gpu: { $ref: "#/components/schemas/HealthDomain" }
+    HealthDomain:
+      type: object
+      required: [available, status]
+      properties:
+        available: { type: boolean }
+        status: { $ref: "#/components/schemas/MetricStatus" }
     Error:
       type: object
       required: [error]

@@ -1,0 +1,383 @@
+openapi: 3.1.0
+info:
+  title: Yggdrasil Leviathan Uplink API
+  version: 1.0.0
+  description: Machine-authenticated, sanitized whole-machine telemetry ingress. The bearer token resolves the authoritative MachineKey.
+paths:
+  /api/uplink/v1/snapshots:
+    post:
+      operationId: putUplinkV1Snapshot
+      security: [{ machineBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Envelope" }
+      responses:
+        "202":
+          description: Accepted, or the same receipt for an exact idempotent retry.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Receipt" }
+        "400": { $ref: "#/components/responses/Rejected" }
+        "401": { $ref: "#/components/responses/Rejected" }
+        "404": { $ref: "#/components/responses/Rejected" }
+        "409": { $ref: "#/components/responses/Rejected" }
+        "413": { $ref: "#/components/responses/Rejected" }
+        "429": { $ref: "#/components/responses/Rejected" }
+        "500": { $ref: "#/components/responses/Rejected" }
+components:
+  securitySchemes:
+    machineBearer:
+      type: http
+      scheme: bearer
+      description: Rotatable `yv1_<22-char lookup>_<43-char secret>` credential bound to one MachineKey.
+  responses:
+    Rejected:
+      description: Rejected without disclosing credential, machine, provider, or payload details.
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [error]
+            properties: { error: { type: string } }
+  schemas:
+    Receipt:
+      type: object
+      additionalProperties: false
+      required: [status, streamId, sequence]
+      properties:
+        status: { $ref: "#/components/schemas/ReceiptStatus" }
+        streamId:
+          type: string
+          pattern: "^[A-Za-z0-9_-]{22}$"
+          x-go-name: StreamID
+        sequence: { type: integer, format: uint64, minimum: 1 }
+    ReceiptStatus:
+      type: string
+      enum: [accepted]
+      x-enum-varnames: [ReceiptAccepted]
+    Envelope:
+      type: object
+      additionalProperties: false
+      required: [schema, streamId, sequence, sampledAt, agent, host, system, gpus, health]
+      properties:
+        schema: { $ref: "#/components/schemas/SchemaVersion" }
+        streamId:
+          type: string
+          pattern: "^[A-Za-z0-9_-]{22}$"
+          x-go-name: StreamID
+        sequence: { type: integer, format: uint64, minimum: 1 }
+        sampledAt: { type: string, format: date-time }
+        agent: { $ref: "#/components/schemas/Agent" }
+        host: { $ref: "#/components/schemas/Host" }
+        system: { $ref: "#/components/schemas/System" }
+        gpus:
+          type: array
+          maxItems: 64
+          items: { $ref: "#/components/schemas/GPU" }
+          x-go-name: GPUs
+        health: { $ref: "#/components/schemas/Health" }
+    SchemaVersion:
+      type: string
+      enum: [uplink-v1]
+      x-enum-varnames: [Schema]
+    Agent:
+      type: object
+      additionalProperties: false
+      required: [version, commit, buildDate]
+      properties:
+        version: { type: string, maxLength: 1024 }
+        commit: { type: string, maxLength: 1024 }
+        buildDate: { type: string, maxLength: 1024 }
+    Host:
+      type: object
+      additionalProperties: false
+      required: [hostname, os, arch]
+      properties:
+        hostname: { type: string, minLength: 1, maxLength: 1024 }
+        os:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          x-go-name: OS
+        arch: { type: string, minLength: 1, maxLength: 1024 }
+    Metric:
+      type: object
+      additionalProperties: false
+      required: [value, unit, source, scope, sampledAt, status]
+      properties:
+        value: { type: [number, "null"], format: double }
+        unit: { $ref: "#/components/schemas/MetricUnit" }
+        source: { $ref: "#/components/schemas/MetricSource" }
+        scope: { $ref: "#/components/schemas/MetricScope" }
+        sampledAt: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/MetricStatus" }
+    MetricStatus:
+      type: string
+      enum: [available, estimated, unavailable, permission_denied, unsupported, error, stale]
+      x-go-type: string
+      x-enum-varnames:
+        - MetricAvailable
+        - MetricEstimated
+        - MetricUnavailable
+        - MetricPermissionDenied
+        - MetricUnsupported
+        - MetricError
+        - MetricStale
+    MetricUnit:
+      type: string
+      enum: [percent, load, bytes_per_second, celsius, watts, mhz]
+      x-go-type: string
+    MetricSource:
+      type: string
+      enum: [nvml, nvml_gpm, dcgm, proc, procfs, statfs, synthetic]
+      x-go-type: string
+    MetricScope:
+      type: string
+      enum: [host, physical_gpu, gpu_instance, compute_instance]
+      x-go-type: string
+    Memory:
+      type: object
+      additionalProperties: false
+      required: [totalBytes, usedBytes, availableBytes, source, scope, sampledAt, status]
+      properties:
+        totalBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        usedBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        availableBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        source: { $ref: "#/components/schemas/MetricSource" }
+        scope: { $ref: "#/components/schemas/MetricScope" }
+        sampledAt: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/MetricStatus" }
+    SystemMemory:
+      type: object
+      additionalProperties: false
+      required: [totalBytes, usedBytes, availableBytes, utilization, source, scope, sampledAt, status]
+      properties:
+        totalBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        usedBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        availableBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        utilization: { $ref: "#/components/schemas/Metric" }
+        source: { $ref: "#/components/schemas/MetricSource" }
+        scope: { $ref: "#/components/schemas/MetricScope" }
+        sampledAt: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/MetricStatus" }
+    System:
+      type: object
+      additionalProperties: false
+      required: [cpu, memory, storage, sampledAt, status]
+      properties:
+        cpu:
+          $ref: "#/components/schemas/CPU"
+          x-go-name: CPU
+        memory: { $ref: "#/components/schemas/SystemMemory" }
+        storage: { $ref: "#/components/schemas/Storage" }
+        sampledAt: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/MetricStatus" }
+    CPU:
+      type: object
+      additionalProperties: false
+      required: [model, logicalProcessors, utilization, load1, load5, load15, source, sampledAt, status]
+      properties:
+        model: { type: string, maxLength: 1024 }
+        logicalProcessors: { type: integer, minimum: 0, maximum: 1000000 }
+        utilization: { $ref: "#/components/schemas/Metric" }
+        load1: { $ref: "#/components/schemas/Metric" }
+        load5: { $ref: "#/components/schemas/Metric" }
+        load15: { $ref: "#/components/schemas/Metric" }
+        source: { $ref: "#/components/schemas/MetricSource" }
+        sampledAt: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/MetricStatus" }
+    Storage:
+      type: object
+      additionalProperties: false
+      required: [totalBytes, usedBytes, availableBytes, readBytesPerSecond, writeBytesPerSecond, filesystems, source, scope, sampledAt, status]
+      properties:
+        totalBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        usedBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        availableBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        readBytesPerSecond: { $ref: "#/components/schemas/Metric" }
+        writeBytesPerSecond: { $ref: "#/components/schemas/Metric" }
+        filesystems:
+          type: array
+          maxItems: 256
+          items: { $ref: "#/components/schemas/Filesystem" }
+        source: { $ref: "#/components/schemas/MetricSource" }
+        scope: { $ref: "#/components/schemas/MetricScope" }
+        sampledAt: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/MetricStatus" }
+    Filesystem:
+      type: object
+      additionalProperties: false
+      required: [id, mountPoint, fsType, totalBytes, usedBytes, availableBytes, source, scope, sampledAt, status]
+      properties:
+        id:
+          type: string
+          pattern: "^fs_[A-Za-z0-9_-]{22}$"
+          x-go-name: ID
+        mountPoint: { type: string, pattern: "^/", maxLength: 4096 }
+        fsType:
+          type: string
+          minLength: 1
+          maxLength: 64
+          x-go-name: FSType
+        totalBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        usedBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        availableBytes: { type: [integer, "null"], format: uint64, minimum: 0 }
+        source: { $ref: "#/components/schemas/MetricSource" }
+        scope: { $ref: "#/components/schemas/MetricScope" }
+        sampledAt: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/MetricStatus" }
+    GPU:
+      type: object
+      additionalProperties: false
+      required: [uuid, index, name, migEnabled, maxMigDevices, memory, metrics, gpuInstances]
+      properties:
+        uuid:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          x-go-name: UUID
+        index: { type: integer, minimum: 0 }
+        name: { type: string, maxLength: 1024 }
+        migEnabled:
+          type: boolean
+          x-go-name: MIGEnabled
+        maxMigDevices:
+          type: integer
+          minimum: 0
+          x-go-name: MaxMIGDevices
+        memory: { $ref: "#/components/schemas/Memory" }
+        metrics: { $ref: "#/components/schemas/MetricSet" }
+        gpuInstances:
+          type: array
+          items: { $ref: "#/components/schemas/GPUInstance" }
+          x-go-name: GPUInstances
+    GPUInstance:
+      type: object
+      additionalProperties: false
+      required: [uuid, id, profile, memory, metrics, computeInstances]
+      properties:
+        uuid:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          x-go-name: UUID
+        id:
+          type: integer
+          format: uint32
+          minimum: 0
+          x-go-name: ID
+        profile: { type: string, maxLength: 1024 }
+        memory: { $ref: "#/components/schemas/Memory" }
+        metrics: { $ref: "#/components/schemas/MetricSet" }
+        computeInstances:
+          type: array
+          items: { $ref: "#/components/schemas/ComputeInstance" }
+    ComputeInstance:
+      type: object
+      additionalProperties: false
+      required: [uuid, id, profile, memory, metrics]
+      properties:
+        uuid:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          x-go-name: UUID
+        id:
+          type: integer
+          format: uint32
+          minimum: 0
+          x-go-name: ID
+        profile: { type: string, maxLength: 1024 }
+        memory: { $ref: "#/components/schemas/Memory" }
+        metrics: { $ref: "#/components/schemas/MetricSet" }
+    MetricSet:
+      type: object
+      additionalProperties: { $ref: "#/components/schemas/Metric" }
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status, system, gpu, diagnostics]
+      properties:
+        status: { $ref: "#/components/schemas/HealthStatus" }
+        system: { $ref: "#/components/schemas/DomainHealth" }
+        gpu:
+          $ref: "#/components/schemas/DomainHealth"
+          x-go-name: GPU
+        diagnostics:
+          type: array
+          maxItems: 128
+          items: { $ref: "#/components/schemas/SafeDiagnostic" }
+    HealthStatus:
+      type: string
+      enum: [ok, degraded, unavailable]
+      x-enum-varnames: [HealthOK, HealthDegraded, HealthUnavailable]
+    DomainHealth:
+      type: object
+      additionalProperties: false
+      required: [status, sampledAt]
+      properties:
+        status: { $ref: "#/components/schemas/HealthStatus" }
+        sampledAt: { type: string, format: date-time }
+    SafeDiagnostic:
+      type: object
+      additionalProperties: false
+      required: [code, severity, summary, status]
+      properties:
+        code: { $ref: "#/components/schemas/DiagnosticCode" }
+        severity: { $ref: "#/components/schemas/DiagnosticSeverity" }
+        summary: { $ref: "#/components/schemas/DiagnosticSummary" }
+        status: { $ref: "#/components/schemas/MetricStatus" }
+    DiagnosticCode:
+      type: string
+      enum:
+        - system_cpu_partial
+        - system_memory_partial
+        - system_storage_partial
+        - system_cpu
+        - system_memory
+        - system_storage
+        - system_sample
+        - gpu_provider_unavailable
+        - collector_sample
+        - nvml
+        - gpu_handle
+        - gpu_uuid
+        - mig_mode
+        - mig_enumeration
+        - mig_handle
+        - mig_identity
+        - gpm_profile_paused
+        - dcgm_profile_paused
+        - dcgm_topology
+        - dcgm_update
+      x-go-type: string
+    DiagnosticSeverity:
+      type: string
+      enum: [info, warning, error]
+      x-go-type: string
+    DiagnosticSummary:
+      type: string
+      enum:
+        - CPU telemetry is partially unavailable
+        - Memory telemetry is partially unavailable
+        - Storage telemetry is partially unavailable
+        - CPU telemetry is unavailable
+        - Memory telemetry is unavailable
+        - Storage telemetry is unavailable
+        - Host telemetry is unavailable
+        - GPU telemetry is unavailable
+        - GPU sample delayed
+        - NVIDIA telemetry is unavailable
+        - GPU telemetry device is unavailable
+        - Stable GPU identity is unavailable
+        - MIG mode is unavailable
+        - MIG topology is unavailable
+        - MIG device is unavailable
+        - MIG identity is unavailable
+        - GPU profiling counters are unavailable
+        - GPU topology telemetry is unavailable
+        - GPU profiling telemetry is unavailable
+      x-go-type: string

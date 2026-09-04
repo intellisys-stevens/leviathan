@@ -1,0 +1,214 @@
+{
+  "schema": "uplink-v1",
+  "streamId": "AAAAAAAAAAAAAAAAAAAAAA",
+  "sequence": 9,
+  "sampledAt": "2026-09-02T12:34:56Z",
+  "agent": {
+    "version": "0.4.0",
+    "commit": "abc123",
+    "buildDate": "2026-09-02"
+  },
+  "host": {
+    "hostname": "node-a",
+    "os": "linux",
+    "arch": "amd64"
+  },
+  "system": {
+    "cpu": {
+      "model": "Example CPU",
+      "logicalProcessors": 8,
+      "utilization": {
+        "value": 25,
+        "unit": "percent",
+        "source": "procfs",
+        "scope": "host",
+        "sampledAt": "2026-09-02T12:34:56Z",
+        "status": "available"
+      },
+      "load1": {
+        "value": 1,
+        "unit": "load",
+        "source": "procfs",
+        "scope": "host",
+        "sampledAt": "2026-09-02T12:34:56Z",
+        "status": "available"
+      },
+      "load5": {
+        "value": 2,
+        "unit": "load",
+        "source": "procfs",
+        "scope": "host",
+        "sampledAt": "2026-09-02T12:34:56Z",
+        "status": "available"
+      },
+      "load15": {
+        "value": 3,
+        "unit": "load",
+        "source": "procfs",
+        "scope": "host",
+        "sampledAt": "2026-09-02T12:34:56Z",
+        "status": "available"
+      },
+      "source": "procfs",
+      "sampledAt": "2026-09-02T12:34:56Z",
+      "status": "available"
+    },
+    "memory": {
+      "totalBytes": 17179869184,
+      "usedBytes": 6442450944,
+      "availableBytes": 10737418240,
+      "utilization": {
+        "value": 37.5,
+        "unit": "percent",
+        "source": "procfs",
+        "scope": "host",
+        "sampledAt": "2026-09-02T12:34:56Z",
+        "status": "available"
+      },
+      "source": "procfs",
+      "scope": "host",
+      "sampledAt": "2026-09-02T12:34:56Z",
+      "status": "available"
+    },
+    "storage": {
+      "totalBytes": 107374182400,
+      "usedBytes": 42949672960,
+      "availableBytes": 64424509440,
+      "readBytesPerSecond": {
+        "value": 1024,
+        "unit": "bytes_per_second",
+        "source": "procfs",
+        "scope": "host",
+        "sampledAt": "2026-09-02T12:34:56Z",
+        "status": "available"
+      },
+      "writeBytesPerSecond": {
+        "value": 2048,
+        "unit": "bytes_per_second",
+        "source": "procfs",
+        "scope": "host",
+        "sampledAt": "2026-09-02T12:34:56Z",
+        "status": "available"
+      },
+      "filesystems": [
+        {
+          "id": "fs_sErijEjFOgckkR2Z8etBLw",
+          "mountPoint": "/var/lib/data",
+          "fsType": "ext4",
+          "totalBytes": 107374182400,
+          "usedBytes": 42949672960,
+          "availableBytes": 64424509440,
+          "source": "statfs",
+          "scope": "host",
+          "sampledAt": "2026-09-02T12:34:56Z",
+          "status": "available"
+        }
+      ],
+      "source": "statfs",
+      "scope": "host",
+      "sampledAt": "2026-09-02T12:34:56Z",
+      "status": "available"
+    },
+    "sampledAt": "2026-09-02T12:34:56Z",
+    "status": "available"
+  },
+  "gpus": [
+    {
+      "uuid": "GPU-aaaaaaaa",
+      "index": 0,
+      "name": "Example GPU",
+      "migEnabled": true,
+      "maxMigDevices": 7,
+      "memory": {
+        "totalBytes": 8589934592,
+        "usedBytes": 4294967296,
+        "availableBytes": 4294967296,
+        "source": "nvml",
+        "scope": "physical_gpu",
+        "sampledAt": "2026-09-02T12:34:56Z",
+        "status": "available"
+      },
+      "metrics": {
+        "sm_activity": {
+          "value": 73,
+          "unit": "percent",
+          "source": "nvml_gpm",
+          "scope": "physical_gpu",
+          "sampledAt": "2026-09-02T12:34:56Z",
+          "status": "available"
+        }
+      },
+      "gpuInstances": [
+        {
+          "uuid": "MIG-GI-aaaaaaaa",
+          "id": 1,
+          "profile": "1g.10gb",
+          "memory": {
+            "totalBytes": 4294967296,
+            "usedBytes": 2147483648,
+            "availableBytes": 2147483648,
+            "source": "nvml",
+            "scope": "gpu_instance",
+            "sampledAt": "2026-09-02T12:34:56Z",
+            "status": "available"
+          },
+          "metrics": {
+            "sm_activity": {
+              "value": 73,
+              "unit": "percent",
+              "source": "nvml_gpm",
+              "scope": "gpu_instance",
+              "sampledAt": "2026-09-02T12:34:56Z",
+              "status": "available"
+            }
+          },
+          "computeInstances": [
+            {
+              "uuid": "MIG-CI-aaaaaaaa",
+              "id": 2,
+              "profile": "1c.1g.10gb",
+              "memory": {
+                "totalBytes": 4294967296,
+                "usedBytes": 2147483648,
+                "availableBytes": 2147483648,
+                "source": "nvml",
+                "scope": "compute_instance",
+                "sampledAt": "2026-09-02T12:34:56Z",
+                "status": "available"
+              },
+              "metrics": {
+                "sm_activity": {
+                  "value": 73,
+                  "unit": "percent",
+                  "source": "nvml_gpm",
+                  "scope": "compute_instance",
+                  "sampledAt": "2026-09-02T12:34:56Z",
+                  "status": "available"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "health": {
+    "status": "ok",
+    "system": {
+      "status": "ok",
+      "sampledAt": "2026-09-02T12:34:56Z"
+    },
+    "gpu": {
+      "status": "ok",
+      "sampledAt": "2026-09-02T12:34:56Z"
+    },
+    "diagnostics": [
+      {
+        "code": "collector_sample",
+        "severity": "warning",
+        "summary": "GPU sample delayed",
+        "status": "stale"
+      }
+    ]
+  }
+}

@@ -5,6 +5,7 @@ import type { LoadAlignedHistory } from '../overview-history';
 import type { Snapshot } from '../types';
 import { PeopleView } from './people-view';
 import { clearWorkloadHistoryCache } from './workload-telemetry-chart';
+import { systemCapability, systemFixture } from '../test/system-fixture';
 
 function fixture(status: 'available' | 'stale' = 'available'): Snapshot {
   const sampledAt = '2026-08-30T12:00:00Z';
@@ -22,7 +23,9 @@ function fixture(status: 'available' | 'stale' = 'available'): Snapshot {
     sequence: 1,
     sampledAt,
     host: { hostname: 'synthetic', os: 'linux', arch: 'amd64' },
+    system: systemFixture(sampledAt),
     capabilities: {
+      system: systemCapability,
       nvml: { name: 'NVML', available: true, status: 'available' },
       gpm: { name: 'GPM', available: true, status: 'available' },
       dcgm: { name: 'DCGM', available: false, status: 'unsupported' },

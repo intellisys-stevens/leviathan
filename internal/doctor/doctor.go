@@ -16,32 +16,70 @@ import (
 	"github.com/intellisys-stevens/leviathan/internal/config"
 	"github.com/intellisys-stevens/leviathan/internal/model"
 	gpuprocess "github.com/intellisys-stevens/leviathan/internal/process"
+	systemtelemetry "github.com/intellisys-stevens/leviathan/internal/system"
 )
 
 type Report struct {
-	CheckedAt   time.Time          `json:"checkedAt"`
-	Diagnostics []model.Diagnostic `json:"diagnostics"`
+	CheckedAt       time.Time          `json:"checkedAt"`
+	Status          string             `json:"status"`
+	GPURequired     bool               `json:"gpuRequired"`
+	GPUAvailable    bool               `json:"gpuAvailable"`
+	SystemAvailable bool               `json:"systemAvailable"`
+	Diagnostics     []model.Diagnostic `json:"diagnostics"`
 }
 
-func Run(_ context.Context, cfg config.Config) Report {
-	report := Report{CheckedAt: time.Now().UTC(), Diagnostics: []model.Diagnostic{}}
-	report.Diagnostics = append(report.Diagnostics, checkNVML()...)
+type Options struct {
+	RequireGPU bool
+}
+
+func Run(ctx context.Context, cfg config.Config, options ...Options) Report {
+	settings := Options{}
+	if len(options) > 0 {
+		settings = options[0]
+	}
+	report := Report{CheckedAt: time.Now().UTC(), GPURequired: settings.RequireGPU, Diagnostics: []model.Diagnostic{}}
+	nvmlDiagnostics, gpuAvailable := checkNVML()
+	report.GPUAvailable = gpuAvailable
+	report.Diagnostics = append(report.Diagnostics, nvmlDiagnostics...)
 	report.Diagnostics = append(report.Diagnostics, checkDCGM(cfg.DCGMAddress))
 	report.Diagnostics = append(report.Diagnostics, checkProc()...)
+	system, diagnostics, err := systemtelemetry.Default().Sample(ctx, report.CheckedAt)
+	report.Diagnostics = append(report.Diagnostics, diagnostics...)
+	if err == nil {
+		report.SystemAvailable = true
+		report.Diagnostics = append(report.Diagnostics, model.Diagnostic{
+			Code: "system", Severity: "info", Component: "system", Summary: fmt.Sprintf("Host telemetry is readable: %d logical CPU(s), memory, and %d filesystem(s)", system.CPU.LogicalProcessors, len(system.Storage.Filesystems)), Status: system.Status,
+		})
+	}
+	if report.SystemAvailable && !report.GPUAvailable && !settings.RequireGPU {
+		for index := range report.Diagnostics {
+			if report.Diagnostics[index].Component == "NVML" && report.Diagnostics[index].Severity == "error" {
+				report.Diagnostics[index].Severity = "warning"
+			}
+		}
+	}
+	switch {
+	case report.SystemAvailable && (!settings.RequireGPU || report.GPUAvailable):
+		report.Status = "ok"
+	case report.SystemAvailable || report.GPUAvailable:
+		report.Status = "degraded"
+	default:
+		report.Status = "error"
+	}
 	return report
 }
 
-func checkNVML() []model.Diagnostic {
+func checkNVML() ([]model.Diagnostic, bool) {
 	if ret := gonvml.Init(); ret != gonvml.SUCCESS {
 		return []model.Diagnostic{{
 			Code: "nvml", Severity: "error", Component: "NVML", Summary: "NVML is unavailable", Detail: ret.String(),
 			Remedy: "install or expose libnvidia-ml.so.1 from the NVIDIA driver to this process", Status: nvmlStatus(ret),
-		}}
+		}}, false
 	}
 	defer gonvml.Shutdown()
 	count, ret := gonvml.DeviceGetCount()
 	if ret != gonvml.SUCCESS {
-		return []model.Diagnostic{{Code: "nvml", Severity: "error", Component: "NVML", Summary: "GPU enumeration failed", Detail: ret.String(), Status: nvmlStatus(ret)}}
+		return []model.Diagnostic{{Code: "nvml", Severity: "error", Component: "NVML", Summary: "GPU enumeration failed", Detail: ret.String(), Status: nvmlStatus(ret)}}, false
 	}
 	result := []model.Diagnostic{{Code: "nvml", Severity: "info", Component: "NVML", Summary: fmt.Sprintf("NVML found %d physical GPU(s)", count), Status: model.StatusAvailable}}
 	gpmCount, migCount, readableMIG := 0, 0, 0
@@ -82,7 +120,7 @@ func checkNVML() []model.Diagnostic {
 			Remedy:  "expose the allocated NVIDIA device nodes read-only to Leviathan", Status: model.StatusPermissionDenied,
 		})
 	}
-	return result
+	return result, count > 0
 }
 
 func checkDCGM(address string) model.Diagnostic {

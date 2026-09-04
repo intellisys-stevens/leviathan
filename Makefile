@@ -11,14 +11,20 @@ DIST_DIR ?= dist
 LDFLAGS := -s -w -X github.com/intellisys-stevens/leviathan/internal/cli.Version=$(VERSION) -X github.com/intellisys-stevens/leviathan/internal/cli.Commit=$(COMMIT) -X github.com/intellisys-stevens/leviathan/internal/cli.BuildDate=$(BUILD_DATE)
 BRIDGE_LDFLAGS := -s -w -X main.BridgeVersion=$(VERSION)
 
-.PHONY: bootstrap generate fmt frontend build build-leviathan build-bridge bridge-image branding-check release-metadata-check helm-check helm-package test test-go test-race test-install license-check vulncheck soak soak-one-hour clean
+.PHONY: bootstrap generate generate-uplink-contract check-uplink-contract fmt frontend build build-leviathan build-bridge bridge-image branding-check release-metadata-check helm-check helm-package test test-go test-race test-install license-check vulncheck soak soak-one-hour clean
 
 bootstrap:
 	cd web && $(NPM) ci
 
-generate:
+generate: generate-uplink-contract
 	$(GO) generate ./internal/api
 	cd web && $(NPM) run generate:api
+
+generate-uplink-contract:
+	$(GO) generate ./internal/uplink
+
+check-uplink-contract:
+	scripts/verify-uplink-contract.sh
 
 fmt:
 	$(GO) fmt ./...
@@ -73,7 +79,7 @@ license-check:
 	$(GO) run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/leviathan-kubernetes-bridge --disallowed_types=forbidden,restricted,unknown
 	cd web && $(NPM) run license:check
 
-test: test-go test-race test-install frontend branding-check release-metadata-check helm-check license-check
+test: check-uplink-contract test-go test-race test-install frontend branding-check release-metadata-check helm-check license-check
 
 vulncheck:
 	CGO_CFLAGS='$(CGO_CFLAGS)' $(GO) run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...

@@ -2,7 +2,7 @@
 
 <h1><img src="web/public/leviathan-mark.svg" alt="Leviathan frost-dragon mark" width="48" height="48" valign="middle"> Leviathan</h1>
 
-**MIG-first NVIDIA GPU monitoring for the terminal and browser.**
+**Whole-machine Linux monitoring with MIG-first NVIDIA GPU visibility.**
 
 [![CI](https://github.com/intellisys-stevens/leviathan/actions/workflows/ci.yml/badge.svg)](https://github.com/intellisys-stevens/leviathan/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/intellisys-stevens/leviathan?display_name=tag&color=14b8a6)](https://github.com/intellisys-stevens/leviathan/releases/latest)
@@ -12,14 +12,20 @@
 
 </div>
 
-Leviathan is a Linux-only, read-only monitor that understands the physical GPU →
-GPU Instance (GI) → Compute Instance (CI) hierarchy. One Go binary includes an
-interactive TUI, scriptable output, and a local React dashboard; an optional
-Kubernetes bridge adds scheduler-authoritative workspace assignments.
+Leviathan is a Linux-only, read-only monitor for CPU, RAM, persistent local
+storage, and the physical GPU → GPU Instance (GI) → Compute Instance (CI)
+hierarchy. One Go binary includes an interactive TUI, scriptable output, and a
+local React dashboard. An optional in-process uploader sends a sanitized
+machine observation to Yggdrasil, while an optional Kubernetes bridge adds
+scheduler-authoritative workspace assignments.
 
 ## ✨ Highlights
 
 - MIG-aware topology, profiles, memory, activity, and parent-GPU telemetry.
+- Host-wide CPU utilization and load, RAM capacity/utilization, aggregate disk
+  throughput, and sanitized per-filesystem capacity from procfs and statfs.
+- Independent system and GPU workers: CPU-only hosts remain operational, and a
+  failed GPU sample does not stop host telemetry publication.
 - NVML GPM with optional DCGM fallback, including exact PCIe transfer rates.
 - Four-view browser workbench for Overview, Resources, Workloads, and Operations,
   with a mobile-native layout and accessible dark/light themes.
@@ -27,9 +33,10 @@ Kubernetes bridge adds scheduler-authoritative workspace assignments.
 - Explicit unavailable, stale, permission-denied, and error states—never fake zeros.
 - GPU-connected processes visible in the current PID namespace, with optional
   Coder workspace labels and no container-runtime socket.
-- Twelve-hour bounded in-memory history: the latest hour stays at collector
-  cadence, while older 4h/12h views use gap-preserving compact trends. Browser
-  view updates are local to each operator and do not change host sampling.
+- Twelve-hour bounded in-memory host and GPU history: the latest hour stays at
+  collector cadence, while older 4h/12h views use gap-preserving compact trends.
+  Browser view updates are local to each operator and do not change host
+  sampling.
 
 ## 🚀 Quick start
 
@@ -41,7 +48,8 @@ leviathan serve
 Open [http://127.0.0.1:1397](http://127.0.0.1:1397). The installer uses
 `~/.local/bin` without `sudo` and prints PATH guidance when needed.
 
-No GPU available? Preview the dashboard with fixture data:
+No GPU is required for host monitoring. To preview GPU/MIG views with fixture
+data:
 
 ```bash
 leviathan --fixture blackwell serve
@@ -55,7 +63,7 @@ leviathan --fixture blackwell serve
 | `leviathan snapshot -f table\|json` | One current snapshot |
 | `leviathan watch -f table\|jsonl` | Continuous scriptable output |
 | `leviathan serve` | Local dashboard on `127.0.0.1:1397` |
-| `leviathan doctor -f text\|json` | Capability and permission report |
+| `leviathan doctor -f text\|json [--require-gpu]` | Capability and permission report; optionally require a GPU |
 | `leviathan version` | Version, commit, and build time |
 
 The TUI supports arrows or `j`/`k`, `Tab`, `/`, `Enter`, `p`, `?`, and `q`.
@@ -79,8 +87,9 @@ prerequisites, RBAC, privacy, limits, and rollback.
 
 ## 🔐 Security and privacy
 
-Leviathan is read-only, exposes no GPU mutation endpoint, refuses non-loopback
-dashboard addresses, and keeps telemetry in memory. Command arguments are hidden
+Leviathan is read-only, exposes no GPU mutation endpoint, and refuses
+non-loopback dashboard addresses. Local history stays in memory; the optional
+uplink sends only a sanitized machine observation. Command arguments are hidden
 unless explicitly enabled. Review the [security and privacy model](docs/security-and-privacy.md),
 [process permissions](docs/permissions.md), and [security policy](SECURITY.md)
 before enabling host-wide or Kubernetes-integrated operation.
@@ -92,7 +101,10 @@ default. See [the example configuration](docs/config.example.toml) or run
 `leviathan <command> --help` for the complete reference.
 
 Provider modes are `auto`, `nvml`, `dcgm`, and `fake`. Use `--no-profile` when a
-profiler such as Nsight owns the profiling hardware.
+profiler such as Nsight owns the profiling hardware. Configure the optional
+Yggdrasil uploader through the `[uplink]` TOML block in the
+[uplink guide](docs/uplink-v1.md); its bearer token remains in a private
+credential file.
 
 ## 📚 Documentation
 
@@ -100,11 +112,15 @@ profiler such as Nsight owns the profiling hardware.
 | --- | --- |
 | Deployment and remote access | [docs/deployment.md](docs/deployment.md) |
 | Architecture and metric semantics | [docs/architecture.md](docs/architecture.md) |
+| Host CPU, RAM, and storage telemetry | [docs/host-monitoring.md](docs/host-monitoring.md) |
 | Container and process visibility | [docs/permissions.md](docs/permissions.md) |
 | Optional Kubernetes/Coder attribution | [docs/kubernetes-attribution.md](docs/kubernetes-attribution.md) |
+| Yggdrasil telemetry uplink | [docs/uplink-v1.md](docs/uplink-v1.md) |
 | Security and privacy model | [docs/security-and-privacy.md](docs/security-and-privacy.md) |
+| v0.4.0 changes | [CHANGELOG.md](CHANGELOG.md) |
 | Upgrade from v0.2.1 | [docs/migration-v0.3.md](docs/migration-v0.3.md) |
 | OpenAPI 3.1 contract | [api/openapi.yaml](api/openapi.yaml) |
+| Yggdrasil-owned uplink contract vendor | [api/uplink-v1-openapi.yaml](api/uplink-v1-openapi.yaml) |
 | Development workflow | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Security boundary | [SECURITY.md](SECURITY.md) |
 
@@ -114,7 +130,7 @@ profiler such as Nsight owns the profiling hardware.
 git clone https://github.com/intellisys-stevens/leviathan.git
 cd leviathan
 make bootstrap
-make generate       # regenerate Go and TypeScript API types
+make generate       # regenerate local API types and uplink DTOs
 make test           # Go, race, vet, frontend, and license checks
 make vulncheck      # Go and npm vulnerability checks
 make soak           # accelerated collector soak

@@ -72,13 +72,15 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
+      - name: Verify vendored uplink contract and generated Go DTOs
+        run: scripts/verify-uplink-contract.sh
       - run: go generate ./internal/api
       - run: git diff --exit-code -- internal/api/wire.gen.go
       - run: go test ./...
       - run: go test -race ./...
       - run: go vet ./...
       - name: Build Kubernetes attribution bridge
-        run: make build-bridge VERSION=0.3.2
+        run: make build-bridge VERSION=0.4.0
       - name: Check Go dependency licenses
         run: |
           go run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/leviathan --disallowed_types=forbidden,restricted,unknown
@@ -103,7 +105,7 @@ jobs:
           sbom: true
           tags: leviathan-kubernetes-bridge:ci
           build-args: |
-            VERSION=0.3.2
+            VERSION=0.4.0
             COMMIT=${{ github.sha }}
             BUILD_DATE=1970-01-01T00:00:00Z
           cache-from: type=gha,scope=bridge-ci
@@ -119,7 +121,7 @@ jobs:
           provenance: false
           tags: leviathan-kubernetes-bridge:ci
           build-args: |
-            VERSION=0.3.2
+            VERSION=0.4.0
             COMMIT=${{ github.sha }}
             BUILD_DATE=1970-01-01T00:00:00Z
           cache-from: type=gha,scope=bridge-ci
@@ -129,7 +131,7 @@ jobs:
           test "$(docker image inspect --format '{{.Config.User}}' leviathan-kubernetes-bridge:ci)" = '0:0'
           test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.title"}}' leviathan-kubernetes-bridge:ci)" = 'Leviathan Kubernetes attribution bridge'
           test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.source"}}' leviathan-kubernetes-bridge:ci)" = 'https://github.com/intellisys-stevens/leviathan'
-          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' leviathan-kubernetes-bridge:ci)" = '0.3.2'
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' leviathan-kubernetes-bridge:ci)" = '0.4.0'
 
   distribution-validation:
     runs-on: ubuntu-24.04
@@ -146,7 +148,7 @@ jobs:
       - name: Verify clean product rename and release metadata
         run: |
           scripts/verify-branding.sh
-          scripts/verify-release-metadata.sh 0.3.2
+          scripts/verify-release-metadata.sh 0.4.0
       - name: Test installer
         run: scripts/install_test.sh
       - name: Dry-run Helm chart package
@@ -155,16 +157,16 @@ jobs:
           scripts/verify-helm-chart.sh
           mkdir -p dist
           helm package charts/leviathan-attribution --destination dist
-          test -f dist/leviathan-attribution-0.3.2.tgz
-          test "$(helm show chart dist/leviathan-attribution-0.3.2.tgz | awk '$1 == "version:" { print $2 }')" = 0.3.2
-          test "$(helm show chart dist/leviathan-attribution-0.3.2.tgz | awk '$1 == "appVersion:" { print $2 }')" = 0.3.2
-          echo 'package=dist/leviathan-attribution-0.3.2.tgz' >> "$GITHUB_OUTPUT"
+          test -f dist/leviathan-attribution-0.4.0.tgz
+          test "$(helm show chart dist/leviathan-attribution-0.4.0.tgz | awk '$1 == "version:" { print $2 }')" = 0.4.0
+          test "$(helm show chart dist/leviathan-attribution-0.4.0.tgz | awk '$1 == "appVersion:" { print $2 }')" = 0.4.0
+          echo 'package=dist/leviathan-attribution-0.4.0.tgz' >> "$GITHUB_OUTPUT"
       - name: Dry-run chart SPDX SBOM
         uses: anchore/sbom-action@v0
         with:
           file: ${{ steps.chart.outputs.package }}
           format: spdx-json
-          output-file: dist/leviathan-attribution_0.3.2.spdx.json
+          output-file: dist/leviathan-attribution_0.4.0.spdx.json
           upload-artifact: false
           upload-release-assets: false
 
@@ -202,7 +204,7 @@ jobs:
         env:
           ARCHITECTURE: ${{ matrix.architecture }}
           OUTPUT_DIRECTORY: ${{ runner.temp }}/leviathan-package
-          VERSION: v0.3.2
+          VERSION: v0.4.0
         run: |
           archive=$(scripts/build-release.sh)
           scripts/verify-release-archive.sh "$archive" "$VERSION" "$ARCHITECTURE"

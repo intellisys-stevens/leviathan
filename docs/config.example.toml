@@ -17,5 +17,19 @@ ascii = false
 # attribution and makes no Kubernetes or local socket requests.
 # attribution_socket = "/run/leviathan/attribution.sock"
 
+# Optional latest-only telemetry uplink owned by `leviathan serve`. These
+# controls are intentionally TOML-only. The bearer value itself must exist only
+# in the private token file, never in this TOML, an environment variable, or a
+# process argument.
+[uplink]
+enabled = false
+base_url = ""
+token_file = ""
+interval = "15s"
+
+# With the systemd LoadCredential example, enable the block above and use:
+# base_url = "https://yggdrasil.example.edu"
+# token_file = "/run/credentials/leviathan@root.service/leviathan-uplink-token"
+
 # Development only. Any non-empty fixture selects the fake provider.
 # fixture = "multi-ci"

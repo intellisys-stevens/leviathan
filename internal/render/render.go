@@ -6,7 +6,6 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/intellisys-stevens/leviathan/internal/doctor"
 	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
@@ -18,6 +17,17 @@ func SnapshotTable(writer io.Writer, snapshot model.Snapshot, ascii bool) {
 	}
 	output := tabwriter.NewWriter(writer, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(output, "Leviathan\t%s\t%s\tsequence %d\n", snapshot.Host.Hostname, snapshot.SampledAt.Format(time.RFC3339), snapshot.Sequence)
+	fmt.Fprintln(output, "MACHINE\tVALUE\tDETAIL\tSOURCE\tSTATUS")
+	fmt.Fprintf(output, "CPU\t%s\t%d logical; load %s / %s / %s\t%s\t%s\n",
+		Metric(snapshot.System.CPU.Utilization, dash), snapshot.System.CPU.LogicalProcessors,
+		Metric(snapshot.System.CPU.Load1, dash), Metric(snapshot.System.CPU.Load5, dash), Metric(snapshot.System.CPU.Load15, dash),
+		snapshot.System.CPU.Source, statusLabel(snapshot.System.CPU.Status))
+	fmt.Fprintf(output, "RAM\t%s\tavailable %s\t%s\t%s\n", SystemMemory(snapshot.System.Memory, dash), BytesPointer(snapshot.System.Memory.AvailableBytes, dash), snapshot.System.Memory.Source, statusLabel(snapshot.System.Memory.Status))
+	fmt.Fprintf(output, "Storage\t%s\tread %s; write %s\t%s\t%s\n", StorageCapacity(snapshot.System.Storage, dash), Metric(snapshot.System.Storage.ReadBytesPerSecond, dash), Metric(snapshot.System.Storage.WriteBytesPerSecond, dash), snapshot.System.Storage.Source, statusLabel(snapshot.System.Storage.Status))
+	for _, filesystem := range snapshot.System.Storage.Filesystems {
+		fmt.Fprintf(output, "Filesystem %s\t%s\t%s\t%s\t%s\n", filesystem.MountPoint, FilesystemCapacity(filesystem, dash), filesystem.FSType, filesystem.Source, statusLabel(filesystem.Status))
+	}
+	fmt.Fprintln(output)
 	fmt.Fprintln(output, "ENTITY\tPROFILE\tMEMORY\tSM\tSTATUS")
 	if len(snapshot.GPUs) == 0 {
 		fmt.Fprintf(output, "%s\t%s\t%s\t%s\t%s\n", "No NVIDIA GPUs", dash, dash, dash, "unsupported")
@@ -61,11 +71,11 @@ func SnapshotTable(writer io.Writer, snapshot model.Snapshot, ascii bool) {
 	_ = output.Flush()
 }
 
-func DoctorText(writer io.Writer, report doctor.Report) {
+func DoctorText(writer io.Writer, checkedAt time.Time, status string, diagnostics []model.Diagnostic) {
 	output := tabwriter.NewWriter(writer, 0, 4, 2, ' ', 0)
-	fmt.Fprintf(output, "Leviathan doctor\t%s\n", report.CheckedAt.Format(time.RFC3339))
+	fmt.Fprintf(output, "Leviathan doctor\t%s\t%s\n", checkedAt.Format(time.RFC3339), status)
 	fmt.Fprintln(output, "STATUS\tCOMPONENT\tCHECK\tDETAIL")
-	for _, diagnostic := range report.Diagnostics {
+	for _, diagnostic := range diagnostics {
 		detail := diagnostic.Detail
 		if diagnostic.Remedy != "" {
 			if detail != "" {
@@ -79,7 +89,7 @@ func DoctorText(writer io.Writer, report doctor.Report) {
 }
 
 func Metric(metric model.Metric, dash string) string {
-	if metric.Status != model.StatusAvailable || metric.Value == nil {
+	if !usableStatus(metric.Status) || metric.Value == nil {
 		if metric.Status == "" {
 			return dash
 		}
@@ -94,9 +104,51 @@ func Metric(metric model.Metric, dash string) string {
 		return fmt.Sprintf("%.0f W", *metric.Value)
 	case "mhz":
 		return fmt.Sprintf("%.0f MHz", *metric.Value)
+	case "bytes_per_second", "bytes/second":
+		if *metric.Value < 0 {
+			return dash
+		}
+		return Bytes(uint64(*metric.Value)) + "/s"
+	case "load":
+		return fmt.Sprintf("%.2f", *metric.Value)
 	default:
 		return fmt.Sprintf("%.2f %s", *metric.Value, metric.Unit)
 	}
+}
+
+func SystemMemory(memory model.SystemMemory, dash string) string {
+	return capacity(memory.UsedBytes, memory.TotalBytes, memory.Status, dash)
+}
+
+func StorageCapacity(storage model.Storage, dash string) string {
+	return capacity(storage.UsedBytes, storage.TotalBytes, storage.Status, dash)
+}
+
+func FilesystemCapacity(filesystem model.Filesystem, dash string) string {
+	return capacity(filesystem.UsedBytes, filesystem.TotalBytes, filesystem.Status, dash)
+}
+
+func capacity(used, total *uint64, status model.MetricStatus, dash string) string {
+	totalLabel := BytesPointer(total, dash)
+	if (!usableStatus(status) && status != model.StatusStale) || used == nil {
+		return fmt.Sprintf("%s / %s (%s)", dash, totalLabel, statusLabel(status))
+	}
+	value := fmt.Sprintf("%s / %s", Bytes(*used), totalLabel)
+	if status == model.StatusStale {
+		value += " (stale)"
+	}
+	return value
+}
+
+func BytesPointer(value *uint64, dash string) string {
+	if value == nil {
+		return dash
+	}
+	return Bytes(*value)
+}
+
+func usableStatus(status model.MetricStatus) bool {
+	return status == model.StatusAvailable || status == model.StatusEstimated
 }
 
 func Memory(memory model.Memory, dash string) string {

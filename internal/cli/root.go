@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -20,7 +21,9 @@ import (
 	"github.com/intellisys-stevens/leviathan/internal/doctor"
 	"github.com/intellisys-stevens/leviathan/internal/model"
 	"github.com/intellisys-stevens/leviathan/internal/render"
+	systemtelemetry "github.com/intellisys-stevens/leviathan/internal/system"
 	"github.com/intellisys-stevens/leviathan/internal/tui"
+	"github.com/intellisys-stevens/leviathan/internal/uplink"
 	"github.com/intellisys-stevens/leviathan/internal/webui"
 	"github.com/spf13/cobra"
 )
@@ -204,12 +207,26 @@ func (a *application) sample(ctx context.Context) (model.Snapshot, error) {
 	if err != nil {
 		return model.Snapshot{}, err
 	}
+	hostSampler := a.systemSampler()
+	var hostSystem model.System
+	var hostDiagnostics []model.Diagnostic
+	var hostErr error
+	if hostSampler != nil {
+		hostSystem, hostDiagnostics, hostErr = hostSampler.Sample(ctx, time.Now().UTC())
+	}
 	if err := source.Open(ctx); err != nil {
+		if hostSampler != nil && hostErr == nil {
+			hostSystem, hostDiagnostics = a.finishOneShotSystemSample(ctx, hostSampler, hostSystem, hostDiagnostics)
+			return systemOnlySnapshot(source, hostSystem, hostDiagnostics, err), nil
+		}
 		return model.Snapshot{}, err
 	}
 	defer source.Close()
 	snapshot, err := source.Sample(ctx, time.Now().UTC())
 	if err != nil {
+		if hostSampler != nil && hostErr == nil {
+			return systemOnlySnapshot(source, hostSystem, hostDiagnostics, err), nil
+		}
 		return snapshot, err
 	}
 	if snapshot.Capabilities.GPM.Available && !a.cfg.NoProfile {
@@ -222,8 +239,81 @@ func (a *application) sample(ctx context.Context) (model.Snapshot, error) {
 		}
 		snapshot, err = source.Sample(ctx, time.Now().UTC())
 	}
+	if hostSampler != nil {
+		if latest, diagnostics, systemErr := hostSampler.Sample(ctx, time.Now().UTC()); systemErr == nil {
+			hostSystem, hostDiagnostics, hostErr = latest, diagnostics, nil
+		} else if hostErr != nil {
+			hostErr = systemErr
+		}
+	}
+	if hostSampler != nil {
+		if hostErr == nil {
+			snapshot.System = hostSystem
+			snapshot.Capabilities.System = systemProviderState(hostSystem)
+			snapshot.Diagnostics = append(snapshot.Diagnostics, hostDiagnostics...)
+		} else {
+			snapshot.Capabilities.System = model.ProviderState{Name: "Linux host telemetry", Available: false, Status: model.StatusError, Message: hostErr.Error()}
+			snapshot.Diagnostics = append(snapshot.Diagnostics, model.Diagnostic{Code: "system_sample", Severity: "warning", Component: "system", Summary: "Host telemetry is unavailable", Detail: hostErr.Error(), Status: model.StatusError})
+		}
+	}
 	snapshot.Sequence = 1
+	snapshot.SchemaVersion = "v1"
 	return snapshot, err
+}
+
+func (a *application) systemSampler() systemtelemetry.Sampler {
+	if a.cfg.Provider == "fake" || a.cfg.Fixture != "" {
+		return nil
+	}
+	return systemtelemetry.Default()
+}
+
+func (a *application) finishOneShotSystemSample(ctx context.Context, sampler systemtelemetry.Sampler, fallback model.System, fallbackDiagnostics []model.Diagnostic) (model.System, []model.Diagnostic) {
+	delay := a.cfg.Interval
+	if delay < 250*time.Millisecond {
+		delay = 250 * time.Millisecond
+	}
+	if delay > time.Second {
+		delay = time.Second
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return fallback, fallbackDiagnostics
+	case <-timer.C:
+	}
+	latest, diagnostics, err := sampler.Sample(ctx, time.Now().UTC())
+	if err != nil {
+		return fallback, fallbackDiagnostics
+	}
+	return latest, diagnostics
+}
+
+func systemOnlySnapshot(source interface {
+	Capabilities() model.Capabilities
+	Name() string
+}, system model.System, diagnostics []model.Diagnostic, gpuErr error) model.Snapshot {
+	hostname, _ := os.Hostname()
+	capabilities := source.Capabilities()
+	capabilities.System = systemProviderState(system)
+	if capabilities.NVML.Status == "" {
+		capabilities.NVML = model.ProviderState{Name: source.Name(), Available: false, Status: model.StatusError, Message: gpuErr.Error()}
+	}
+	diagnostics = append(diagnostics, model.Diagnostic{
+		Code: "gpu_provider_unavailable", Severity: "warning", Component: "GPU provider", Summary: "GPU telemetry is unavailable",
+		Detail: gpuErr.Error(), Remedy: "run `leviathan doctor --require-gpu` when this machine is expected to have an NVIDIA GPU", Status: capabilities.NVML.Status,
+	})
+	return model.Snapshot{
+		SchemaVersion: "v1", Sequence: 1, SampledAt: system.SampledAt,
+		Host: model.Host{Hostname: hostname, OS: runtime.GOOS, Arch: runtime.GOARCH}, System: system,
+		GPUs: []model.GPU{}, Processes: []model.Process{}, Capabilities: capabilities, Diagnostics: diagnostics,
+	}
+}
+
+func systemProviderState(system model.System) model.ProviderState {
+	available := !system.SampledAt.IsZero() && (system.Status == model.StatusAvailable || system.Status == model.StatusEstimated || system.Status == model.StatusStale)
+	return model.ProviderState{Name: "Linux host telemetry", Available: available, Status: system.Status, Message: system.Message}
 }
 
 func (a *application) watchCommand() *cobra.Command {
@@ -273,11 +363,27 @@ func (a *application) serveCommand() *cobra.Command {
 			if err := config.ValidateLoopback(a.cfg.Listen); err != nil {
 				return err
 			}
-			engine, err := a.startEngine(command.Context())
+			serveContext, cancelServe := context.WithCancel(command.Context())
+			engine, err := a.startEngine(serveContext)
+			if err != nil {
+				cancelServe()
+				return err
+			}
+			defer func() {
+				cancelServe()
+				_ = engine.Stop()
+			}()
+			uplinkRunner, err := newConfiguredUplink(a.cfg.Uplink, engine, buildInfo(), uplinkAttemptReporter(a.stderr))
 			if err != nil {
 				return err
 			}
-			defer engine.Stop()
+			var uplinkDone <-chan error
+			if uplinkRunner != nil {
+				done := make(chan error, 1)
+				uplinkDone = done
+				go func() { done <- uplinkRunner.Run(serveContext) }()
+				fmt.Fprintln(a.stderr, "Yggdrasil uplink enabled")
+			}
 			listener, err := net.Listen("tcp", a.cfg.Listen)
 			if err != nil {
 				return err
@@ -289,17 +395,31 @@ func (a *application) serveCommand() *cobra.Command {
 				IdleTimeout:       2 * time.Minute,
 				// SSE connections are intentionally long-lived. Tie their base context
 				// to the command so an interrupt can drain Shutdown immediately.
-				BaseContext: func(net.Listener) context.Context { return command.Context() },
+				BaseContext: func(net.Listener) context.Context { return serveContext },
 			}
 			fmt.Fprintf(a.stderr, "Leviathan dashboard: http://%s\n", listener.Addr())
 			fmt.Fprintln(a.stderr, tunnelHint(listener.Addr()))
 			done := make(chan error, 1)
 			go func() { done <- server.Serve(listener) }()
 			select {
-			case <-command.Context().Done():
+			case <-serveContext.Done():
 				shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				return server.Shutdown(shutdown)
+			case err := <-uplinkDone:
+				if serveContext.Err() != nil {
+					shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					return server.Shutdown(shutdown)
+				}
+				cancelServe()
+				shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = server.Shutdown(shutdown)
+				if err == nil {
+					err = uplink.ErrSnapshotSourceEnd
+				}
+				return fmt.Errorf("uplink stopped: %w", err)
 			case err := <-done:
 				if errors.Is(err, http.ErrServerClosed) {
 					return nil
@@ -346,23 +466,31 @@ func resolveVersion(linkerVersion, moduleVersion string) string {
 
 func (a *application) doctorCommand() *cobra.Command {
 	format := "text"
+	requireGPU := false
 	command := &cobra.Command{
 		Use: "doctor", Short: "Diagnose providers, namespaces, sockets, and permissions", Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if format != "text" && format != "json" {
 				return fmt.Errorf("format must be text or json")
 			}
-			report := doctor.Run(command.Context(), a.cfg)
+			report := doctor.Run(command.Context(), a.cfg, doctor.Options{RequireGPU: requireGPU})
 			if format == "json" {
 				encoder := json.NewEncoder(a.stdout)
 				encoder.SetIndent("", "  ")
-				return encoder.Encode(report)
+				if err := encoder.Encode(report); err != nil {
+					return err
+				}
+			} else {
+				render.DoctorText(a.stdout, report.CheckedAt, report.Status, report.Diagnostics)
 			}
-			render.DoctorText(a.stdout, report)
+			if requireGPU && !report.GPUAvailable {
+				return errors.New("an NVIDIA GPU is required but unavailable")
+			}
 			return nil
 		},
 	}
 	command.Flags().StringVarP(&format, "format", "f", format, "output format: text or json")
+	command.Flags().BoolVar(&requireGPU, "require-gpu", false, "fail when no usable NVIDIA GPU is detected")
 	return command
 }
 
@@ -397,6 +525,7 @@ func (a *application) startEngine(ctx context.Context) (*collector.Engine, error
 		HistoryWindow:    a.cfg.HistoryWindow,
 		ProfileInterval:  maxDuration(a.cfg.ProfileInterval, a.cfg.Interval),
 		ProcessInterval:  maxDuration(a.cfg.ProcessInterval, a.cfg.Interval),
+		SystemSampler:    a.systemSampler(),
 	})
 	if err := engine.Start(ctx); err != nil {
 		return nil, err

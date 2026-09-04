@@ -7,16 +7,19 @@ import {
   type SnapshotPayload,
   useLeviathan,
 } from './use-leviathan';
+import { systemCapability, systemFixture } from './test/system-fixture';
 
 const snapshot: Snapshot = {
   schemaVersion: 'v1',
   sequence: 1,
   sampledAt: '2026-08-29T12:00:00Z',
   host: { hostname: 'fixture', os: 'linux', arch: 'amd64' },
+  system: systemFixture('2026-08-29T12:00:00Z'),
   gpus: [],
   processes: [],
   diagnostics: [],
   capabilities: {
+    system: systemCapability,
     nvml: { name: 'NVML', available: true, status: 'available' },
     gpm: { name: 'GPM', available: false, status: 'unsupported' },
     dcgm: { name: 'DCGM', available: false, status: 'unsupported' },
@@ -230,6 +233,46 @@ describe('useLeviathan runtime settings', () => {
         { key: 'gpu:fixture', entity: 'GPU/fixture', metrics: ['temperature'] },
       ],
     });
+  });
+
+  it('echoes the optional remote CSRF token only on settings mutation', async () => {
+    const fetchMock = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = requestURL(input);
+        if (url === '/api/v1/snapshot') return jsonResponse(snapshot);
+        if (url === '/api/v1/version') return jsonResponse(buildInfo);
+        if (url === '/api/v1/settings' && init?.method === 'PATCH')
+          return jsonResponse(initialSettings);
+        if (url === '/api/v1/settings')
+          return new Response(JSON.stringify(initialSettings), {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Leviathan-CSRF-Token': 'lvc_remote-token',
+            },
+          });
+        throw new Error(`unexpected request: ${url}`);
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const hook = renderHook(() => useLeviathan());
+    await waitFor(() => expect(hook.result.current.settings).not.toBeNull());
+    await act(async () => {
+      await hook.result.current.updateSamplingInterval(1000);
+    });
+    const patch = fetchMock.mock.calls.find(
+      ([input, init]) =>
+        requestURL(input) === '/api/v1/settings' && init?.method === 'PATCH',
+    );
+    expect(patch?.[1]?.headers).toEqual({
+      'Content-Type': 'application/json',
+      'X-Leviathan-CSRF-Token': 'lvc_remote-token',
+    });
+    const otherRequests = fetchMock.mock.calls.filter(
+      ([input]) => requestURL(input) !== '/api/v1/settings',
+    );
+    for (const [, init] of otherRequests)
+      expect(init?.headers ?? {}).not.toHaveProperty('X-Leviathan-CSRF-Token');
   });
 
   it('keeps newer streamed state when bootstrap requests finish late', async () => {
@@ -465,5 +508,19 @@ describe('useLeviathan runtime settings', () => {
     });
     expect(hook.result.current.snapshot?.sequence).toBe(2);
     expect(hook.result.current.snapshot?.processes).toEqual([]);
+  });
+
+  it('normalizes a pre-v0.4 snapshot without system telemetry', () => {
+    const { system: _system, ...withoutSystem } = snapshot;
+    const { system: _systemCapability, ...legacyCapabilities } =
+      snapshot.capabilities;
+    const normalized = normalizeSnapshot({
+      ...withoutSystem,
+      system: null,
+      capabilities: legacyCapabilities,
+    });
+    expect(normalized.system.status).toBe('unsupported');
+    expect(normalized.system.storage.filesystems).toEqual([]);
+    expect(normalized.capabilities.system.available).toBe(false);
   });
 });

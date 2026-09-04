@@ -9,6 +9,7 @@ const (
 	StatusAvailable        MetricStatus = "available"
 	StatusUnsupported      MetricStatus = "unsupported"
 	StatusPermissionDenied MetricStatus = "permission_denied"
+	StatusEstimated        MetricStatus = "estimated"
 	StatusStale            MetricStatus = "stale"
 	StatusError            MetricStatus = "error"
 )
@@ -20,6 +21,8 @@ const (
 	SourceNVMLGPM   MetricSource = "nvml_gpm"
 	SourceDCGM      MetricSource = "dcgm"
 	SourceProc      MetricSource = "proc"
+	SourceProcFS    MetricSource = "procfs"
+	SourceStatFS    MetricSource = "statfs"
 	SourceSynthetic MetricSource = "synthetic"
 )
 
@@ -174,6 +177,7 @@ type ProviderState struct {
 }
 
 type Capabilities struct {
+	System         ProviderState `json:"system"`
 	NVML           ProviderState `json:"nvml"`
 	GPM            ProviderState `json:"gpm"`
 	DCGM           ProviderState `json:"dcgm"`
@@ -195,6 +199,80 @@ type Host struct {
 	Hostname string `json:"hostname"`
 	OS       string `json:"os"`
 	Arch     string `json:"arch"`
+}
+
+// CPU contains host-wide CPU identity and measurements. Utilization is based
+// on the delta between two /proc/stat samples, so its first value is
+// intentionally unavailable while the sampler warms up.
+type CPU struct {
+	Model             string       `json:"model"`
+	LogicalProcessors int          `json:"logicalProcessors"`
+	Utilization       Metric       `json:"utilization"`
+	Load1             Metric       `json:"load1"`
+	Load5             Metric       `json:"load5"`
+	Load15            Metric       `json:"load15"`
+	Source            MetricSource `json:"source"`
+	SampledAt         time.Time    `json:"sampledAt"`
+	Status            MetricStatus `json:"status"`
+	Message           string       `json:"message,omitempty"`
+}
+
+// SystemMemory reports host memory using MemAvailable semantics. Values remain
+// integral on the wire; StatusEstimated identifies the documented fallback
+// used by older kernels that do not expose MemAvailable.
+type SystemMemory struct {
+	TotalBytes     *uint64      `json:"totalBytes"`
+	UsedBytes      *uint64      `json:"usedBytes"`
+	AvailableBytes *uint64      `json:"availableBytes"`
+	Utilization    Metric       `json:"utilization"`
+	Source         MetricSource `json:"source"`
+	Scope          MetricScope  `json:"scope"`
+	SampledAt      time.Time    `json:"sampledAt"`
+	Status         MetricStatus `json:"status"`
+	Message        string       `json:"message,omitempty"`
+}
+
+// Filesystem is a sanitized capacity view. ID is an opaque, deterministic
+// identifier; backing device paths and filesystem UUIDs are never retained.
+type Filesystem struct {
+	ID             string       `json:"id"`
+	MountPoint     string       `json:"mountPoint"`
+	FSType         string       `json:"fsType"`
+	TotalBytes     *uint64      `json:"totalBytes"`
+	UsedBytes      *uint64      `json:"usedBytes"`
+	AvailableBytes *uint64      `json:"availableBytes"`
+	Source         MetricSource `json:"source"`
+	Scope          MetricScope  `json:"scope"`
+	SampledAt      time.Time    `json:"sampledAt"`
+	Status         MetricStatus `json:"status"`
+	Message        string       `json:"message,omitempty"`
+}
+
+// Storage combines capacity across distinct persistent local filesystems and
+// aggregate I/O rates for their directly mounted block devices.
+type Storage struct {
+	TotalBytes          *uint64      `json:"totalBytes"`
+	UsedBytes           *uint64      `json:"usedBytes"`
+	AvailableBytes      *uint64      `json:"availableBytes"`
+	ReadBytesPerSecond  Metric       `json:"readBytesPerSecond"`
+	WriteBytesPerSecond Metric       `json:"writeBytesPerSecond"`
+	Filesystems         []Filesystem `json:"filesystems"`
+	Source              MetricSource `json:"source"`
+	Scope               MetricScope  `json:"scope"`
+	SampledAt           time.Time    `json:"sampledAt"`
+	Status              MetricStatus `json:"status"`
+	Message             string       `json:"message,omitempty"`
+}
+
+// System is dynamic whole-machine telemetry, deliberately separate from the
+// mostly static Host identity object.
+type System struct {
+	CPU       CPU          `json:"cpu"`
+	Memory    SystemMemory `json:"memory"`
+	Storage   Storage      `json:"storage"`
+	SampledAt time.Time    `json:"sampledAt"`
+	Status    MetricStatus `json:"status"`
+	Message   string       `json:"message,omitempty"`
 }
 
 // RuntimeSettings are process-local controls exposed by the dashboard. They
@@ -220,6 +298,7 @@ type Snapshot struct {
 	Sequence      uint64       `json:"sequence"`
 	SampledAt     time.Time    `json:"sampledAt"`
 	Host          Host         `json:"host"`
+	System        System       `json:"system"`
 	GPUs          []GPU        `json:"gpus"`
 	Processes     []Process    `json:"processes"`
 	Attribution   *Attribution `json:"attribution,omitempty"`
