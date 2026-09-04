@@ -54,22 +54,26 @@ for required_path in \
   "${archive_root}/LICENSE" \
   "${archive_root}/NOTICE" \
   "${archive_root}/README.md" \
+  "${archive_root}/CHANGELOG.md" \
   "${archive_root}/CONTRIBUTING.md" \
   "${archive_root}/SECURITY.md" \
   "${archive_root}/leviathan@.service" \
   "${archive_root}/leviathan.env.example" \
   "${archive_root}/leviathan-attribution.env" \
   "${archive_root}/leviathan@root.service.d/10-hardening.conf" \
+  "${archive_root}/leviathan@root.service.d/20-uplink.example.conf" \
   "${archive_root}/contrib/systemd/leviathan@.service" \
   "${archive_root}/contrib/systemd/leviathan.env.example" \
   "${archive_root}/contrib/systemd/leviathan-attribution.env" \
   "${archive_root}/contrib/systemd/leviathan@root.service.d/10-hardening.conf" \
+  "${archive_root}/contrib/systemd/leviathan@root.service.d/20-uplink.example.conf" \
   "${archive_root}/charts/leviathan-attribution/Chart.yaml" \
   "${archive_root}/charts/leviathan-attribution/values.yaml" \
   "${archive_root}/charts/leviathan-attribution/values.schema.json" \
   "${archive_root}/charts/leviathan-attribution/templates/daemonset.yaml" \
   "${archive_root}/charts/leviathan-attribution/templates/rbac.yaml" \
   "${archive_root}/docs/architecture.md" \
+  "${archive_root}/docs/assets/architecture.mmd" \
   "${archive_root}/docs/assets/architecture.svg" \
   "${archive_root}/docs/config.example.toml" \
   "${archive_root}/docs/deployment.md" \
@@ -78,6 +82,7 @@ for required_path in \
   "${archive_root}/docs/permissions.md" \
   "${archive_root}/docs/releasing.md" \
   "${archive_root}/docs/security-and-privacy.md" \
+  "${archive_root}/docs/uplink-v1.md" \
   "${archive_root}/api/openapi.yaml" \
   "${archive_root}/web/public/leviathan-mark.svg" \
   "${archive_root}/openapi.yaml" \
@@ -127,6 +132,14 @@ if grep -F -- '--show-command-line' "${root_hardening}" >/dev/null; then
   echo "root systemd drop-in must not expose process command lines" >&2
   exit 1
 fi
+root_uplink="${root}/leviathan@root.service.d/20-uplink.example.conf"
+for directive in \
+  'ExecStart=' \
+  'ExecStart=/usr/local/bin/leviathan --config /etc/leviathan/config.toml --listen 127.0.0.1:1397 serve' \
+  'LoadCredential=leviathan-uplink-token:/etc/leviathan/uplink.token' \
+  'IPAddressAllow=203.0.113.10/32'; do
+  grep -Fx "${directive}" "${root_uplink}" >/dev/null
+done
 grep -Fx 'MIT License' "${root}/LICENSE" >/dev/null
 grep -F 'Leviathan (formerly MIGLens)' "${root}/NOTICE" >/dev/null
 grep -F 'Copyright (c) 2026 MIGLens contributors' "${root}/LICENSE" >/dev/null

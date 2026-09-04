@@ -8,7 +8,7 @@ fi
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
-version=${1:-0.3.2}
+version=${1:-0.4.0}
 version=${version#v}
 
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
@@ -21,19 +21,28 @@ version=${version#v}
 [[ $(sed -n 's/^  version: //p' api/openapi.yaml | head -n 1) == "$version" ]]
 [[ $(sed -n 's/^[[:space:]]*"name": "\([^"]*\)",$/\1/p' web/package.json | head -n 1) == leviathan-dashboard ]]
 [[ $(sed -n 's/^[[:space:]]*"version": "\([^"]*\)",$/\1/p' web/package.json | head -n 1) == "$version" ]]
-mapfile -t lock_names < <(sed -n 's/^[[:space:]]*"name": "\([^"]*\)",$/\1/p' web/package-lock.json | head -n 2)
+lock_names=()
+while IFS= read -r name; do
+  lock_names+=("$name")
+done < <(sed -n 's/^[[:space:]]*"name": "\([^"]*\)",$/\1/p' web/package-lock.json | head -n 2)
 [[ ${#lock_names[@]} -eq 2 ]]
 [[ ${lock_names[0]} == leviathan-dashboard && ${lock_names[1]} == leviathan-dashboard ]]
-mapfile -t lock_versions < <(sed -n 's/^[[:space:]]*"version": "\([^"]*\)",$/\1/p' web/package-lock.json | head -n 2)
+lock_versions=()
+while IFS= read -r lock_version; do
+  lock_versions+=("$lock_version")
+done < <(sed -n 's/^[[:space:]]*"version": "\([^"]*\)",$/\1/p' web/package-lock.json | head -n 2)
 [[ ${#lock_versions[@]} -eq 2 ]]
 [[ ${lock_versions[0]} == "$version" && ${lock_versions[1]} == "$version" ]]
 
 grep -Fx 'module github.com/intellisys-stevens/leviathan' go.mod >/dev/null
 grep -Fxq -- "  --version $version \\" docs/kubernetes-attribution.md
+grep -Eq "^## ${version}([[:space:]]|$)" CHANGELOG.md
 grep -Fx 'name: leviathan-attribution' charts/leviathan-attribution/Chart.yaml >/dev/null
 grep -F 'repository: ghcr.io/intellisys-stevens/leviathan-kubernetes-bridge' charts/leviathan-attribution/values.yaml >/dev/null
 grep -F 'ExecStart=/usr/local/bin/leviathan ' contrib/systemd/leviathan@.service >/dev/null
 grep -F 'EnvironmentFile=-/etc/leviathan/leviathan.env' contrib/systemd/leviathan@.service >/dev/null
+grep -F 'LoadCredential=leviathan-uplink-token:/etc/leviathan/uplink.token' contrib/systemd/leviathan@root.service.d/20-uplink.example.conf >/dev/null
+grep -F 'IPAddressAllow=203.0.113.10/32' contrib/systemd/leviathan@root.service.d/20-uplink.example.conf >/dev/null
 grep -F 'ENTRYPOINT ["/leviathan-kubernetes-bridge"]' contrib/container/leviathan-kubernetes-bridge.Dockerfile >/dev/null
 
 printf 'verified Leviathan release metadata: %s\n' "$version"

@@ -1,27 +1,27 @@
 flowchart LR
-  driver["NVIDIA driver / NVML"] --> nvml["NVML hierarchy, profiles, memory"]
-  driver --> gpm["NVML GPM activity and PCIe counters"]
-  hostengine["Local DCGM hostengine (optional)"] --> dcgm["DCGM per-GI fallback"]
-  nvml --> merge["Capability-aware metric merge"]
-  gpm --> merge
-  dcgm --> merge
+  procfs["Linux procfs CPU and RAM counters"] --> system["Independent system worker"]
+  mounts["Mountinfo, statfs, and diskstats"] --> system
 
-  proc["Current PID namespace /proc"] --> identity["GPU-connected process filter"]
-  uvm["/dev/nvidia-uvm device identity"] --> identity
-  merge --> sampler["Single non-overlapping sampler"]
-  identity --> sampler
+  driver["NVIDIA driver and NVML"] --> gpu["Independent GPU worker"]
+  hostengine["Local DCGM hostengine (optional)"] --> gpu
+  processes["Current PID namespace (optional)"] --> gpu
 
   claims["DRA ResourceClaims (optional)"] --> bridge["Kubernetes attribution bridge"]
   slices["NVIDIA ResourceSlices (optional)"] --> bridge
   bridge --> socket["Root-only Unix socket"]
-  socket --> attribution["Sanitized workspace + scope refs"]
-  attribution --> sampler
+  socket --> gpu
 
-  sampler --> current["Immutable current snapshot"]
-  sampler --> history["Bounded in-memory UUID history"]
+  system --> coordinator["Snapshot coordinator"]
+  gpu --> coordinator
+  coordinator --> current["Immutable current snapshot"]
+  coordinator --> history["Bounded in-memory history"]
+
   current --> tui["Bubble Tea TUI"]
-  current --> cli["Table / JSON / JSONL"]
-  current --> api["Loopback HTTP + SSE API"]
+  current --> cli["Table, JSON, and JSONL"]
+  current --> api["Loopback HTTP and SSE API"]
   history --> tui
   history --> api
   api --> browser["Embedded React dashboard"]
+
+  current --> projection["Sanitized latest-only uplink"]
+  projection --> yggdrasil["Yggdrasil uplink-v1 ingress"]

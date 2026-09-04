@@ -6,6 +6,16 @@ to the workspace, plus the workspace's normal `/proc` view. It does not require
 `sudo`, a privileged container, `hostPID`, runtime sockets, or NVIDIA's
 aggregate MIG monitor capability.
 
+## Host telemetry scope
+
+CPU, load, RAM, and disk counters come from the service's mounted procfs.
+Filesystem capacity comes from persistent local mounts visible in the service's
+own mount namespace. Network, pseudo, tmpfs, overlay, and other ephemeral
+filesystems are excluded; bind/device aliases are collapsed. The public model
+uses opaque filesystem IDs and never includes block-device paths or filesystem
+UUIDs. A container therefore reports its visible persistent mounts, not an
+implied view of storage hidden outside its namespace.
+
 ## Process scope
 
 The process table contains only visible processes with an open file descriptor

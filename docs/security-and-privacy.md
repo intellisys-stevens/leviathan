@@ -11,18 +11,21 @@ Leviathan:
 - refuses non-loopback dashboard addresses;
 - exposes no GPU mutation endpoint;
 - never parses `nvidia-smi` output or changes GPU/MIG configuration;
-- makes no outbound network request;
+- makes no outbound network request unless the administrator explicitly enables
+  the Yggdrasil uplink;
 - requires no Docker, containerd, CRI, or other runtime socket;
 - does not request or elevate its own privileges.
 
-Discovery and metrics use NVML, supported NVML GPM counters, and an optional
-local DCGM hostengine. Exact device identifiers remain available to the API for
+Host discovery and metrics read procfs, mountinfo, statfs, and diskstats. GPU
+discovery uses NVML, supported NVML GPM counters, and an optional local DCGM
+hostengine. Exact GPU identifiers remain available to the loopback API for
 stable history and attribution joins, while ordinary dashboard views favor
 concise GPU/GI/CI numbers.
 
 ## 🧠 Telemetry and retention
 
-GPU samples and chart history remain in memory and are discarded on restart.
+Host and GPU samples and local chart history remain in memory and are discarded
+on restart.
 By default the latest hour is retained at collector cadence and older data is
 held as bounded, gap-preserving aggregate trends for up to twelve hours.
 Unavailable, stale, permission-denied, and failed measurements remain explicit;
@@ -31,6 +34,26 @@ Leviathan does not substitute fabricated zeros.
 The browser API is loopback-only and returns security headers that deny framing,
 cross-origin dependencies, and active third-party content. An SSH or Tailnet
 proxy should remain private to trusted operators.
+
+## ⬆️ Yggdrasil uplink
+
+When enabled, the in-process uploader sends only the newest sanitized
+observation to one configured credential-free HTTPS origin. It does not retain
+an offline queue, follow redirects, use ambient proxies or cookies, or accept a
+remote command. The token is loaded from a private regular file for each request
+so an atomic rotation does not require a process restart.
+
+The independent uplink contract excludes processes, users, command lines,
+workload attribution, PCI bus IDs, block-device paths, filesystem UUIDs, metric
+error messages, and raw diagnostic detail. Filesystem identifiers are rehashed
+before upload. A strict 8 MiB encoded-body limit and five-second request timeout
+bound each attempt; failures use latest-only retry with capped backoff.
+
+The hardened root service continues to deny non-loopback networking unless the
+administrator installs the opt-in uplink drop-in. That drop-in should allow only
+Yggdrasil's fixed ingress IP or narrow CIDR and uses a systemd credential rather
+than TOML, environment, or command-line token material. See
+[Yggdrasil Uplink v1](uplink-v1.md).
 
 ## 🧑‍💻 Process visibility
 

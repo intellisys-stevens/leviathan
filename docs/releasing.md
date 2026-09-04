@@ -83,3 +83,33 @@ published. Verify both native archives, checksums, attestations, SBOMs, the
 `leviathan-kubernetes-bridge:0.3.2` image, and the
 `leviathan-attribution:0.3.2` OCI chart. Preparing or merging the release PR
 does not itself authorize tagging, publishing, or deployment.
+
+## v0.4.0 feature release
+
+Prepare the `0.4.0` OpenAPI information version, dashboard and lockfile, Helm
+chart, Kubernetes example, CI dry-run fixtures, changelog, systemd uplink
+drop-in, and cross-repository `uplink-v1` golden payload together. Require the
+complete CI and non-publishing release dry run on the squash-merged `main`
+commit before creating any release tag.
+
+Before tagging, verify on Linux that a GPU-less host publishes system telemetry,
+default doctor succeeds with a warning, `doctor --require-gpu` fails, and a GPU
+failure leaves system publication and the in-process uplink operational. Verify
+the Yggdrasil staging ingress accepts the exact shared golden contract, duplicate
+receipts remain idempotent, token rotation overlaps safely, and no excluded host
+or process data crosses the boundary.
+
+After that exact commit is green, create and push a new annotated tag. Never
+move or reuse the published `v0.3.2` tag:
+
+```bash
+git tag -a v0.4.0 -m "Leviathan v0.4.0"
+git push origin v0.4.0
+```
+
+The tag workflow must finish successfully before v0.4.0 is treated as
+published. Verify both native archives, checksums, attestations, SBOMs, the
+`leviathan-kubernetes-bridge:0.4.0` image, and the
+`leviathan-attribution:0.4.0` OCI chart. Preserve the v0.3.2 binaries,
+configuration, and backups until host telemetry and Yggdrasil receipts have
+been observed in the deployment.

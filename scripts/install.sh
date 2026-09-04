@@ -15,7 +15,7 @@ Install Leviathan from a GitHub release.
 Usage: install.sh [options]
 
 Options:
-  --version VERSION    Install a release such as v0.3.0 (default: latest)
+  --version VERSION    Install a release such as v0.4.0 (default: latest)
   --install-dir DIR    Install directory (default: ~/.local/bin)
   -h, --help           Show this help
 

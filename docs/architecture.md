@@ -6,21 +6,24 @@ The editable diagram source is `assets/architecture.mmd`.
 
 ## Runtime shape
 
-Core Leviathan is one Linux process and one executable. A single sampling loop
-owns provider access and publishes complete snapshots. The TUI, streaming CLI,
-and HTTP server only consume those snapshots; they never poll NVIDIA APIs
-independently. Slow consumers receive the newest complete snapshot rather than
-building a queue. An optional Kubernetes bridge is a separate least-privilege
-process and communicates only through a configured local Unix socket.
+Core Leviathan is one Linux process and one executable. Independent,
+non-overlapping system and GPU workers publish into one immutable snapshot
+coordinator. The TUI, streaming CLI, HTTP server, history buffer, and optional
+uplink consume those snapshots; they never start another collector. A blocked
+GPU call cannot delay CPU, RAM, or storage publication. Slow consumers receive
+the newest complete snapshot rather than building a queue. An optional
+Kubernetes bridge is a separate least-privilege process and communicates only
+through a configured local Unix socket.
 
-The loop is synchronous by design. Expensive GPM/DCGM entities are staggered
-across ticks and `/proc` inventory is cached at independent default two-second
-cadences. Cached metrics retain their true sample time and expire to `stale`.
-If a poll takes longer than its interval,
-the next deadline is advanced past the current time, so overlapping NVML/DCGM
-calls and accumulated lag are impossible. A provider error triggers one
-immediate full retry. Persistent errors publish a retained-topology snapshot
-whose formerly available values are `stale` and `null`.
+Each domain loop is synchronous within that domain. Expensive GPM/DCGM entities
+are staggered across ticks, `/proc` GPU-process inventory is cached at its own
+default two-second cadence, and filesystem discovery defaults to ten seconds.
+Cached metrics retain their true sample time and expire to `stale`. If a poll
+takes longer than its interval, the next deadline is advanced past the current
+time, so overlapping calls and accumulated lag are impossible. A GPU provider
+error triggers one immediate full retry. Persistent errors publish a
+retained-topology snapshot whose formerly available dynamic values are `stale`
+and `null`, while the other telemetry domain remains current.
 
 The browser receives every server-sent snapshot. Each browser independently
 chooses whether React commits every sample or only the newest pending snapshot
@@ -31,6 +34,15 @@ cadence update resets the next deadline and never starts a second provider poll.
 
 ## Domain invariants
 
+- CPU utilization and disk throughput are counter deltas. Initial samples,
+  invalid elapsed time, counter resets, and topology changes remain unavailable
+  until a new baseline exists. Disk throughput is also unavailable unless every
+  selected persistent filesystem has a matching block-device counter; capacity
+  remains usable for non-block persistent filesystems.
+- RAM uses `MemAvailable`; the documented older-kernel fallback is marked
+  `estimated` rather than `available`.
+- Filesystem IDs are deterministic and opaque. Device paths and filesystem UUIDs
+  are not retained in the public model.
 - The hierarchy is always GPU → GI → CI. A one-CI GI may be flattened only by
   presentation code.
 - GPM/DCGM activity and GI memory stay on the GI. They are never divided or
@@ -50,6 +62,12 @@ cadence update resets the next deadline and never starts a second provider poll.
   value wins over an unavailable higher-level value.
 
 ## Providers
+
+`internal/system` reads `/proc/stat`, `/proc/loadavg`, `/proc/cpuinfo`,
+`/proc/meminfo`, `/proc/self/mountinfo`, and `/proc/diskstats`, plus `statfs` for
+capacity. It excludes network, pseudo, overlay, tmpfs, and other ephemeral
+filesystems, collapses device aliases, and applies a deterministic 256-entry
+limit. See [host monitoring](host-monitoring.md).
 
 `internal/provider/nvml` uses NVIDIA's Go NVML binding for discovery, physical
 metrics, memory, MIG attributes, power limits, and GPM activity/PCIe rates. It
@@ -113,6 +131,13 @@ hours. Rings allocate only the points they contain and inactive entity
 generations expire after their final retained sample, keeping steady operation
 and rapid UUID churn bounded.
 
+Host metrics use the reserved `@host` entity; filesystem capacity uses each
+opaque filesystem ID. Domain-specific publications do not copy the other
+domain's last values into a new history timestamp. System and GPU timelines are
+tracked independently so a global publication-sequence jump does not create a
+false gap. Mixed aligned queries return the timestamp union with missing values
+left absent; CPU-only long-range host history does not depend on GPU samples.
+
 Switching to a faster cadence grows every raw ring while preserving chronology.
 The compact tier is independent of sampling cadence. Capacity never shrinks
 during the process lifetime, so a later slower cadence cannot discard already
@@ -136,10 +161,29 @@ row so clients render a real gap. The legacy single-entity
 `GET /api/v1/history` endpoint remains available for detail views and API
 compatibility.
 
+## Yggdrasil uplink
+
+When configured, the uploader is another subscriber owned by
+`leviathan serve`. Every process start creates a random 128-bit stream ID and
+each logical upload has a monotonic sequence. The runner sends only the newest
+sanitized projection, preserves an attempt's identity across retries, and keeps
+no disk queue. Its default 15-second cadence has randomized startup and jitter;
+retry backoff starts at five seconds, honors bounded `Retry-After`, and caps at
+five minutes. Network requests run outside both collector workers.
+
+The local snapshot model and the `uplink-v1` wire model are independent
+contracts. The projection omits processes, users, command lines, workload
+attribution, provider machine identity, device paths, filesystem UUIDs, and raw
+diagnostic detail. Yggdrasil resolves the authoritative machine identity from
+the bearer credential rather than trusting a payload field.
+
 ## API and browser boundary
 
-`api/openapi.yaml` is the contract source. `go generate ./internal/api`
-produces Go wire types and `npm run generate:api` produces TypeScript types.
+`api/openapi.yaml` is the local API contract source. `go generate ./internal/api`
+produces its Go wire types and `npm run generate:api` produces TypeScript types.
+The independent uplink uses the provenance-locked vendor copy at
+`api/uplink-v1-openapi.yaml`; `go generate ./internal/uplink` produces its local
+Go DTOs without importing Yggdrasil code.
 
 The server binds only to loopback after an explicit address check. GPU state
 and telemetry have no mutation routes; the sole mutation changes the current
@@ -149,6 +193,11 @@ restrict scripts, fonts, images, and connections to local embedded assets. No
 CORS headers are emitted. Negotiated gzip covers JSON, embedded text assets,
 and flush-safe SSE. SSE sends sequence IDs, reconnect guidance, the latest
 snapshot, and effective settings on every new subscription.
+
+Health is domain-aware. It is `ok` when every enabled domain is current,
+`degraded` with HTTP 200 while at least one system or GPU domain remains usable,
+and `unavailable` with HTTP 503 only when no telemetry domain has a valid
+snapshot.
 
 The React client owns one `EventSource` and keeps the last complete snapshot
 during reconnects. Its GPU perspective organizes host-wide topology and
@@ -170,6 +219,7 @@ drawer are lazy-loaded.
 
 ## Shutdown
 
-The command context cancels the collector. The polling goroutine exits, GPM
-samples are freed, DCGM field/entity groups are destroyed, and the HTTP server
-receives a bounded graceful shutdown.
+The command context cancels the collector and optional uploader. Both polling
+workers exit, GPM samples are freed, DCGM field/entity groups are destroyed, an
+in-flight upload receives cancellation, and the HTTP server receives a bounded
+graceful shutdown.
