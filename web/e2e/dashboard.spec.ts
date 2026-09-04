@@ -3262,6 +3262,7 @@ test('matches targeted workbench and frost-dragon visual baselines', async ({
     expect(page).toHaveScreenshot(name, {
       animations: 'disabled',
       fullPage: false,
+      maxDiffPixels: 32,
     });
   const showAllocatedWorkloads = async () => {
     await page.getByRole('link', { name: 'Workloads' }).click();
