@@ -416,6 +416,138 @@ func TestLongAlignedHistoryStaysWithinPresetPointBudgets(t *testing.T) {
 	}
 }
 
+func TestSystemAndFilesystemHistoryAreFirstClassEntities(t *testing.T) {
+	buffer := New(time.Hour, time.Second)
+	at := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+	total, used, available := uint64(1000), uint64(400), uint64(600)
+	estimated := model.StatusEstimated
+	buffer.AddSystem(model.Snapshot{
+		Sequence: 1, SampledAt: at,
+		System: model.System{
+			CPU: model.CPU{
+				Utilization: model.AvailableMetric(37, "percent", model.SourceProcFS, model.ScopeHost, at),
+				Load1:       model.AvailableMetric(1.5, "load", model.SourceProcFS, model.ScopeHost, at),
+			},
+			Memory: model.SystemMemory{
+				TotalBytes: &total, UsedBytes: &used, AvailableBytes: &available,
+				Utilization: model.Metric{Value: model.Float(40), Status: estimated}, Status: estimated,
+			},
+			Storage: model.Storage{
+				TotalBytes: &total, UsedBytes: &used, AvailableBytes: &available, Status: model.StatusAvailable,
+				ReadBytesPerSecond: model.AvailableMetric(512, "bytes_per_second", model.SourceProcFS, model.ScopeHost, at),
+				Filesystems:        []model.Filesystem{{ID: "fs_opaque", TotalBytes: &total, UsedBytes: &used, AvailableBytes: &available, Status: model.StatusAvailable}},
+			},
+		},
+	})
+	host := buffer.Query("@host", nil, time.Minute, at)
+	if len(host.Points) != 1 || host.Points[0].Values["cpu_utilization"] != 37 || host.Points[0].Values["memory_used_bytes"] != 400 || host.Points[0].Values["memory_utilization"] != 40 || host.Points[0].Values["disk_read_bytes_per_second"] != 512 {
+		t.Fatalf("host history = %+v", host)
+	}
+	filesystem := buffer.Query("fs_opaque", nil, time.Minute, at)
+	if len(filesystem.Points) != 1 || filesystem.Points[0].Values["storage_used_bytes"] != 400 {
+		t.Fatalf("filesystem history = %+v", filesystem)
+	}
+	aligned := buffer.QueryAligned([]SeriesDescriptor{
+		{Key: "host", Entity: "@host", Metrics: []string{"cpu_utilization"}},
+		{Key: "filesystem", Entity: "fs_opaque", Metrics: []string{"storage_used_bytes"}},
+	}, time.Minute, 50, at)
+	if len(aligned.Points) != 1 || aligned.Points[0].Values["host"]["cpu_utilization"] != 37 || aligned.Points[0].Values["filesystem"]["storage_used_bytes"] != 400 {
+		t.Fatalf("aligned system history = %+v", aligned)
+	}
+}
+
+func TestIndependentDomainPublicationDoesNotCarryOldValuesForward(t *testing.T) {
+	buffer := New(time.Minute, time.Second)
+	base := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+	system := availableHistorySystem(base)
+	gpuMetric := model.AvailableMetric(42, "percent", model.SourceNVML, model.ScopePhysicalGPU, base)
+	buffer.AddGPU(model.Snapshot{
+		Sequence: 1, SampledAt: base, System: system,
+		GPUs: []model.GPU{{UUID: "GPU-a", Metrics: model.MetricSet{"gpu_activity": gpuMetric}}},
+	})
+
+	systemAt := base.Add(time.Second)
+	system = availableHistorySystem(systemAt)
+	buffer.AddSystem(model.Snapshot{
+		Sequence: 2, SampledAt: systemAt, System: system,
+		GPUs: []model.GPU{{UUID: "GPU-a", Metrics: model.MetricSet{"gpu_activity": gpuMetric}}},
+	})
+	if points := buffer.Query("GPU-a", nil, time.Minute, systemAt).Points; len(points) != 1 {
+		t.Fatalf("system-only publication carried GPU values forward: %+v", points)
+	}
+
+	gpuAt := systemAt.Add(time.Second)
+	gpuMetric = model.AvailableMetric(55, "percent", model.SourceNVML, model.ScopePhysicalGPU, gpuAt)
+	buffer.AddGPU(model.Snapshot{
+		Sequence: 3, SampledAt: gpuAt, System: system,
+		GPUs: []model.GPU{{UUID: "GPU-a", Metrics: model.MetricSet{"gpu_activity": gpuMetric}}},
+	})
+	if points := buffer.Query("@host", nil, time.Minute, gpuAt).Points; len(points) != 1 {
+		t.Fatalf("GPU-only publication carried host values forward: %+v", points)
+	}
+}
+
+func TestIndependentDomainTimelinesPreserveRawAndLongRangeHistory(t *testing.T) {
+	buffer := New(12*time.Hour, 10*time.Second)
+	base := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+	for index := 0; index < 6; index++ {
+		systemAt := base.Add(time.Duration(index) * 10 * time.Second)
+		system := availableHistorySystem(systemAt)
+		system.CPU.Utilization = model.AvailableMetric(float64((index+1)*10), "percent", model.SourceProcFS, model.ScopeHost, systemAt)
+		buffer.AddSystem(model.Snapshot{Sequence: uint64(index*2 + 1), SampledAt: systemAt, System: system})
+
+		gpuAt := systemAt.Add(time.Second)
+		value := float64(100 + index*10)
+		buffer.AddGPU(historySnapshot(gpuAt, uint64(index*2+2), map[string]*float64{"GPU-a": &value}))
+	}
+	now := base.Add(59 * time.Second)
+	host := buffer.Query("@host", []string{"cpu_utilization"}, 4*time.Hour, now)
+	gpu := buffer.Query("GPU-a", []string{"sm_activity"}, 4*time.Hour, now)
+	if len(host.Points) != 2 || host.Points[0].Values["cpu_utilization"] != 20 || host.Points[1].Values["cpu_utilization"] != 50 {
+		t.Fatalf("long-range host history = %+v", host)
+	}
+	if len(gpu.Points) != 2 || gpu.Points[0].Values["sm_activity"] != 110 || gpu.Points[1].Values["sm_activity"] != 140 {
+		t.Fatalf("long-range GPU history contains false cross-domain gaps: %+v", gpu)
+	}
+
+	raw := buffer.QueryAligned([]SeriesDescriptor{
+		{Key: "host", Entity: "@host", Metrics: []string{"cpu_utilization"}},
+		{Key: "gpu", Entity: "GPU-a", Metrics: []string{"sm_activity"}},
+	}, 30*time.Minute, 50, now)
+	if len(raw.Points) != 12 || len(raw.Points[0].Values["host"]) != 1 || len(raw.Points[0].Values["gpu"]) != 0 || len(raw.Points[1].Values["gpu"]) != 1 || len(raw.Points[1].Values["host"]) != 0 {
+		t.Fatalf("mixed raw domain alignment carried values or dropped timestamps: %+v", raw.Points)
+	}
+	long := buffer.QueryAligned([]SeriesDescriptor{
+		{Key: "host", Entity: "@host", Metrics: []string{"cpu_utilization"}},
+		{Key: "gpu", Entity: "GPU-a", Metrics: []string{"sm_activity"}},
+	}, 4*time.Hour, 50, now)
+	if len(long.Points) != 2 || long.Points[0].Values["host"]["cpu_utilization"] != 20 || long.Points[0].Values["gpu"]["sm_activity"] != 110 {
+		t.Fatalf("mixed long-range alignment = %+v", long.Points)
+	}
+
+	cpuOnly := New(12*time.Hour, 10*time.Second)
+	for index := 0; index < 6; index++ {
+		at := base.Add(time.Duration(index) * 10 * time.Second)
+		cpuOnly.AddSystem(model.Snapshot{Sequence: uint64(index + 1), SampledAt: at, System: availableHistorySystem(at)})
+	}
+	if points := cpuOnly.Query("@host", []string{"cpu_utilization"}, 4*time.Hour, now).Points; len(points) != 2 {
+		t.Fatalf("CPU-only long-range history needs no GPU timeline: %+v", points)
+	}
+}
+
+func availableHistorySystem(at time.Time) model.System {
+	total, used, available := uint64(100), uint64(40), uint64(60)
+	return model.System{
+		CPU: model.CPU{Utilization: model.AvailableMetric(40, "percent", model.SourceProcFS, model.ScopeHost, at)},
+		Memory: model.SystemMemory{
+			TotalBytes: &total, UsedBytes: &used, AvailableBytes: &available,
+			Utilization: model.AvailableMetric(40, "percent", model.SourceProcFS, model.ScopeHost, at), Status: model.StatusAvailable,
+		},
+		Storage:   model.Storage{TotalBytes: &total, UsedBytes: &used, AvailableBytes: &available, Status: model.StatusAvailable},
+		SampledAt: at, Status: model.StatusAvailable,
+	}
+}
+
 func historySnapshot(at time.Time, sequence uint64, values map[string]*float64) model.Snapshot {
 	gpus := make([]model.GPU, 0, len(values))
 	for uuid, value := range values {

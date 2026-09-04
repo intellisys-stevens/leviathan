@@ -55,7 +55,7 @@ func (p *Provider) Capabilities() model.Capabilities {
 	available := model.ProviderState{Name: "fixture", Available: true, Status: model.StatusAvailable, Message: "deterministic development fixture"}
 	unsupported := model.ProviderState{Name: "fixture", Available: false, Status: model.StatusUnsupported, Message: "not used by this fixture"}
 	proc := model.ProviderState{Name: "/proc GPU clients (fixture)", Available: true, Status: model.StatusAvailable, Message: "1 deterministic GPU-connected process"}
-	capabilities := model.Capabilities{NVML: available, GPM: available, DCGM: unsupported, Proc: proc, ProfileMetrics: true}
+	capabilities := model.Capabilities{System: available, NVML: available, GPM: available, DCGM: unsupported, Proc: proc, ProfileMetrics: true}
 	switch p.scenario {
 	case "a100-dcgm":
 		capabilities.GPM = model.ProviderState{Name: "NVML GPM", Available: false, Status: model.StatusUnsupported, Message: "Ampere fixture uses DCGM profiling"}
@@ -74,6 +74,7 @@ func (p *Provider) Sample(_ context.Context, at time.Time) (model.Snapshot, erro
 	host, _ := os.Hostname()
 	snapshot := model.Snapshot{
 		SchemaVersion: "v1", Sequence: seq, SampledAt: at.UTC(), Host: model.Host{Hostname: host, OS: runtime.GOOS, Arch: runtime.GOARCH},
+		System:       fixtureSystem(seq, at),
 		Capabilities: p.Capabilities(), Diagnostics: []model.Diagnostic{}, GPUs: make([]model.GPU, 0, 2),
 		Processes: []model.Process{
 			{PID: 4100, User: "research", Executable: "/usr/bin/python3", StartTime: timePointer(at.Add(-12 * time.Minute)), Status: model.StatusAvailable},
@@ -130,6 +131,43 @@ func (p *Provider) Sample(_ context.Context, at time.Time) (model.Snapshot, erro
 	p.applyScenario(&snapshot, seq, at)
 	snapshot.Capabilities = p.Capabilities()
 	return snapshot, nil
+}
+
+func fixtureSystem(sequence uint64, at time.Time) model.System {
+	const gib = uint64(1024 * 1024 * 1024)
+	memoryTotal := uint64(128) * gib
+	memoryUsed := uint64(44+sequence%12) * gib
+	memoryAvailable := memoryTotal - memoryUsed
+	rootTotal, rootUsed := uint64(512)*gib, uint64(181)*gib
+	dataTotal, dataUsed := uint64(2*1024)*gib, uint64(930+sequence%20)*gib
+	rootAvailable, dataAvailable := rootTotal-rootUsed, dataTotal-dataUsed
+	status := model.StatusAvailable
+	return model.System{
+		CPU: model.CPU{
+			Model: "Leviathan fixture CPU", LogicalProcessors: 32,
+			Utilization: model.AvailableMetric(28+float64(sequence%18), "percent", model.SourceSynthetic, model.ScopeHost, at),
+			Load1:       model.AvailableMetric(2.4, "load", model.SourceSynthetic, model.ScopeHost, at),
+			Load5:       model.AvailableMetric(2.1, "load", model.SourceSynthetic, model.ScopeHost, at),
+			Load15:      model.AvailableMetric(1.8, "load", model.SourceSynthetic, model.ScopeHost, at),
+			Source:      model.SourceSynthetic, SampledAt: at, Status: status,
+		},
+		Memory: model.SystemMemory{
+			TotalBytes: &memoryTotal, UsedBytes: &memoryUsed, AvailableBytes: &memoryAvailable,
+			Utilization: model.AvailableMetric(100*float64(memoryUsed)/float64(memoryTotal), "percent", model.SourceSynthetic, model.ScopeHost, at),
+			Source:      model.SourceSynthetic, Scope: model.ScopeHost, SampledAt: at, Status: status,
+		},
+		Storage: model.Storage{
+			TotalBytes: model.Uint64(rootTotal + dataTotal), UsedBytes: model.Uint64(rootUsed + dataUsed), AvailableBytes: model.Uint64(rootAvailable + dataAvailable),
+			ReadBytesPerSecond:  model.AvailableMetric(float64(320+sequence%40)*1024*1024, "bytes_per_second", model.SourceSynthetic, model.ScopeHost, at),
+			WriteBytesPerSecond: model.AvailableMetric(float64(140+sequence%30)*1024*1024, "bytes_per_second", model.SourceSynthetic, model.ScopeHost, at),
+			Filesystems: []model.Filesystem{
+				{ID: "fs_fixture_root", MountPoint: "/", FSType: "ext4", TotalBytes: &rootTotal, UsedBytes: &rootUsed, AvailableBytes: &rootAvailable, Source: model.SourceSynthetic, Scope: model.ScopeHost, SampledAt: at, Status: status},
+				{ID: "fs_fixture_data", MountPoint: "/data", FSType: "xfs", TotalBytes: &dataTotal, UsedBytes: &dataUsed, AvailableBytes: &dataAvailable, Source: model.SourceSynthetic, Scope: model.ScopeHost, SampledAt: at, Status: status},
+			},
+			Source: model.SourceSynthetic, Scope: model.ScopeHost, SampledAt: at, Status: status,
+		},
+		SampledAt: at, Status: status,
+	}
 }
 
 func (p *Provider) applyScenario(snapshot *model.Snapshot, sequence uint64, at time.Time) {

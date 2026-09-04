@@ -87,13 +87,19 @@ func (e DiagnosticSeverity) Valid() bool {
 
 // Defines values for HealthStatus.
 const (
-	Ok HealthStatus = "ok"
+	HealthStatusDegraded    HealthStatus = "degraded"
+	HealthStatusOk          HealthStatus = "ok"
+	HealthStatusUnavailable HealthStatus = "unavailable"
 )
 
 // Valid indicates whether the value is a known member of the HealthStatus enum.
 func (e HealthStatus) Valid() bool {
 	switch e {
-	case Ok:
+	case HealthStatusDegraded:
+		return true
+	case HealthStatusOk:
+		return true
+	case HealthStatusUnavailable:
 		return true
 	default:
 		return false
@@ -130,6 +136,8 @@ const (
 	Nvml      MetricSource = "nvml"
 	NvmlGpm   MetricSource = "nvml_gpm"
 	Proc      MetricSource = "proc"
+	Procfs    MetricSource = "procfs"
+	Statfs    MetricSource = "statfs"
 	Synthetic MetricSource = "synthetic"
 )
 
@@ -144,6 +152,10 @@ func (e MetricSource) Valid() bool {
 		return true
 	case Proc:
 		return true
+	case Procfs:
+		return true
+	case Statfs:
+		return true
 	case Synthetic:
 		return true
 	default:
@@ -155,6 +167,7 @@ func (e MetricSource) Valid() bool {
 const (
 	MetricStatusAvailable        MetricStatus = "available"
 	MetricStatusError            MetricStatus = "error"
+	MetricStatusEstimated        MetricStatus = "estimated"
 	MetricStatusPermissionDenied MetricStatus = "permission_denied"
 	MetricStatusStale            MetricStatus = "stale"
 	MetricStatusUnsupported      MetricStatus = "unsupported"
@@ -166,6 +179,8 @@ func (e MetricStatus) Valid() bool {
 	case MetricStatusAvailable:
 		return true
 	case MetricStatusError:
+		return true
+	case MetricStatusEstimated:
 		return true
 	case MetricStatusPermissionDenied:
 		return true
@@ -326,6 +341,20 @@ type BuildInfo struct {
 	Version string `json:"version"`
 }
 
+// CPU defines model for CPU.
+type CPU struct {
+	Load1             Metric       `json:"load1"`
+	Load15            Metric       `json:"load15"`
+	Load5             Metric       `json:"load5"`
+	LogicalProcessors int          `json:"logicalProcessors"`
+	Message           *string      `json:"message,omitempty"`
+	Model             string       `json:"model"`
+	SampledAt         time.Time    `json:"sampledAt"`
+	Source            MetricSource `json:"source"`
+	Status            MetricStatus `json:"status"`
+	Utilization       Metric       `json:"utilization"`
+}
+
 // Capabilities defines model for Capabilities.
 type Capabilities struct {
 	Dcgm           ProviderState `json:"dcgm"`
@@ -333,6 +362,7 @@ type Capabilities struct {
 	Nvml           ProviderState `json:"nvml"`
 	Proc           ProviderState `json:"proc"`
 	ProfileMetrics bool          `json:"profileMetrics"`
+	System         ProviderState `json:"system"`
 }
 
 // ComputeInstance defines model for ComputeInstance.
@@ -367,6 +397,21 @@ type Error struct {
 	Error string `json:"error"`
 }
 
+// Filesystem Sanitized persistent local filesystem capacity. The opaque ID is not a device path or filesystem UUID.
+type Filesystem struct {
+	AvailableBytes *uint64      `json:"availableBytes"`
+	FsType         string       `json:"fsType"`
+	Id             string       `json:"id"`
+	Message        *string      `json:"message,omitempty"`
+	MountPoint     string       `json:"mountPoint"`
+	SampledAt      time.Time    `json:"sampledAt"`
+	Scope          MetricScope  `json:"scope"`
+	Source         MetricSource `json:"source"`
+	Status         MetricStatus `json:"status"`
+	TotalBytes     *uint64      `json:"totalBytes"`
+	UsedBytes      *uint64      `json:"usedBytes"`
+}
+
 // GPU defines model for GPU.
 type GPU struct {
 	GpuInstances  []GpuInstance `json:"gpuInstances"`
@@ -397,12 +442,23 @@ type GpuInstance struct {
 
 // Health defines model for Health.
 type Health struct {
-	SampledAt time.Time    `json:"sampledAt"`
+	Domains struct {
+		Gpu    HealthDomain `json:"gpu"`
+		System HealthDomain `json:"system"`
+	} `json:"domains"`
+	Error     *string      `json:"error,omitempty"`
+	SampledAt *time.Time   `json:"sampledAt,omitempty"`
 	Status    HealthStatus `json:"status"`
 }
 
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
+
+// HealthDomain defines model for HealthDomain.
+type HealthDomain struct {
+	Available bool         `json:"available"`
+	Status    MetricStatus `json:"status"`
+}
 
 // HistoryPoint defines model for HistoryPoint.
 type HistoryPoint struct {
@@ -534,10 +590,49 @@ type Snapshot struct {
 	SampledAt     time.Time             `json:"sampledAt"`
 	SchemaVersion SnapshotSchemaVersion `json:"schemaVersion"`
 	Sequence      uint64                `json:"sequence"`
+	System        System                `json:"system"`
 }
 
 // SnapshotSchemaVersion defines model for Snapshot.SchemaVersion.
 type SnapshotSchemaVersion string
+
+// Storage defines model for Storage.
+type Storage struct {
+	AvailableBytes      *uint64      `json:"availableBytes"`
+	Filesystems         []Filesystem `json:"filesystems"`
+	Message             *string      `json:"message,omitempty"`
+	ReadBytesPerSecond  Metric       `json:"readBytesPerSecond"`
+	SampledAt           time.Time    `json:"sampledAt"`
+	Scope               MetricScope  `json:"scope"`
+	Source              MetricSource `json:"source"`
+	Status              MetricStatus `json:"status"`
+	TotalBytes          *uint64      `json:"totalBytes"`
+	UsedBytes           *uint64      `json:"usedBytes"`
+	WriteBytesPerSecond Metric       `json:"writeBytesPerSecond"`
+}
+
+// System defines model for System.
+type System struct {
+	Cpu       CPU          `json:"cpu"`
+	Memory    SystemMemory `json:"memory"`
+	Message   *string      `json:"message,omitempty"`
+	SampledAt time.Time    `json:"sampledAt"`
+	Status    MetricStatus `json:"status"`
+	Storage   Storage      `json:"storage"`
+}
+
+// SystemMemory defines model for SystemMemory.
+type SystemMemory struct {
+	AvailableBytes *uint64      `json:"availableBytes"`
+	Message        *string      `json:"message,omitempty"`
+	SampledAt      time.Time    `json:"sampledAt"`
+	Scope          MetricScope  `json:"scope"`
+	Source         MetricSource `json:"source"`
+	Status         MetricStatus `json:"status"`
+	TotalBytes     *uint64      `json:"totalBytes"`
+	UsedBytes      *uint64      `json:"usedBytes"`
+	Utilization    Metric       `json:"utilization"`
+}
 
 // WorkloadAttribution Sanitized workload display identity from an optional attribution source. The reference is opaque and source-scoped.
 type WorkloadAttribution struct {

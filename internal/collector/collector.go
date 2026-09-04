@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -13,27 +15,32 @@ import (
 	"github.com/intellisys-stevens/leviathan/internal/history"
 	"github.com/intellisys-stevens/leviathan/internal/model"
 	"github.com/intellisys-stevens/leviathan/internal/provider"
+	systemtelemetry "github.com/intellisys-stevens/leviathan/internal/system"
 )
 
 type Engine struct {
 	provider        provider.Provider
+	system          systemtelemetry.Sampler
 	history         *history.Buffer
 	window          time.Duration
 	profileInterval time.Duration
 	processInterval time.Duration
 
-	current    atomic.Pointer[model.Snapshot]
-	seq        atomic.Uint64
-	interval   atomic.Int64
-	reschedule chan struct{}
+	current          atomic.Pointer[model.Snapshot]
+	seq              atomic.Uint64
+	interval         atomic.Int64
+	reschedule       chan struct{}
+	systemReschedule chan struct{}
 
 	mu          sync.Mutex
+	assembleMu  sync.Mutex
 	subscribers map[uint64]chan model.Snapshot
 	nextSubID   uint64
 	generations map[string]*generationState
 	cancel      context.CancelFunc
 	done        chan struct{}
-	lastErr     error
+	gpuErr      error
+	systemErr   error
 }
 
 type Options struct {
@@ -41,6 +48,7 @@ type Options struct {
 	HistoryWindow    time.Duration
 	ProfileInterval  time.Duration
 	ProcessInterval  time.Duration
+	SystemSampler    systemtelemetry.Sampler
 }
 
 type generationState struct {
@@ -49,6 +57,13 @@ type generationState struct {
 	signature string
 	lastSeen  time.Time
 }
+
+type telemetryDomain uint8
+
+const (
+	domainSystem telemetryDomain = iota
+	domainGPU
+)
 
 func New(source provider.Provider, interval, window time.Duration) *Engine {
 	return NewWithOptions(source, Options{
@@ -67,40 +82,97 @@ func NewWithOptions(source provider.Provider, options Options) *Engine {
 		options.ProcessInterval = 2 * time.Second
 	}
 	engine := &Engine{
-		provider:        source,
-		history:         history.New(options.HistoryWindow, options.SamplingInterval),
-		window:          options.HistoryWindow,
-		profileInterval: options.ProfileInterval,
-		processInterval: options.ProcessInterval,
-		reschedule:      make(chan struct{}, 1),
-		subscribers:     make(map[uint64]chan model.Snapshot),
-		generations:     make(map[string]*generationState),
-		done:            make(chan struct{}),
+		provider:         source,
+		system:           options.SystemSampler,
+		history:          history.New(options.HistoryWindow, options.SamplingInterval),
+		window:           options.HistoryWindow,
+		profileInterval:  options.ProfileInterval,
+		processInterval:  options.ProcessInterval,
+		reschedule:       make(chan struct{}, 1),
+		systemReschedule: make(chan struct{}, 1),
+		subscribers:      make(map[uint64]chan model.Snapshot),
+		generations:      make(map[string]*generationState),
+		done:             make(chan struct{}),
 	}
 	engine.interval.Store(int64(options.SamplingInterval))
 	return engine
 }
 
 func (e *Engine) Start(parent context.Context) error {
-	if err := e.provider.Open(parent); err != nil {
-		return err
-	}
 	ctx, cancel := context.WithCancel(parent)
+	at := time.Now().UTC()
+	var systemErr error
+	if e.system != nil {
+		systemErr = e.pollSystem(ctx, at)
+	}
+	// Once host telemetry has produced a usable snapshot, do not let provider
+	// initialization or the first GPU sample hold up startup. The GPU worker
+	// attempts both immediately while the independent system worker continues
+	// publishing on cadence.
+	if _, systemReady := e.Current(); systemReady {
+		e.mu.Lock()
+		e.cancel = cancel
+		e.mu.Unlock()
+		go e.run(ctx, false, true)
+		return nil
+	}
+	gpuOpened := false
+	gpuErr := e.provider.Open(ctx)
+	if gpuErr == nil {
+		gpuOpened = true
+		gpuErr = e.poll(ctx, at)
+		if gpuErr != nil && !errors.Is(gpuErr, context.Canceled) {
+			e.recordPollError(at, gpuErr)
+		}
+	} else if _, ok := e.Current(); ok {
+		e.recordPollError(at, gpuErr)
+	}
+	if systemErr != nil {
+		if _, ok := e.Current(); ok {
+			e.recordSystemError(at, systemErr)
+		}
+	}
+	if _, ok := e.Current(); !ok {
+		cancel()
+		if gpuOpened {
+			_ = e.provider.Close()
+		}
+		return errors.Join(systemErr, gpuErr)
+	}
 	e.mu.Lock()
 	e.cancel = cancel
 	e.mu.Unlock()
-	if err := e.poll(ctx, time.Now().UTC()); err != nil {
-		_ = e.provider.Close()
-		cancel()
-		return err
-	}
-	go e.loop(ctx)
+	go e.run(ctx, gpuOpened, false)
 	return nil
 }
 
-func (e *Engine) loop(ctx context.Context) {
+func (e *Engine) run(ctx context.Context, gpuOpened, gpuImmediate bool) {
 	defer close(e.done)
-	defer e.provider.Close()
+	var workers sync.WaitGroup
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		e.gpuLoop(ctx, gpuOpened, gpuImmediate)
+	}()
+	if e.system != nil {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			e.systemLoop(ctx)
+		}()
+	}
+	workers.Wait()
+}
+
+func (e *Engine) gpuLoop(ctx context.Context, opened, immediate bool) {
+	defer func() {
+		if opened {
+			_ = e.provider.Close()
+		}
+	}()
+	if immediate {
+		opened = e.pollGPU(ctx, opened, time.Now().UTC())
+	}
 	next := time.Now().Add(e.SamplingInterval())
 	timer := time.NewTimer(time.Until(next))
 	defer timer.Stop()
@@ -118,8 +190,57 @@ func (e *Engine) loop(ctx context.Context) {
 			next = time.Now().Add(e.SamplingInterval())
 			timer.Reset(time.Until(next))
 		case tick := <-timer.C:
-			if err := e.poll(ctx, tick.UTC()); err != nil && !errors.Is(err, context.Canceled) {
-				e.recordPollError(tick.UTC(), err)
+			opened = e.pollGPU(ctx, opened, tick.UTC())
+			now := time.Now()
+			interval := e.SamplingInterval()
+			for !next.After(now) {
+				next = next.Add(interval)
+			}
+			timer.Reset(time.Until(next))
+		}
+	}
+}
+
+func (e *Engine) pollGPU(ctx context.Context, opened bool, at time.Time) bool {
+	if !opened {
+		if err := e.provider.Open(ctx); err != nil {
+			if !errors.Is(err, context.Canceled) {
+				if errors.Is(err, provider.ErrUnavailable) {
+					e.recordGPUUnavailable(at, err)
+				} else {
+					e.recordPollError(at, err)
+				}
+			}
+			return false
+		}
+		opened = true
+	}
+	if err := e.poll(ctx, at); err != nil && !errors.Is(err, context.Canceled) {
+		e.recordPollError(at, err)
+	}
+	return opened
+}
+
+func (e *Engine) systemLoop(ctx context.Context) {
+	next := time.Now().Add(e.SamplingInterval())
+	timer := time.NewTimer(time.Until(next))
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-e.systemReschedule:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			next = time.Now().Add(e.SamplingInterval())
+			timer.Reset(time.Until(next))
+		case tick := <-timer.C:
+			if err := e.pollSystem(ctx, tick.UTC()); err != nil && !errors.Is(err, context.Canceled) {
+				e.recordSystemError(tick.UTC(), err)
 			}
 			now := time.Now()
 			interval := e.SamplingInterval()
@@ -160,6 +281,10 @@ func (e *Engine) SetSamplingInterval(interval time.Duration) error {
 	case e.reschedule <- struct{}{}:
 	default:
 	}
+	select {
+	case e.systemReschedule <- struct{}{}:
+	default:
+	}
 	return nil
 }
 
@@ -176,44 +301,182 @@ func (e *Engine) poll(ctx context.Context, at time.Time) error {
 			return err
 		}
 	}
-	snapshot.Sequence = e.seq.Add(1)
-	snapshot.SchemaVersion = "v1"
-	e.applyGenerations(&snapshot)
-	e.history.Add(snapshot)
-	immutable := snapshot
-	e.current.Store(&immutable)
+	e.assembleMu.Lock()
+	defer e.assembleMu.Unlock()
+	if current, ok := e.Current(); ok && !current.System.SampledAt.IsZero() {
+		snapshot.System = current.System
+		snapshot.Capabilities.System = current.Capabilities.System
+		snapshot.Diagnostics = append(snapshot.Diagnostics, systemDiagnostics(current.Diagnostics)...)
+	}
 	e.mu.Lock()
-	e.lastErr = nil
+	e.gpuErr = nil
 	e.mu.Unlock()
-	e.publish(snapshot)
+	e.storeSnapshot(snapshot, true, domainGPU)
 	return nil
 }
 
-func (e *Engine) recordPollError(at time.Time, err error) {
-	e.mu.Lock()
-	e.lastErr = err
-	e.mu.Unlock()
-	if e.history != nil {
-		e.history.AddGap(at)
+func (e *Engine) pollSystem(ctx context.Context, at time.Time) error {
+	system, diagnostics, err := e.system.Sample(ctx, at)
+	if err != nil {
+		return err
 	}
+	e.assembleMu.Lock()
+	defer e.assembleMu.Unlock()
+	snapshot, ok := e.Current()
+	if !ok {
+		hostname, _ := os.Hostname()
+		snapshot = model.Snapshot{
+			SampledAt: at, Host: model.Host{Hostname: hostname, OS: runtime.GOOS, Arch: runtime.GOARCH},
+			GPUs: []model.GPU{}, Processes: []model.Process{}, Diagnostics: []model.Diagnostic{},
+			Capabilities: e.provider.Capabilities(),
+		}
+	}
+	snapshot.SampledAt = at
+	snapshot.System = system
+	snapshot.Capabilities.System = model.ProviderState{
+		Name: "Linux host telemetry", Available: true, Status: system.Status, Message: system.Message,
+	}
+	snapshot.Diagnostics = append(nonSystemDiagnostics(snapshot.Diagnostics), diagnostics...)
+	e.mu.Lock()
+	e.systemErr = nil
+	e.mu.Unlock()
+	e.storeSnapshot(snapshot, false, domainSystem)
+	return nil
+}
+
+func (e *Engine) storeSnapshot(snapshot model.Snapshot, topologyChanged bool, domain telemetryDomain) {
+	snapshot.Sequence = e.seq.Add(1)
+	snapshot.SchemaVersion = "v1"
+	if topologyChanged {
+		e.applyGenerations(&snapshot)
+	}
+	if domain == domainSystem {
+		e.history.AddSystem(snapshot)
+	} else if e.system == nil {
+		// Fixture and compatibility providers may still supply both domains in
+		// one observation. Preserve their host history without affecting the
+		// independent-worker path used by real Linux collection.
+		e.history.Add(snapshot)
+	} else {
+		e.history.AddGPU(snapshot)
+	}
+	immutable := snapshot
+	e.current.Store(&immutable)
+	e.publish(snapshot)
+}
+
+func (e *Engine) recordPollError(at time.Time, err error) {
+	e.assembleMu.Lock()
+	defer e.assembleMu.Unlock()
+	e.mu.Lock()
+	e.gpuErr = err
+	e.mu.Unlock()
 	current, ok := e.Current()
 	if !ok {
+		if e.history != nil {
+			e.history.AddGap(at)
+		}
 		return
 	}
 	stale := staleSnapshot(current, at, err.Error())
-	stale.Sequence = e.seq.Add(1)
-	e.current.Store(&stale)
-	e.publish(stale)
+	e.storeSnapshot(stale, false, domainGPU)
+}
+
+func (e *Engine) recordGPUUnavailable(at time.Time, err error) {
+	e.assembleMu.Lock()
+	defer e.assembleMu.Unlock()
+	e.mu.Lock()
+	e.gpuErr = err
+	e.mu.Unlock()
+	current, ok := e.Current()
+	if !ok {
+		if e.history != nil {
+			e.history.AddGap(at)
+		}
+		return
+	}
+	current.SampledAt = at
+	capabilities := e.provider.Capabilities()
+	capabilities.System = current.Capabilities.System
+	if capabilities.NVML.Status == "" || capabilities.NVML.Status == model.StatusError {
+		capabilities.NVML = model.ProviderState{
+			Name: e.provider.Name(), Available: false, Status: model.StatusUnsupported, Message: err.Error(),
+		}
+	}
+	current.Capabilities = capabilities
+	diagnostics := make([]model.Diagnostic, 0, len(current.Diagnostics)+1)
+	for _, diagnostic := range current.Diagnostics {
+		if diagnostic.Code != "collector_sample" && diagnostic.Code != "gpu_provider_unavailable" {
+			diagnostics = append(diagnostics, diagnostic)
+		}
+	}
+	current.Diagnostics = append(diagnostics, model.Diagnostic{
+		Code: "gpu_provider_unavailable", Severity: "warning", Component: "GPU provider", Summary: "GPU telemetry is unavailable",
+		Detail: err.Error(), Remedy: "run `leviathan doctor --require-gpu` when this machine is expected to have an NVIDIA GPU", Status: current.Capabilities.NVML.Status,
+	})
+	e.storeSnapshot(current, false, domainGPU)
+}
+
+func (e *Engine) recordSystemError(at time.Time, err error) {
+	e.assembleMu.Lock()
+	defer e.assembleMu.Unlock()
+	e.mu.Lock()
+	e.systemErr = err
+	e.mu.Unlock()
+	current, ok := e.Current()
+	if !ok {
+		if e.history != nil {
+			e.history.AddGap(at)
+		}
+		return
+	}
+	current.SampledAt = at
+	current.System = staleSystem(current.System, at, err.Error())
+	current.Capabilities.System = model.ProviderState{Name: "Linux host telemetry", Available: false, Status: model.StatusStale, Message: err.Error()}
+	current.Diagnostics = append(nonSystemDiagnostics(current.Diagnostics), model.Diagnostic{
+		Code: "system_sample", Severity: "error", Component: "system", Summary: "Host sampling failed; last identity and capacity retained",
+		Detail: err.Error(), Remedy: "verify procfs and mount namespace access; collection retries automatically", Status: model.StatusStale,
+	})
+	e.storeSnapshot(current, false, domainSystem)
+}
+
+func systemDiagnostics(diagnostics []model.Diagnostic) []model.Diagnostic {
+	result := make([]model.Diagnostic, 0)
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Component == "system" || strings.HasPrefix(diagnostic.Code, "system_") {
+			result = append(result, diagnostic)
+		}
+	}
+	return result
+}
+
+func nonSystemDiagnostics(diagnostics []model.Diagnostic) []model.Diagnostic {
+	result := make([]model.Diagnostic, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Component != "system" && !strings.HasPrefix(diagnostic.Code, "system_") {
+			result = append(result, diagnostic)
+		}
+	}
+	return result
 }
 
 func staleSnapshot(snapshot model.Snapshot, at time.Time, detail string) model.Snapshot {
 	stale := snapshot
 	stale.SampledAt = at
-	stale.Diagnostics = append(append([]model.Diagnostic(nil), snapshot.Diagnostics...), model.Diagnostic{
+	diagnostics := make([]model.Diagnostic, 0, len(snapshot.Diagnostics)+1)
+	for _, diagnostic := range snapshot.Diagnostics {
+		if diagnostic.Code != "collector_sample" {
+			diagnostics = append(diagnostics, diagnostic)
+		}
+	}
+	stale.Diagnostics = append(diagnostics, model.Diagnostic{
 		Code: "collector_sample", Severity: "error", Component: "collector", Summary: "GPU sampling failed; last topology retained", Detail: detail,
 		Remedy: "run `leviathan doctor`; collection retries automatically without accumulating a polling backlog", Status: model.StatusStale,
 	})
 	stale.Capabilities = staleCapabilities(snapshot.Capabilities, detail)
+	if stale.Capabilities.NVML.Status == "" {
+		stale.Capabilities.NVML = model.ProviderState{Name: "GPU provider", Available: false, Status: model.StatusError, Message: detail}
+	}
 	stale.Processes = staleProcesses(snapshot.Processes, detail)
 	stale.GPUs = make([]model.GPU, len(snapshot.GPUs))
 	for gpuIndex, gpu := range snapshot.GPUs {
@@ -235,6 +498,35 @@ func staleSnapshot(snapshot model.Snapshot, at time.Time, detail string) model.S
 		stale.GPUs[gpuIndex] = gpu
 	}
 	return stale
+}
+
+func staleSystem(system model.System, at time.Time, detail string) model.System {
+	stale := system
+	stale.SampledAt, stale.Status, stale.Message = at, model.StatusStale, detail
+	stale.CPU.SampledAt, stale.CPU.Status, stale.CPU.Message = at, model.StatusStale, detail
+	stale.CPU.Utilization = staleHostMetric(stale.CPU.Utilization, at, detail)
+	stale.CPU.Load1 = staleHostMetric(stale.CPU.Load1, at, detail)
+	stale.CPU.Load5 = staleHostMetric(stale.CPU.Load5, at, detail)
+	stale.CPU.Load15 = staleHostMetric(stale.CPU.Load15, at, detail)
+	stale.Memory.SampledAt, stale.Memory.Status, stale.Memory.Message = at, model.StatusStale, detail
+	stale.Memory.UsedBytes, stale.Memory.AvailableBytes = nil, nil
+	stale.Memory.Utilization = staleHostMetric(stale.Memory.Utilization, at, detail)
+	stale.Storage.SampledAt, stale.Storage.Status, stale.Storage.Message = at, model.StatusStale, detail
+	stale.Storage.UsedBytes, stale.Storage.AvailableBytes = nil, nil
+	stale.Storage.ReadBytesPerSecond = staleHostMetric(stale.Storage.ReadBytesPerSecond, at, detail)
+	stale.Storage.WriteBytesPerSecond = staleHostMetric(stale.Storage.WriteBytesPerSecond, at, detail)
+	stale.Storage.Filesystems = append([]model.Filesystem(nil), system.Storage.Filesystems...)
+	for index := range stale.Storage.Filesystems {
+		filesystem := &stale.Storage.Filesystems[index]
+		filesystem.SampledAt, filesystem.Status, filesystem.Message = at, model.StatusStale, detail
+		filesystem.UsedBytes, filesystem.AvailableBytes = nil, nil
+	}
+	return stale
+}
+
+func staleHostMetric(metric model.Metric, at time.Time, detail string) model.Metric {
+	metric.Value, metric.SampledAt, metric.Status, metric.Message = nil, at, model.StatusStale, detail
+	return metric
 }
 
 func staleMetrics(metrics model.MetricSet, detail string) model.MetricSet {
@@ -454,7 +746,7 @@ func (e *Engine) Capabilities() model.Capabilities {
 func (e *Engine) LastError() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.lastErr
+	return errors.Join(e.systemErr, e.gpuErr)
 }
 
 func (e *Engine) Stop() error {

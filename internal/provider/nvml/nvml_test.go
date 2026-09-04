@@ -1,6 +1,7 @@
 package nvml
 
 import (
+	"errors"
 	"math"
 	"strings"
 	"testing"
@@ -8,7 +9,34 @@ import (
 
 	gonvml "github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/internal/provider"
 )
+
+func TestUnavailableNVMLStartupReturnsTypedUnsupportedError(t *testing.T) {
+	for _, ret := range []gonvml.Return{gonvml.ERROR_LIBRARY_NOT_FOUND, gonvml.ERROR_DRIVER_NOT_LOADED} {
+		status, err := initializationFailure(ret)
+		if status != model.StatusUnsupported {
+			t.Fatalf("initializationFailure(%s) status = %q, want %q", ret, status, model.StatusUnsupported)
+		}
+		if statusFor(ret) != model.StatusError {
+			t.Fatalf("runtime statusFor(%s) = %q, want %q", ret, statusFor(ret), model.StatusError)
+		}
+		if !errors.Is(err, provider.ErrUnavailable) {
+			t.Fatalf("initializationFailure(%s) = %v, want provider unavailable", ret, err)
+		}
+	}
+	status, err := initializationFailure(gonvml.ERROR_NO_PERMISSION)
+	if status != model.StatusPermissionDenied {
+		t.Fatalf("permission status = %q, want %q", status, model.StatusPermissionDenied)
+	}
+	if errors.Is(err, provider.ErrUnavailable) {
+		t.Fatalf("permission failure was classified as provider unavailable: %v", err)
+	}
+	status, err = initializationFailure(gonvml.ERROR_NOT_SUPPORTED)
+	if status != model.StatusUnsupported || errors.Is(err, provider.ErrUnavailable) {
+		t.Fatalf("unexpected initialization failure was treated as an absent provider: status=%q err=%v", status, err)
+	}
+}
 
 func TestGPMMetricNeverMarksBlankValueAvailable(t *testing.T) {
 	at := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)

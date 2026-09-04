@@ -56,8 +56,8 @@ func TestViewSnapshots(t *testing.T) {
 		tab      int
 		expected string
 	}{
-		{name: "wide-details", width: 120, height: 36, tab: 0, expected: "08bbcab21275705a79b6f9d9860159029ad4c34cca0ef7e52e651cfad7cc8589"},
-		{name: "narrow-processes", width: 64, height: 24, tab: 1, expected: "25d631f4b4f9ed4b1cdbba46ef95c9f116864bd3a70d83402705322859309954"},
+		{name: "wide-details", width: 120, height: 36, tab: 0, expected: "2adea3c976efc3bd58e6f6f9dbdee785e1fdbac38250c17ca449bc70d933fef9"},
+		{name: "narrow-processes", width: 64, height: 24, tab: 1, expected: "aef44d3d3cb24c924ea56f260c51ad0834c1b23d23009bb65100974dcf729262"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

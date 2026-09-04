@@ -153,7 +153,7 @@ func (m Model) View() string {
 }
 
 func (m Model) compactView(width int) string {
-	lines := []string{m.header(width), "", m.style("section", "GPU / MIG TOPOLOGY")}
+	lines := []string{m.header(width), "", m.hostSummaryLine(width), "", m.style("section", "GPU / MIG TOPOLOGY")}
 	selections := m.selections()
 	if len(selections) == 0 {
 		lines = append(lines, m.style("muted", "No NVIDIA GPU entities detected."))
@@ -218,7 +218,14 @@ func (m Model) header(width int) string {
 }
 
 func (m Model) overview(width int) string {
-	lines := []string{m.style("section", "GPU / MIG TOPOLOGY")}
+	lines := []string{
+		m.style("section", "MACHINE"),
+		m.hostSummaryLine(width),
+		m.style("muted", fmt.Sprintf("Load %s / %s / %s  ·  %d logical CPU(s)", render.Metric(m.snapshot.System.CPU.Load1, m.dash()), render.Metric(m.snapshot.System.CPU.Load5, m.dash()), render.Metric(m.snapshot.System.CPU.Load15, m.dash()), m.snapshot.System.CPU.LogicalProcessors)),
+		m.style("muted", fmt.Sprintf("Disk R %s  ·  W %s  ·  %d filesystem(s)", render.Metric(m.snapshot.System.Storage.ReadBytesPerSecond, m.dash()), render.Metric(m.snapshot.System.Storage.WriteBytesPerSecond, m.dash()), len(m.snapshot.System.Storage.Filesystems))),
+		"",
+		m.style("section", "GPU / MIG TOPOLOGY"),
+	}
 	selections := m.selections()
 	current := selection{gpu: -1, gi: -1, ci: -1}
 	if len(selections) > 0 {
@@ -270,6 +277,13 @@ func (m Model) overview(width int) string {
 	return m.panel(strings.Join(lines, "\n"), width)
 }
 
+func (m Model) hostSummaryLine(width int) string {
+	return truncate(fmt.Sprintf("CPU %s  ·  RAM %s  ·  Storage %s",
+		render.Metric(m.snapshot.System.CPU.Utilization, m.dash()),
+		render.SystemMemory(m.snapshot.System.Memory, m.dash()),
+		render.StorageCapacity(m.snapshot.System.Storage, m.dash())), width)
+}
+
 func (m Model) details(width int) string {
 	tabs := []string{"DETAILS", "GPU PROCESSES", "DIAGNOSTICS"}
 	labels := make([]string, len(tabs))
@@ -295,7 +309,13 @@ func (m Model) details(width int) string {
 func (m Model) detailLines(width int) []string {
 	selections := m.selections()
 	if len(selections) == 0 || m.selected >= len(selections) {
-		return []string{"", m.style("muted", "No GPU entity selected.")}
+		return []string{
+			"", m.style("section", "MACHINE"),
+			"CPU       " + render.Metric(m.snapshot.System.CPU.Utilization, m.dash()),
+			"RAM       " + render.SystemMemory(m.snapshot.System.Memory, m.dash()),
+			"Storage   " + render.StorageCapacity(m.snapshot.System.Storage, m.dash()),
+			"", m.style("muted", "No GPU entity selected."),
+		}
 	}
 	selected := selections[m.selected]
 	if selected.gi < 0 {

@@ -84,6 +84,9 @@ func (s *Server) snapshot(writer http.ResponseWriter, _ *http.Request) {
 }
 
 func snapshotForWire(snapshot model.Snapshot) model.Snapshot {
+	if snapshot.System.Storage.Filesystems == nil {
+		snapshot.System.Storage.Filesystems = []model.Filesystem{}
+	}
 	if snapshot.GPUs == nil {
 		snapshot.GPUs = []model.GPU{}
 	}
@@ -312,10 +315,33 @@ func (s *Server) health(writer http.ResponseWriter, _ *http.Request) {
 		if err := s.source.LastError(); err != nil {
 			message = err.Error()
 		}
-		writeError(writer, http.StatusServiceUnavailable, message)
+		writeJSON(writer, http.StatusServiceUnavailable, map[string]any{
+			"status": "unavailable", "sampledAt": nil, "error": message,
+			"domains": map[string]any{
+				"system": map[string]any{"available": false, "status": model.StatusError},
+				"gpu":    map[string]any{"available": false, "status": model.StatusError},
+			},
+		})
 		return
 	}
-	writeJSON(writer, http.StatusOK, map[string]any{"status": "ok", "sampledAt": snapshot.SampledAt})
+	systemCurrent := snapshot.Capabilities.System.Available && (snapshot.Capabilities.System.Status == model.StatusAvailable || snapshot.Capabilities.System.Status == model.StatusEstimated)
+	systemUsable := snapshot.Capabilities.System.Available
+	gpuCurrent := snapshot.Capabilities.NVML.Available && snapshot.Capabilities.NVML.Status == model.StatusAvailable
+	status := "degraded"
+	code := http.StatusOK
+	if systemCurrent && gpuCurrent {
+		status = "ok"
+	} else if !systemUsable && !gpuCurrent {
+		status = "unavailable"
+		code = http.StatusServiceUnavailable
+	}
+	writeJSON(writer, code, map[string]any{
+		"status": status, "sampledAt": snapshot.SampledAt,
+		"domains": map[string]any{
+			"system": map[string]any{"available": systemUsable, "status": snapshot.Capabilities.System.Status},
+			"gpu":    map[string]any{"available": gpuCurrent, "status": snapshot.Capabilities.NVML.Status},
+		},
+	})
 }
 
 func (s *Server) events(writer http.ResponseWriter, request *http.Request) {

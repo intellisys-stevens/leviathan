@@ -33,6 +33,8 @@ type Provider struct {
 
 	mu            sync.RWMutex
 	opened        bool
+	nvmlStatus    model.MetricStatus
+	nvmlMessage   string
 	gpmAvailable  bool
 	gpmMessage    string
 	profileStates map[string]*profileState
@@ -112,15 +114,33 @@ func (p *Provider) Name() string { return "nvml" }
 
 func (p *Provider) Open(context.Context) error {
 	if ret := gonvml.Init(); ret != gonvml.SUCCESS {
-		return fmt.Errorf("initialize NVML: %s", ret)
+		status, err := initializationFailure(ret)
+		p.mu.Lock()
+		p.opened = false
+		p.nvmlStatus = status
+		p.nvmlMessage = err.Error()
+		p.mu.Unlock()
+		return err
 	}
 	p.mu.Lock()
 	p.opened = true
+	p.nvmlStatus = model.StatusAvailable
+	p.nvmlMessage = ""
 	p.topologyRefreshedAt = time.Time{}
 	p.deviceHandles = nil
 	p.migDevices = make(map[string]map[int]cachedMIGDevice)
 	p.mu.Unlock()
 	return nil
+}
+
+func initializationFailure(ret gonvml.Return) (model.MetricStatus, error) {
+	status := statusFor(ret)
+	err := fmt.Errorf("initialize NVML: %s", ret)
+	if ret == gonvml.ERROR_LIBRARY_NOT_FOUND || ret == gonvml.ERROR_DRIVER_NOT_LOADED {
+		status = model.StatusUnsupported
+		err = fmt.Errorf("%w: %v", provider.ErrUnavailable, err)
+	}
+	return status, err
 }
 
 func (p *Provider) Close() error {
@@ -137,6 +157,8 @@ func (p *Provider) Close() error {
 	p.deviceHandles = nil
 	p.migDevices = make(map[string]map[int]cachedMIGDevice)
 	p.opened = false
+	p.nvmlStatus = ""
+	p.nvmlMessage = ""
 	if ret := gonvml.Shutdown(); ret != gonvml.SUCCESS {
 		return fmt.Errorf("shutdown NVML: %s", ret)
 	}
@@ -147,10 +169,16 @@ func (p *Provider) Capabilities() model.Capabilities {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	available := p.opened
-	nvmlState := model.ProviderState{Name: "NVML", Available: available, Status: model.StatusAvailable}
+	status, message := p.nvmlStatus, p.nvmlMessage
+	if status == "" {
+		status = model.StatusAvailable
+	}
+	nvmlState := model.ProviderState{Name: "NVML", Available: available, Status: status, Message: message}
 	if !available {
-		nvmlState.Status = model.StatusError
-		nvmlState.Message = "NVML is not initialized"
+		if p.nvmlStatus == "" {
+			nvmlState.Status = model.StatusError
+			nvmlState.Message = "NVML is not initialized"
+		}
 	}
 	gpmStatus := model.StatusUnsupported
 	if p.gpmAvailable && !p.options.NoProfile {
