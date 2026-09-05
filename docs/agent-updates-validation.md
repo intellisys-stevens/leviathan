@@ -1,8 +1,9 @@
 # Managed update validation
 
 The feature is implemented in fresh `feat/per-host-agent-updates` worktrees.
-Yggdrasil starts from main `7eb18736d39a57da2070e0702fd9b9322213fa77`;
-Leviathan starts from main `b524433b6b5596892b9b7f366791692af31229f3`.
+The review branches use Yggdrasil main
+`ac7590e1bd47a48942f53b6f5682fcd3669d22d1` and Leviathan main
+`b524433b6b5596892b9b7f366791692af31229f3`.
 The feature remains disabled by default. These results are implementation and
 disposable-host evidence, not a production release or deployment approval.
 
@@ -52,8 +53,8 @@ setup. The disposable VM is stopped; its fixture disk is retained.
 | Credentials | TLS client tests cover enrollment CSR reuse, machine/purpose/key binding, certificate renewal, short-validity claim rejection, signed request framing and redirect rejection |
 | Linux ARM64 | Full Go suite passed as non-root in Go 1.27 Bookworm; real Ubuntu 24.04 systemd acceptance passed in 421.24 seconds |
 | Linux AMD64 | Full Go suite, full vet and targeted updater/protocol/signer race tests passed as non-root with Go 1.27.1; real systemd acceptance is incomplete due the emulator issue below |
-| Packaging | Installer suite, seven bootstrap tests, seven catalog-import tests and Go signer/OpenSSL/importer interoperability passed |
-| Yggdrasil and browser | See the sibling [Yggdrasil validation report](../../yggdrasil-updates/docs/agent-updates-validation.md) for full Go, race, frontend and 88 Playwright checks |
+| Packaging | Installer suite, 19 bootstrap tests, nine managed-installer tests, seven catalog-import tests and Go signer/OpenSSL/importer interoperability passed |
+| Yggdrasil and browser | See the sibling [Yggdrasil validation report](../../yggdrasil-updates/docs/agent-updates-validation.md) for full Go, race, 287 frontend tests and 100 Playwright checks |
 
 A final success-only rerun passed in 105.04 seconds after the final host
 path-validation and verification-progress changes. Current-source AMD64
