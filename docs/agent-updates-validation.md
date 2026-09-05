@@ -51,9 +51,23 @@ produces advancing CPU telemetry. The polling unit has no static IP allowlist.
 A fresh emulated AMD64 attempt completed setup and sustained health checks,
 then failed the retained-PID assertion. The monitor had `NRestarts=0`, and
 systemd logged that it could not identify its child process (`Inappropriate
-ioctl for device`). Native AMD64 acceptance remains unverified by that attempt.
-The CI workflow now runs the same guarded test on disposable native AMD64 and
-ARM64 systemd runners; their results must be checked independently.
+ioctl for device`). That emulated attempt did not establish native acceptance.
+The same guarded automatic-setup test subsequently passed on native GitHub
+Ubuntu 24.04 systemd runners at source `1b7d1781835755de360ac801b3f137636020ed83`:
+
+| Native runner | Result | Evidence |
+| --- | --- | --- |
+| AMD64 | Passed in 64.56 seconds | [CI job and public receipt](https://github.com/intellisys-stevens/leviathan/actions/runs/33996513145/job/101387887782) |
+| ARM64 | Passed in 64.16 seconds | [CI job and public receipt](https://github.com/intellisys-stevens/leviathan/actions/runs/33996513145/job/101387887749) |
+
+Both receipts confirm the exact build, resumed verification after lease expiry,
+retained monitor/workload PIDs, host key and renewed certificate. GitHub's
+published runner images intentionally make `/opt` and `/usr/local/bin`
+world-writable. The disposable CI job restores root-owned mode 0755 on only
+those directories before setup. Production validation remains strict; race
+regressions verify unsafe ancestors are rejected without changing their modes.
+Native fresh-install acceptance does not replace update/rollback, physical GPU
+or full-reboot deployment canaries.
 
 The shell template's release pins are stamped in the test. A narrow fixture
 `curl` substitutes only the official helper download; the shell verifies its

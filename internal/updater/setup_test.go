@@ -752,6 +752,30 @@ func TestSetupCompletedRetryPreservesRenewedCertificate(t *testing.T) {
 		t.Fatal("repeated setup restored the old receipt certificate", err)
 	}
 }
+
+func TestSetupRejectsWorldWritableInstallationAncestors(t *testing.T) {
+	for _, path := range []string{"/opt", "/usr/local/bin"} {
+		t.Run(path, func(t *testing.T) {
+			f := newSetupFixture(t)
+			parent := f.h.path(path)
+			if err := os.MkdirAll(parent, 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(parent, 0777); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.apply(); !errors.Is(err, ErrConfiguration) && !errors.Is(err, ErrRecoveryRequired) {
+				t.Fatal("accepted a world-writable installation ancestor", err)
+			}
+			if _, err := os.Lstat(f.h.path("/usr/local/bin/leviathan")); !errors.Is(err, os.ErrNotExist) || f.active {
+				t.Fatal("unsafe ancestor reached monitor activation", err)
+			}
+			if info, err := os.Stat(parent); err != nil || info.Mode().Perm() != 0777 {
+				t.Fatal("installer changed existing parent directory permissions", err)
+			}
+		})
+	}
+}
 func TestSetupStandaloneBothOptOutAndManagedRefusal(t *testing.T) {
 	for _, without := range []bool{false, true} {
 		t.Run(fmt.Sprint(without), func(t *testing.T) {

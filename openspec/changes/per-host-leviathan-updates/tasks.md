@@ -108,8 +108,10 @@ item implies deployment readiness. Keep this file identical in both repos.
   permission revocation, replay, concurrent/repeated setup and interrupted recovery.
 - [x] Execute the generated command on disposable ARM64 systemd without Python
   or gh; verify exact build, telemetry, resumed setup, renewed identity and workloads.
-- [ ] Pass native AMD64 automatic-setup acceptance. The emulated attempt completed
-  health checks but failed the retained-PID check with systemd process-tracking warnings.
+- [x] Pass automatic setup on native AMD64 (64.56s) and ARM64 (64.16s) systemd
+  CI runners. Exact build, telemetry, resumed verification, retained identities
+  and workload PIDs passed. Record the isolated fixture/production boundaries.
 - [x] Add guarded native AMD64/ARM64 systemd acceptance to CI; publish only public
   test receipts/logs, never fixture executables or credentials.
-- [ ] Update both draft PRs and record current-source CI and remaining rollout gates.
+- [x] Update both draft PRs and record native CI receipts, source validation
+  and remaining release/deployment canary gates. Retain release version 0.4.0.
