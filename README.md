@@ -40,10 +40,9 @@ scheduler-authoritative workspace assignments.
 
 ## 🚀 Quick start
 
-For a host managed through Yggdrasil, the optional
-[`install.sh --with-updater` setup](docs/managed-updates.md#install-leviathan-and-the-updater-together)
-installs Leviathan and its updater together. The ordinary command below installs
-only the Leviathan binary.
+### Standalone monitoring
+
+This one-line installer installs the Leviathan binary for your current user:
 
 ```bash
 curl -fsSL https://github.com/intellisys-stevens/leviathan/releases/latest/download/install.sh | sh
@@ -59,6 +58,38 @@ data:
 ```bash
 leviathan --fixture blackwell serve
 ```
+
+### Managed through Yggdrasil
+
+Use `install.sh --with-updater` to install Leviathan as a service and enroll its
+updater on the same host. This requires a published stable release containing
+the updater and an enabled Yggdrasil update service.
+
+First follow the [managed installation setup](docs/managed-updates.md#install-leviathan-and-the-updater-together)
+to obtain and verify the installer, prepare the host configuration and private
+enrollment-token file, and pin the release public key. Set `REVIEWED_TAG` and
+`REVIEWED_COMMIT` to the exact approved release and full commit, and
+`YGGDRASIL_CIDR` to an approved destination range. Keep the token file under
+`CODEX_SECRETS_DIR` as described in that guide.
+
+Then run this single command, wrapped here for readability:
+
+```bash
+sudo sh /root/leviathan-installer/install.sh --with-updater \
+  --version "$REVIEWED_TAG" --commit "$REVIEWED_COMMIT" \
+  --updater-config /root/leviathan-updater.json \
+  --token-file "$CODEX_SECRETS_DIR/host-updater.token" \
+  --release-public-key /etc/leviathan-updater/release-public.pem \
+  --yggdrasil-cidr "$YGGDRASIL_CIDR"
+```
+
+Append `--dry-run` to verify the release and local inputs before installation.
+Repeat `--yggdrasil-cidr` when more than one approved range is needed. A fresh
+installation starts both services; an existing active installation keeps its
+running Leviathan version. Existing previews require `--allow-preview`.
+
+Managed setup uses the verified installer and prepared host inputs above.
+After enrollment, individual updates are requested from Yggdrasil.
 
 ## 🧭 Interfaces
 
@@ -121,6 +152,7 @@ credential file.
 | Container and process visibility | [docs/permissions.md](docs/permissions.md) |
 | Optional Kubernetes/Coder attribution | [docs/kubernetes-attribution.md](docs/kubernetes-attribution.md) |
 | Yggdrasil telemetry uplink | [docs/uplink-v1.md](docs/uplink-v1.md) |
+| Install and enroll the managed updater | [docs/managed-updates.md](docs/managed-updates.md) |
 | Security and privacy model | [docs/security-and-privacy.md](docs/security-and-privacy.md) |
 | v0.4.0 changes | [CHANGELOG.md](CHANGELOG.md) |
 | Upgrade from v0.2.1 | [docs/migration-v0.3.md](docs/migration-v0.3.md) |
