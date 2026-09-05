@@ -1,0 +1,10 @@
+{
+  "canonicalRepository": "https://github.com/intellisys-stevens/yggdrasil",
+  "contractVersion": "1.0.0",
+  "files": {
+    "api/agent-updates-v1-openapi.json": "f1809b298f3c28a551b23b7eb61d36b9f438273e63a77a7636944b68c30c5b45",
+    "internal/updateprotocol/protocol.go": "c705621b32803489b404a7633277e70417c3760d7260f6821eba57a13372be54",
+    "internal/updateprotocol/protocol_test.go": "a0a42a0039b25297dfa18885e2348c5b5c2ca1f0fdfc8c6382c30897f490d174",
+    "internal/updateprotocol/testdata/release-v1.golden.json": "74218364f014594a512d2192881f3130d10b816fa7bf00fb0213ffbca524f93e"
+  }
+}

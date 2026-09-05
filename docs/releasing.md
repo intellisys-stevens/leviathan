@@ -113,3 +113,63 @@ published. Verify both native archives, checksums, attestations, SBOMs, the
 `leviathan-attribution:0.4.0` OCI chart. Preserve the v0.3.2 binaries,
 configuration, and backups until host telemetry and Yggdrasil receipts have
 been observed in the deployment.
+
+## Managed update signing
+
+Every new GitHub release must include
+`leviathan_linux_amd64.manifest.json` and
+`leviathan_linux_arm64.manifest.json`. Each Ed25519-signed envelope binds the
+stable version, full source commit, operating system, architecture, glibc
+baseline, updater/configuration/state compatibility, archive digest and size,
+and the exact Leviathan executable digest and size. Release binaries now record
+the full source commit. The updater executable, opt-in bootstrap and independent
+offline recovery unit are packaged in each native archive.
+
+Before publishing, a repository administrator must configure the
+`managed-release-signing` GitHub environment with required reviewers and
+deployment restrictions allowing only reviewed stable release tags. Put the
+approved Ed25519 key in that environment's `LEVIATHAN_UPDATE_SIGNING_KEY` secret
+as standard base64 of its 32-byte seed or 64-byte private key. Set the environment
+variable `LEVIATHAN_UPDATE_SIGNING_KEY_ID` to the first 32 lowercase hex
+characters of SHA-256 of the raw 32-byte public key. Supply and manage the
+production key through the organization's approved key process; this repository
+does not generate one.
+
+The signer is built before the key is exposed. The signing step writes the key
+only to a mode-0600 file under its runner-local `CODEX_SECRETS_DIR`, removes it
+on exit, and checks it against the separately configured public key ID. Missing
+or mismatched key configuration fails the release instead of publishing an
+unsigned managed update. No private signing key belongs in an archive, catalog,
+host configuration, source checkout or test fixture. The test keys are disposable
+and never production credentials.
+
+The protected signing job attests both manifests with GitHub provenance. The
+publish job depends on it, requires both manifest files and includes their
+SHA-256 entries in `checksums.txt`. Existing provenance/SBOM gates still apply
+to both native archives and the other release artifacts. Configuring these
+workflow files alone does not establish that the GitHub environment protections
+or production signing key have been provisioned.
+
+To independently verify either an archive or manifest, select the exact stable
+tag and reviewed full source commit, then use the GitHub CLI's
+[attestation verification policy flags](https://cli.github.com/manual/gh_attestation_verify):
+
+```bash
+gh attestation verify "$ARTIFACT" \
+  --hostname github.com \
+  --repo intellisys-stevens/leviathan \
+  --signer-workflow github.com/intellisys-stevens/leviathan/.github/workflows/release.yml \
+  --source-ref "refs/tags/$REVIEWED_TAG" \
+  --source-digest "$REVIEWED_COMMIT" --signer-digest "$REVIEWED_COMMIT" \
+  --cert-identity "https://github.com/intellisys-stevens/leviathan/.github/workflows/release.yml@refs/tags/$REVIEWED_TAG" \
+  --predicate-type https://slsa.dev/provenance/v1 \
+  --deny-self-hosted-runners
+```
+
+Verify that GitHub marks that tag's release as neither draft nor prerelease.
+Yggdrasil's catalog importer automates these checks for both artifacts before
+mirroring, then verifies the Ed25519 signature against an independently pinned
+PKIX public key and checks the archive and binary digests without extracting
+untrusted paths. Hosts fetch the resulting archive through Yggdrasil's origin.
+See [managed host bootstrap](managed-updates.md) for the separate, explicit
+installation step. Nothing in the build or release workflow deploys it to a host.

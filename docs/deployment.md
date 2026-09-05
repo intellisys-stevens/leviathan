@@ -100,6 +100,12 @@ process permissions.
 
 ## 🧯 Rollback
 
+Hosts that opt into approved Yggdrasil updates use the separate root updater,
+atomic release directories and offline boot recovery described in
+[managed updates](managed-updates.md). Bootstrap is explicit and preserves the
+existing service's permissions. The normal installer refuses to overwrite a
+managed executable link.
+
 Keep the previous binary until the replacement passes health, telemetry, and UI
 checks. Restore it atomically and restart the same service instance if validation
 fails. Configuration and in-memory history use no persistent migration, so a

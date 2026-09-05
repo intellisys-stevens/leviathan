@@ -76,6 +76,8 @@ jobs:
         run: scripts/verify-uplink-contract.sh
       - run: go generate ./internal/api
       - run: git diff --exit-code -- internal/api/wire.gen.go
+      - name: Verify managed update contract and signature vectors
+        run: scripts/verify-update-contract.sh
       - run: go test ./...
       - run: go test -race ./...
       - run: go vet ./...
@@ -150,7 +152,9 @@ jobs:
           scripts/verify-branding.sh
           scripts/verify-release-metadata.sh 0.4.0
       - name: Test installer
-        run: scripts/install_test.sh
+        run: |
+          scripts/install_test.sh
+          python3 scripts/bootstrap-updater-test.py
       - name: Dry-run Helm chart package
         id: chart
         run: |

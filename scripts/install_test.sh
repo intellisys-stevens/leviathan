@@ -255,4 +255,15 @@ run_installer "${case_directory}/second-output" "${case_directory}/home" "${case
 assert_contains "${case_directory}/install/leviathan" fixture-amd64-updated
 [[ "$(find "${case_directory}/install" -maxdepth 1 -name '.leviathan.*' | wc -l)" -eq 0 ]] || fail "temporary install file remained"
 
+# A managed symlink must survive even when its current target is absent.
+case_directory="${test_root}/managed"
+mkdir -p "${case_directory}/home" "${case_directory}/install"
+ln -s /opt/leviathan/current/leviathan "${case_directory}/install/leviathan"
+if run_installer "${case_directory}/output" "${case_directory}/home" "${case_directory}/curl.log" "${release_directory}" --install-dir "${case_directory}/install"; then
+  fail "installer overwrote a managed symlink"
+fi
+assert_contains "${case_directory}/output" 'is managed by leviathan-updater'
+[[ "$(readlink "${case_directory}/install/leviathan")" = /opt/leviathan/current/leviathan ]] || fail "managed symlink changed"
+[[ ! -e "${case_directory}/curl.log" ]] || fail "managed target rejection downloaded assets"
+
 echo "installer tests passed"

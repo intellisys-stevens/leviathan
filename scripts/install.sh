@@ -30,6 +30,18 @@ fail() {
   exit 1
 }
 
+refuse_managed_target() {
+  managed_target=$1
+  [ -L "$managed_target" ] || return 0
+  link_target=$(readlink "$managed_target") || fail "cannot inspect $managed_target"
+  resolved_target=$(readlink -f "$managed_target" 2>/dev/null || true)
+  case "$link_target:$resolved_target" in
+    /opt/leviathan/*:* | *:/opt/leviathan/*)
+      fail "$managed_target is managed by leviathan-updater; use the approved Yggdrasil update workflow"
+      ;;
+  esac
+}
+
 legacy_environment=$(
   env | awk -F= '$1 ~ /^MIGLENS_/ { print $1; exit }'
 )
@@ -84,7 +96,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-for required_command in awk chmod cp curl find getconf grep mkdir mktemp mv sha256sum tar uname wc; do
+for required_command in awk chmod cp curl find getconf grep mkdir mktemp mv readlink sha256sum tar uname wc; do
   command -v "$required_command" >/dev/null 2>&1 || fail "required command not found: $required_command"
 done
 
@@ -142,6 +154,10 @@ if [ -z "$install_directory" ]; then
   install_directory="$HOME/.local/bin"
 fi
 
+# Check before downloading and again at replacement so the legacy installer
+# cannot sever the managed current/rollback chain, including a dangling link.
+refuse_managed_target "$install_directory/leviathan"
+
 archive_name="leviathan_linux_${architecture}.tar.gz"
 base_url="https://github.com/${repository}/releases/${release_path}"
 temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/leviathan-install.XXXXXX")
@@ -185,6 +201,7 @@ target_path="$install_directory/leviathan"
 target_temporary=$(mktemp "$install_directory/.leviathan.XXXXXX")
 cp "$binary_path" "$target_temporary"
 chmod 0755 "$target_temporary"
+refuse_managed_target "$target_path"
 mv -f "$target_temporary" "$target_path"
 target_temporary=
 
