@@ -1,1 +1,3 @@
 fde9e0ebd42b7362230c3542397d5c9a15797c26:internal/uplinkclient/client_test.go:generic-api-key:24
+# Public SHA-256 of api/agent-updates-v1-openapi.json in the contract lock.
+e8849312e4dddb3eda7ff2a606929af98b5a27d4:api/agent-updates-v1-contract.lock.json:generic-api-key:5
