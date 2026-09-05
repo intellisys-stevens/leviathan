@@ -21,14 +21,15 @@ not become permission to change a host executable.
 - Add update status, manual controls, maintainer administration and deliberate
   one-time enrollment to existing machine detail and live views. Include an
   updater-only host chooser for delegated maintainers without inventory ownership.
-- Add explicit local bootstrap and boot-time recovery. `install.sh --with-updater`
-  can verify, install and enroll both services on a fresh host or adopt an existing
-  active service; an ordinary installer invocation remains unchanged.
+- Include the updater in ordinary installation by default, with an explicit
+  `--without-updater` opt-out. Add a Yggdrasil-generated single command that
+  verifies, configures, enrolls and starts both services without hand-prepared
+  host files, Python, GitHub CLI or network ranges. Preserve advanced setup flags.
 
 ## Scope and compatibility
 
 Only a newer compatible stable Leviathan release may be selected. Preview
-adoption requires a local operator's explicit choice and never permits an
+adoption requires an administrator's explicit setup choice and never permits an
 older stable release to replace the current preview. Updater self-updates,
 Yggdrasil updates, fleet-wide rollout, arbitrary commands, remote hooks and
 configuration/state migrations are outside this change.

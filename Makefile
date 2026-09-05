@@ -10,6 +10,7 @@ BRIDGE_IMAGE ?= leviathan-kubernetes-bridge:$(VERSION)
 DIST_DIR ?= dist
 LDFLAGS := -s -w -X github.com/intellisys-stevens/leviathan/internal/cli.Version=$(VERSION) -X github.com/intellisys-stevens/leviathan/internal/cli.Commit=$(COMMIT) -X github.com/intellisys-stevens/leviathan/internal/cli.BuildDate=$(BUILD_DATE)
 BRIDGE_LDFLAGS := -s -w -X main.BridgeVersion=$(VERSION)
+UPDATER_LDFLAGS := -X main.Version=$(VERSION) -X github.com/intellisys-stevens/leviathan/internal/updater.ReleasePublicKeys=$(LEVIATHAN_UPDATE_PUBLIC_KEYS)
 
 .PHONY: bootstrap generate generate-uplink-contract check-update-contract check-uplink-contract fmt frontend build build-leviathan build-updater build-update-manifest build-bridge bridge-image branding-check release-metadata-check helm-check helm-package test test-go test-race test-install test-updater-bootstrap license-check vulncheck soak soak-one-hour clean
 
@@ -53,7 +54,7 @@ build-bridge:
 
 build-updater:
 	mkdir -p bin
-	CGO_ENABLED=0 $(GO) build -trimpath -buildvcs=false -ldflags '-X main.Version=$(VERSION)' -o bin/leviathan-updater ./cmd/leviathan-updater
+	CGO_ENABLED=0 $(GO) build -trimpath -buildvcs=false -ldflags '$(UPDATER_LDFLAGS)' -o bin/leviathan-updater ./cmd/leviathan-updater
 
 build-update-manifest:
 	mkdir -p bin
@@ -84,6 +85,7 @@ test-race:
 
 test-install:
 	scripts/install_test.sh
+	python3 scripts/release-installer-test.py
 	python3 scripts/sync-managed-installer.py --check
 	python3 scripts/install-managed-test.py
 

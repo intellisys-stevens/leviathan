@@ -216,7 +216,7 @@ func parseIdentity(value identity, machine p.MachineKey, now time.Time) (ed25519
 }
 func (c *Client) loadIdentity() (identity, ed25519.PrivateKey, *x509.Certificate, error) {
 	var value identity
-	if readJSON(filepath.Join(c.config.StateDirectory, "identity.json"), &value) != nil {
+	if readJSON(filepath.Join(c.config.credentialDirectory(), "identity.json"), &value) != nil {
 		return value, nil, nil, ErrIdentity
 	}
 	key, cert, e := parseIdentity(value, c.config.Machine, c.now())
@@ -238,7 +238,7 @@ func (c *Client) Enroll(ctx context.Context, tokenFile string) error {
 		clear(key)
 		return nil
 	}
-	if _, e := os.Lstat(filepath.Join(c.config.StateDirectory, "identity.json")); e == nil {
+	if _, e := os.Lstat(filepath.Join(c.config.credentialDirectory(), "identity.json")); e == nil {
 		return ErrIdentity
 	}
 	token, e := safeRead(tokenFile, 512, true)
@@ -250,7 +250,7 @@ func (c *Client) Enroll(ctx context.Context, tokenFile string) error {
 	if !strings.HasPrefix(raw, "yenr1_") || len(raw) > 256 {
 		return ErrIdentity
 	}
-	path := filepath.Join(c.config.StateDirectory, "enrollment-pending.json")
+	path := filepath.Join(c.config.credentialDirectory(), "enrollment-pending.json")
 	var value identity
 	if e = readJSON(path, &value); errors.Is(e, os.ErrNotExist) {
 		_, private, generateErr := ed25519.GenerateKey(rand.Reader)
@@ -280,20 +280,27 @@ func (c *Client) Enroll(ctx context.Context, tokenFile string) error {
 	return removeDurable(path)
 }
 func (c *Client) saveCertificate(value identity, out p.CertificateResponse) error {
+	value, err := c.validateCertificate(value, out)
+	if err != nil {
+		return err
+	}
+	return atomicJSON(filepath.Join(c.config.credentialDirectory(), "identity.json"), value)
+}
+func (c *Client) validateCertificate(value identity, out p.CertificateResponse) (identity, error) {
 	if out.PlatformID != c.config.Machine.PlatformID || out.ScopeID != c.config.Machine.ScopeID || out.MachineID != c.config.Machine.MachineID || out.Identity != updaterIdentity(c.config.Machine) {
-		return ErrIdentity
+		return value, ErrIdentity
 	}
 	value.CertificatePEM = out.CertificatePEM
 	value.CSRPEM = ""
 	key, cert, e := parseIdentity(value, c.config.Machine, c.now())
 	if e != nil {
-		return e
+		return value, e
 	}
 	defer clear(key)
 	if cert.SerialNumber.Text(16) != out.Serial || !cert.NotBefore.Equal(out.NotBefore) || !cert.NotAfter.Equal(out.NotAfter) {
-		return ErrIdentity
+		return value, ErrIdentity
 	}
-	return atomicJSON(filepath.Join(c.config.StateDirectory, "identity.json"), value)
+	return value, nil
 }
 func (c *Client) Renew(ctx context.Context) error {
 	unlock, e := lockState(filepath.Join(c.config.StateDirectory, "lock"))

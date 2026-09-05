@@ -91,3 +91,25 @@ item implies deployment readiness. Keep this file identical in both repos.
 - [x] Record final real fresh-host ARM64 systemd/HTTPS acceptance (3.88s),
   covering dry run, exact non-root service, identity/configuration preservation,
   an identical retry and an unchanged unrelated workload.
+
+## Automatic installation follow-up
+
+- [x] Install both binaries by default; retain explicit opt-out and advanced flags.
+- [x] Generate version-specific installers and independently verified static
+  updater assets with compiled public release keys; no Python or gh on the normal path.
+- [x] Add exact-host setup tickets, frozen release metadata, key-bound redemption,
+  transaction-local final authorization, durable progress/result and recovery.
+- [x] Generate local service/configuration/credential files, discover supported
+  active installations, and remove manual CIDRs from normal updater setup.
+- [x] Replace the normal token UI with Copy install command, explicit preview
+  adoption, expiry, host binding and accessible setup progress.
+- [x] Extend importer/provenance checks and shared contract generation/locks.
+- [x] Validate default/opt-out installation, command quoting, trust failures,
+  permission revocation, replay, concurrent/repeated setup and interrupted recovery.
+- [x] Execute the generated command on disposable ARM64 systemd without Python
+  or gh; verify exact build, telemetry, resumed setup, renewed identity and workloads.
+- [ ] Pass native AMD64 automatic-setup acceptance. The emulated attempt completed
+  health checks but failed the retained-PID check with systemd process-tracking warnings.
+- [x] Add guarded native AMD64/ARM64 systemd acceptance to CI; publish only public
+  test receipts/logs, never fixture executables or credentials.
+- [ ] Update both draft PRs and record current-source CI and remaining rollout gates.

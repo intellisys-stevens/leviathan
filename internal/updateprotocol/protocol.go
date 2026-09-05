@@ -349,17 +349,19 @@ type HostListResponse struct {
 	Machines []MachineKey `json:"machines"`
 }
 type MachineStatus struct {
-	Enabled      bool             `json:"enabled"`
-	CanUpdate    bool             `json:"canUpdate"`
-	CanDelegate  bool             `json:"canDelegate"`
-	Enrolled     bool             `json:"enrolled"`
-	Online       bool             `json:"online"`
-	ObservedAt   *time.Time       `json:"observedAt"`
-	Installation *Installation    `json:"installation"`
-	Releases     []ReleaseSummary `json:"releases"`
-	Job          *Job             `json:"job"`
-	Delegates    []Delegate       `json:"delegates"`
-	Reason       string           `json:"reason,omitempty"`
+	Enabled       bool                  `json:"enabled"`
+	CanUpdate     bool                  `json:"canUpdate"`
+	CanDelegate   bool                  `json:"canDelegate"`
+	Enrolled      bool                  `json:"enrolled"`
+	Online        bool                  `json:"online"`
+	ObservedAt    *time.Time            `json:"observedAt"`
+	Installation  *Installation         `json:"installation"`
+	Releases      []ReleaseSummary      `json:"releases"`
+	Job           *Job                  `json:"job"`
+	Delegates     []Delegate            `json:"delegates"`
+	Setup         *SetupSummary         `json:"setup"`
+	SetupReleases []SetupReleaseSummary `json:"setupReleases"`
+	Reason        string                `json:"reason,omitempty"`
 }
 
 // SignedRequest retains the existing node-control-v1 signature framing. The

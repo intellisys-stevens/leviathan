@@ -499,6 +499,22 @@
               "$ref": "#/components/schemas/ReleaseSummary"
             },
             "type": "array"
+          },
+          "setup": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SetupSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "setupReleases": {
+            "items": {
+              "$ref": "#/components/schemas/SetupReleaseSummary"
+            },
+            "type": "array"
           }
         },
         "required": [
@@ -511,7 +527,9 @@
           "installation",
           "releases",
           "job",
-          "delegates"
+          "delegates",
+          "setup",
+          "setupReleases"
         ],
         "type": "object"
       },
@@ -675,6 +693,344 @@
         "required": [
           "schema",
           "accepted"
+        ],
+        "type": "object"
+      },
+      "SetupArtifactRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "archiveSha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "setupId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "setupId",
+          "archiveSha256"
+        ],
+        "type": "object"
+      },
+      "SetupAuthorizeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "installation": {
+            "$ref": "#/components/schemas/Installation"
+          },
+          "mode": {
+            "enum": [
+              "install",
+              "adopt"
+            ],
+            "type": "string"
+          },
+          "setupId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "setupId",
+          "mode",
+          "installation"
+        ],
+        "type": "object"
+      },
+      "SetupAuthorizeResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "allowPreview": {
+            "type": "boolean"
+          },
+          "allowed": {
+            "type": "boolean"
+          },
+          "installBefore": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "schema": {
+            "type": "string"
+          },
+          "setupId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema",
+          "setupId",
+          "allowed",
+          "installBefore",
+          "allowPreview"
+        ],
+        "type": "object"
+      },
+      "SetupRedeemRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "arch": {
+            "type": "string"
+          },
+          "csrPem": {
+            "type": "string"
+          },
+          "ticket": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket",
+          "csrPem",
+          "arch"
+        ],
+        "type": "object"
+      },
+      "SetupRedeemResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "allowPreview": {
+            "type": "boolean"
+          },
+          "certificate": {
+            "$ref": "#/components/schemas/CertificateResponse"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "machine": {
+            "$ref": "#/components/schemas/MachineKey"
+          },
+          "release": {
+            "$ref": "#/components/schemas/SignedManifest"
+          },
+          "schema": {
+            "type": "string"
+          },
+          "setupId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema",
+          "setupId",
+          "machine",
+          "expiresAt",
+          "release",
+          "certificate",
+          "allowPreview"
+        ],
+        "type": "object"
+      },
+      "SetupReleaseSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "architectures": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "commit",
+          "architectures"
+        ],
+        "type": "object"
+      },
+      "SetupReportRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "installation": {
+            "$ref": "#/components/schemas/Installation"
+          },
+          "installationVerified": {
+            "type": "boolean"
+          },
+          "setupId": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "issued",
+              "redeemed",
+              "installing",
+              "verifying",
+              "succeeded",
+              "failed",
+              "recovery_required",
+              "expired",
+              "superseded"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "setupId",
+          "status",
+          "installation",
+          "installationVerified"
+        ],
+        "type": "object"
+      },
+      "SetupStatusRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "setupId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "setupId"
+        ],
+        "type": "object"
+      },
+      "SetupStatusResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "installation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Installation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schema": {
+            "type": "string"
+          },
+          "setup": {
+            "$ref": "#/components/schemas/SetupSummary"
+          }
+        },
+        "required": [
+          "schema",
+          "setup",
+          "installation"
+        ],
+        "type": "object"
+      },
+      "SetupSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "allowPreview": {
+            "type": "boolean"
+          },
+          "architectures": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "code": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "machine": {
+            "$ref": "#/components/schemas/MachineKey"
+          },
+          "requestedBy": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "issued",
+              "redeemed",
+              "installing",
+              "verifying",
+              "succeeded",
+              "failed",
+              "recovery_required",
+              "expired",
+              "superseded"
+            ],
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "machine",
+          "version",
+          "commit",
+          "architectures",
+          "allowPreview",
+          "status",
+          "requestedBy",
+          "createdAt",
+          "expiresAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "SetupTicketRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "allowPreview": {
+            "type": "boolean"
+          },
+          "machine": {
+            "$ref": "#/components/schemas/MachineKey"
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "machine",
+          "version",
+          "requestId",
+          "allowPreview"
+        ],
+        "type": "object"
+      },
+      "SetupTicketResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "setup": {
+            "$ref": "#/components/schemas/SetupSummary"
+          }
+        },
+        "required": [
+          "setup"
         ],
         "type": "object"
       },
@@ -1053,6 +1409,108 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "Accepted or current state"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/agent-updates/v1/setup-tickets": {
+      "post": {
+        "description": "Administrator with fresh passkey assertion and CSRF creates a 15-minute machine-bound setup ticket freezing stable release and per-architecture bootstrap digests. Command is returned once. Same requestId retries return metadata only; a new requestId may supersede only the same administrator's unredeemed ticket.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupTicketRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupTicketResponse"
+                }
+              }
+            },
+            "description": "Accepted or current state"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupTicketResponse"
                 }
               }
             },
@@ -1883,6 +2341,464 @@
         "x-authentication": "Required updater-purpose signed JSON envelope, durable nonce and 30 second timestamp bound",
         "x-payload-schema": {
           "$ref": "#/components/schemas/ReportRequest"
+        }
+      }
+    },
+    "/api/node-control/v1/updates/setup/artifact": {
+      "post": {
+        "description": "Download only the exact setup archive after certificate, key, session, permission and expiry validation.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignedRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/gzip": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Frozen stable release archive"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          }
+        },
+        "security": [],
+        "x-authentication": "Required updater-purpose signed JSON envelope, durable nonce and 30 second timestamp bound",
+        "x-payload-schema": {
+          "$ref": "#/components/schemas/SetupArtifactRequest"
+        }
+      }
+    },
+    "/api/node-control/v1/updates/setup/authorize": {
+      "post": {
+        "description": "Recheck initiating session, current administrator, exact updater leaf and key, frozen release, preview consent and prospective installation in one transaction immediately before local install/adoption. Same-request retry cannot extend 45-second installBefore.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignedRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupAuthorizeResponse"
+                }
+              }
+            },
+            "description": "Accepted or current state"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          }
+        },
+        "security": [],
+        "x-authentication": "Required updater-purpose signed JSON envelope, durable nonce and 30 second timestamp bound",
+        "x-payload-schema": {
+          "$ref": "#/components/schemas/SetupAuthorizeRequest"
+        }
+      }
+    },
+    "/api/node-control/v1/updates/setup/redeem": {
+      "post": {
+        "description": "Redeem setup ticket with Ed25519 CSR and exact architecture. Durable receipt binds the first public key; same key recovers the certificate and immutable release. Unstarted setup expires after 15 minutes.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupRedeemRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupRedeemResponse"
+                }
+              }
+            },
+            "description": "Accepted or current state"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          }
+        },
+        "security": [],
+        "x-authentication": "Redeem setup ticket with Ed25519 CSR and exact architecture. Durable receipt binds the first public key; same key recovers the certificate and immutable release. Unstarted setup expires after 15 minutes."
+      }
+    },
+    "/api/node-control/v1/updates/setup/report": {
+      "post": {
+        "description": "Report setup progress and immutable terminal result independently of browser session, catalog or inventory. Verified succeeded result must equal the authorized installation. recovery_required blocks further work.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignedRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportResponse"
+                }
+              }
+            },
+            "description": "Accepted or current state"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          }
+        },
+        "security": [],
+        "x-authentication": "Required updater-purpose signed JSON envelope, durable nonce and 30 second timestamp bound",
+        "x-payload-schema": {
+          "$ref": "#/components/schemas/SetupReportRequest"
+        }
+      }
+    },
+    "/api/node-control/v1/updates/setup/status": {
+      "post": {
+        "description": "Read bound durable setup result for reconciliation after a lost response.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignedRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupStatusResponse"
+                }
+              }
+            },
+            "description": "Accepted or current state"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request rejected; no remote shell execution"
+          }
+        },
+        "security": [],
+        "x-authentication": "Required updater-purpose signed JSON envelope, durable nonce and 30 second timestamp bound",
+        "x-payload-schema": {
+          "$ref": "#/components/schemas/SetupStatusRequest"
         }
       }
     }

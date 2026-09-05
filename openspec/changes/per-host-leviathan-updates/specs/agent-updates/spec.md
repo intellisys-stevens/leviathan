@@ -51,7 +51,8 @@ a managed recognized baseline and a newer stable version.
 - **THEN** validation fails closed and the existing installation remains active.
 
 #### Scenario: Preview baseline
-- **GIVEN** a recognized preview was adopted explicitly by the local operator
+- **GIVEN** a recognized preview was adopted explicitly in Yggdrasil setup or
+  through the advanced local workflow
 - **WHEN** a stable target is evaluated
 - **THEN** its version must be newer than the preview, allowing that preview's
   own stable version but rejecting any older stable base version.
@@ -139,33 +140,46 @@ action; tokens SHALL not enter URLs, logs or persistent browser storage.
   selecting that host for an update without granting telemetry or viewer access.
 
 #### Scenario: Leaving a host view
-- **GIVEN** status polling or a displayed enrollment token belongs to one host
+- **GIVEN** status polling or a displayed install command belongs to one host
 - **WHEN** the view closes or changes host
-- **THEN** old polling is aborted and the old token is removed from the view.
+- **THEN** old polling is aborted and the old command is removed from the view.
 
-#### Scenario: Enrollment token expires
-- **GIVEN** an enrollment token is displayed
+#### Scenario: Setup command expires
+- **GIVEN** an install command containing a one-use setup ticket is displayed
 - **WHEN** its expiry is reached
-- **THEN** the token is cleared and a new deliberate request is needed to
-  generate another token.
+- **THEN** the command is cleared and a new deliberate request is needed to
+  generate another command.
 
-### Requirement: Explicit combined installer
+### Requirement: Automatic combined installer
 
-The installer SHALL support an explicit `--with-updater` mode requiring a
-reviewed stable version/full commit, prepared host registry, private enrollment
-token file, independently pinned release public key and approved egress CIDRs.
-Ordinary installation SHALL remain unchanged. The standalone installer SHALL
-verify official archive/manifest provenance and the independently signed
-manifest/archive/binary before executing packaged helpers. Verification SHALL
-isolate Python imports from the working directory and environment; extraction
-SHALL reject links, traversal, duplicate paths and oversized contents.
+The installer SHALL include both binaries by default and support an explicit
+`--without-updater` opt-out. Yggdrasil SHALL supply a complete install command
+for an administrator-selected host, with a 15-minute setup ticket and a frozen
+verified stable release. Normal setup SHALL generate required local files and
+services without Python, gh, manual signing-key files or CIDR arguments.
+Published installers SHALL pin standalone updater hashes; updater verification
+keys SHALL originate from the official build independently of Yggdrasil.
+Extraction SHALL reject links, traversal, duplicate paths and oversized contents.
+The advanced explicit-input `--with-updater` workflow SHALL remain compatible.
+
+#### Scenario: Standalone default and explicit opt-out
+- **WHEN** a user runs the ordinary installer without a setup ticket
+- **THEN** both binaries are installed, the updater remains unconfigured, and
+  no machine is enrolled; `--without-updater` installs only Leviathan.
+
+#### Scenario: Revoked or replayed setup authority
+- **GIVEN** a setup ticket binds one host, release and initiating administrator
+- **WHEN** it expires, its actor/session is revoked, or another key tries to
+  reuse a redeemed ticket
+- **THEN** installation is refused; a same-key retry may recover its durable
+  enrollment receipt, and final authorization rechecks current authority.
 
 #### Scenario: First installation on an empty host
-- **GIVEN** a verified stable package, valid host registration and token, existing
-  Unix service user, readable compatible TOML and no prior binary/service/drop-ins
-- **WHEN** the administrator runs `install.sh --with-updater`
+- **GIVEN** a verified stable package, valid host setup ticket and no prior
+  binary/service/drop-ins
+- **WHEN** the administrator runs the command copied from Yggdrasil as root or sudo
 - **THEN** the host enrolls its independent updater, adopts the signed baseline,
-  creates only the registered service, verifies its exact running build and
+  generates the local configuration and hardened service, verifies its exact running build and
   advancing telemetry, and enables updater polling.
 
 #### Scenario: Existing active installation
@@ -175,11 +189,16 @@ SHALL reject links, traversal, duplicate paths and oversized contents.
   during adoption, an installed preview requires explicit adoption, and the
   downloaded baseline does not replace or downgrade the running monitor.
 
-#### Scenario: Dry run or untrusted package
-- **GIVEN** an explicit dry run or a failed signature/provenance/configuration gate
+#### Scenario: Untrusted package or incompatible host
+- **GIVEN** a failed signature, provenance, digest, architecture or configuration gate
 - **WHEN** combined installation is attempted
-- **THEN** no enrollment or service changes occur, no persistent installation is
-  performed, and no unverified downloaded helper executes.
+- **THEN** no monitored service is replaced or started, and no unverified
+  downloaded helper executes.
+
+#### Scenario: Yggdrasil address changes
+- **WHEN** DNS changes the addresses of the configured Yggdrasil HTTPS origin
+- **THEN** normal updater connectivity follows DNS without manual CIDR edits,
+  TLS verification remains required and cross-origin redirects are refused.
 
 #### Scenario: Interrupted first installation
 - **GIVEN** enrollment response loss or failed first service startup

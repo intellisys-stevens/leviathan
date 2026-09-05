@@ -7,7 +7,65 @@ The review branches use Yggdrasil main
 The feature remains disabled by default. These results are implementation and
 disposable-host evidence, not a production release or deployment approval.
 
-## Review branch integration and combined installer
+## Automatic installer and one-command setup
+
+On 2026-09-05, both main refs above were fetched and verified again. Normal
+installation now installs both binaries through a release-specific shell
+bootstrap and the static Go updater. The Yggdrasil command generates local
+configuration and credentials, enrolls the selected host, and starts and
+verifies the services. The advanced Python/gh path remains available.
+
+Current source validation:
+
+- Full Linux ARM64 and AMD64 Go suites passed; full vet and targeted race checks
+  passed. Focused Go/vet/race checks passed again after the final setup recovery
+  refinements. macOS is not the authoritative platform for the monitor suite.
+- All 60 installer, release-key, advanced-bootstrap and catalog fixtures passed:
+  14 default-installer, eight release-installer/key-policy, nine advanced
+  installer, 19 bootstrap and ten Yggdrasil catalog-import cases.
+- Shared update DTOs, OpenAPI and locks match the companion repository. ShellCheck,
+  shell syntax, embedded advanced-script synchronization, branding and release
+  metadata checks passed.
+- Setup regressions cover standalone opt-out, downgrade and artifact rejection,
+  architecture/commit/signature/profile mismatches, supported service and preview
+  adoption, concurrent setup, CSR reuse, renewed certificate preservation,
+  ticket replacement, interrupted enrollment/startup, lease expiry, sticky
+  recovery state, TLS/redirect rejection and unchanged service/configuration.
+- Packaging verifies bootstrap hashes and compiled independent release roots.
+  Production publication rejects missing roots, known fixture roots and a
+  signing key that does not match the public build receipt. Actual Go signer
+  interoperability passed for both supported base64 seed/private-key formats.
+
+`TestSystemdAutomaticSetupAcceptance` ran the generated shell installer with the
+real static updater on a disposable Ubuntu 24.04 ARM64 systemd host and passed
+in 61.75 seconds. Its install PATH contains neither Python nor `gh`. The test
+kills setup after the monitor starts, expires the original installation lease,
+and repeats the command. Verification resumes for 60 seconds without another
+artifact download, authorization grant or monitor restart. Another repeat
+preserves the configuration, host key, renewed certificate and unrelated
+workload PID. The exact fixture build (`0.4.1`, commit of forty `1` characters)
+produces advancing CPU telemetry. The polling unit has no static IP allowlist.
+
+A fresh emulated AMD64 attempt completed setup and sustained health checks,
+then failed the retained-PID assertion. The monitor had `NRestarts=0`, and
+systemd logged that it could not identify its child process (`Inappropriate
+ioctl for device`). Native AMD64 acceptance remains unverified by that attempt.
+The CI workflow now runs the same guarded test on disposable native AMD64 and
+ARM64 systemd runners; their results must be checked independently.
+
+The shell template's release pins are stamped in the test. A narrow fixture
+`curl` substitutes only the official helper download; the shell verifies its
+real digest and executes the native helper. Enrollment, artifacts and reports
+use an actual TLS fixture with signed manifests. These observations do not
+establish official GitHub provenance, a published stable release or a live
+Yggdrasil proxy/passkey integration. Disposable VMs retain their fixture disks.
+
+The first live test compared the whole credential file while the updater
+legitimately renewed its short-lived fixture certificate. The final test
+explicitly waits for renewal and proves the same key and renewed certificate
+survive retry; a deterministic unit regression covers the same boundary.
+
+## Earlier current-main integration and advanced installer
 
 On 2026-09-05, a fresh fetch confirmed Leviathan `origin/main` remains
 `b524433b6b5596892b9b7f366791692af31229f3`. The companion Yggdrasil branch
@@ -44,7 +102,7 @@ The final scripts additionally reject Python import injection, serialize
 concurrent bootstrap attempts and preserve later updates after interrupted
 setup. The disposable VM is stopped; its fixture disk is retained.
 
-## Results
+## Earlier update and advanced-installer results
 
 | Boundary | Evidence |
 | --- | --- |
@@ -99,8 +157,10 @@ required; no emulator workaround is shipped.
   using the repository/workflow/tag/commit provenance policy.
 - Validate native AMD64 and physical GPU canaries, including unrelated workloads,
   and perform the real proxy/database/enrollment checks before production enablement.
-- Review every host's explicit config/environment registry, fixed service and
-  egress allowlist. Previews require deliberate adoption and cannot downgrade.
+- Review each host's discovered service/configuration registry and configured
+  HTTPS origin. Advanced installations retain their explicit network allowlist;
+  normal setup follows DNS without manual CIDRs. Previews require deliberate
+  adoption and cannot downgrade.
 
 A failed rollback records `recovery_required` and blocks new jobs. It requires
 operator repair; there is no browser bypass. Local chart history is currently

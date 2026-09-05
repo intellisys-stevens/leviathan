@@ -74,6 +74,7 @@ jobs:
           go test ./cmd/leviathan-update-manifest ./cmd/leviathan-updater ./internal/updater ./internal/updateprotocol
           python3 scripts/bootstrap-updater-test.py
           scripts/install_test.sh
+          python3 scripts/release-installer-test.py
           python3 scripts/sync-managed-installer.py --check
           python3 scripts/install-managed-test.py
       - name: Check Go dependency licenses
@@ -135,6 +136,7 @@ jobs:
         env:
           ARCHITECTURE: ${{ matrix.architecture }}
           VERSION: ${{ github.ref_name }}
+          LEVIATHAN_UPDATE_PUBLIC_KEYS: ${{ vars.LEVIATHAN_UPDATE_PUBLIC_KEYS }}
         run: |
           archive=$(scripts/build-release.sh)
           scripts/verify-release-archive.sh "$archive" "$VERSION" "$ARCHITECTURE"
@@ -152,7 +154,10 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest@v4
         with:
-          subject-path: ${{ steps.package.outputs.archive }}
+          subject-path: |
+            ${{ steps.package.outputs.archive }}
+            dist/leviathan-updater_linux_${{ matrix.architecture }}
+            dist/leviathan-update-public-keys_linux_${{ matrix.architecture }}.txt
       - name: Attest archive SBOM
         uses: actions/attest@v4
         with:
@@ -369,6 +374,7 @@ jobs:
         env:
           SIGNING_KEY: ${{ secrets.LEVIATHAN_UPDATE_SIGNING_KEY }}
           SIGNING_KEY_ID: ${{ vars.LEVIATHAN_UPDATE_SIGNING_KEY_ID }}
+          LEVIATHAN_UPDATE_PUBLIC_KEYS: ${{ vars.LEVIATHAN_UPDATE_PUBLIC_KEYS }}
           SOURCE_COMMIT: ${{ needs.release-metadata.outputs.commit }}
           CODEX_SECRETS_DIR: ${{ runner.temp }}/leviathan-release-secrets
         run: |
@@ -383,7 +389,9 @@ jobs:
           trap 'rm -f -- "$key_file"' EXIT
           printf '%s' "$SIGNING_KEY" > "$key_file"
           unset SIGNING_KEY
+          public_keys=$(python3 scripts/validate-update-public-keys.py --signing-key-file "$key_file" --expected-key-id "$SIGNING_KEY_ID")
           for arch in amd64 arm64; do
+            test "$(cat "dist/leviathan-update-public-keys_linux_${arch}.txt")" = "$public_keys"
             "$RUNNER_TEMP/leviathan-update-manifest" \
               --archive "dist/leviathan_linux_${arch}.tar.gz" \
               --version "$GITHUB_REF_NAME" --commit "$SOURCE_COMMIT" --arch "$arch" \
@@ -401,7 +409,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: [build, bridge-image, chart, sign-update-manifests]
+    needs: [release-metadata, build, bridge-image, chart, sign-update-manifests]
     runs-on: ubuntu-24.04
     permissions:
       actions: read
@@ -416,16 +424,20 @@ jobs:
           pattern: release-*
           path: dist
           merge-multiple: true
-      - name: Stage installer
+      - name: Generate installer with immutable native helper and archive pins
+        env:
+          SOURCE_COMMIT: ${{ needs.release-metadata.outputs.commit }}
+          LEVIATHAN_UPDATE_PUBLIC_KEYS: ${{ vars.LEVIATHAN_UPDATE_PUBLIC_KEYS }}
         run: |
-          cp scripts/install.sh dist/install.sh
-          chmod 0755 dist/install.sh
+          python3 scripts/validate-update-public-keys.py >/dev/null
+          python3 scripts/stamp-installer.py --version "$GITHUB_REF_NAME" --commit "$SOURCE_COMMIT" --directory dist
+          sh -n dist/install.sh
       - name: Create checksums
         working-directory: dist
         run: |
           test -s leviathan_linux_amd64.manifest.json
           test -s leviathan_linux_arm64.manifest.json
-          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.tgz' -o -name '*.json' -o -name 'install.sh' \) -printf '%f\n' | LC_ALL=C sort | xargs sha256sum > checksums.txt
+          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.tgz' -o -name '*.json' -o -name 'install.sh' -o -name 'leviathan-updater_linux_*' -o -name 'leviathan-update-public-keys_linux_*.txt' \) -printf '%f\n' | LC_ALL=C sort | xargs sha256sum > checksums.txt
       - name: Attest installer
         uses: actions/attest@v4
         with:

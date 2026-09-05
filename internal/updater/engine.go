@@ -245,6 +245,9 @@ func (e *Engine) Adopt(ctx context.Context, source string, allowPreview bool) er
 	if err = atomicJSON(filepath.Join(e.config.StateDirectory, "installed.json"), installed); err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return switchTarget(e.config, releaseTarget(digest))
 }
 

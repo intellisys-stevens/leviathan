@@ -5,7 +5,7 @@
 | Owner | Responsibility | Authority boundary |
 | --- | --- | --- |
 | Release pipeline | Build and sign stable manifests; publish provenance | Signing private key stays outside Yggdrasil and the host |
-| Yggdrasil | Verify the catalog; authorize users and enrolled machines; retain jobs/audit | Sends an immutable release identity, never a command, hook, executable path or arbitrary download URL |
+| Yggdrasil | Verify the catalog; authorize users and enrolled machines; retain jobs/audit | Host APIs send immutable release identities with no executable hooks or service paths; browser setup uses a fixed command template |
 | Leviathan updater | Validate the local installation; stage, activate, verify and recover | Root-owned local configuration selects the fixed monitor service and filesystem locations |
 | Existing Leviathan monitor | Serve monitoring and retain configuration/history | Replacing or crashing the monitor cannot terminate the independent updater |
 
@@ -26,7 +26,7 @@ Host and CSRF checks, with no automatic replay after reauthentication.
 
 | Surface | Routes |
 | --- | --- |
-| Dashboard | `GET /api/agent-updates/v1/status`; `GET /hosts`; `POST /jobs`; `PUT /delegations`; `POST /enrollments`, all under the same browser prefix |
+| Dashboard | `GET /api/agent-updates/v1/status`; `GET /hosts`; `POST /jobs`; `PUT /delegations`; `POST /setup-tickets`; advanced `POST /enrollments`, all under the same browser prefix |
 | Updater enrollment | `POST /api/node-control/v1/updates/enroll` |
 | Signed updater requests | `renew`, `claim`, `authorize`, `artifact`, `report` under `/api/node-control/v1/updates/` |
 
@@ -43,7 +43,7 @@ machine and purpose. Revocation includes the updater issuance lineage.
 | Unstarted job | Expires after 30 minutes |
 | Final install authorization | 45 seconds; a retry retains the original deadline |
 | Health acceptance | 60 continuous seconds with advancing fresh samples |
-| Enrollment token | 15 minutes; deliberate one-time operator setup |
+| Setup ticket / advanced enrollment token | 15 minutes; exact-host administrator authorization |
 
 At final authorization, recheck the actor, initiating session, exact-host
 permission, certificate, current installation and pinned artifact. Revocation
@@ -108,33 +108,52 @@ requires server permission, an enrolled online managed host, an eligible
 stable target and no active/recovery-required job before enabling update.
 Polling stops when unmounted; disabled endpoints do not create repeated
 errors. Stage and outcome changes use an accessible live region. Enrollment
-tokens remain in memory and clear on close, host change or expiry.
+commands remain in memory and clear on close, host change or expiry. The normal
+setup action generates a complete command rather than exposing a token that
+the operator must turn into configuration files.
 
-## Opt-in combined installation
+## Automatic installation and enrollment
 
-`install.sh --with-updater` uses the same bootstrap for initial installation and
-existing-service adoption. Its trusted verifier is embedded in the standalone
-installer and executes Python in isolated mode. It requires a reviewed stable
-version/full commit, prepared root-owned local configuration and token file,
-an independently pinned release public key and explicit Yggdrasil egress ranges.
-The ordinary installer remains binary-only. The initial installer itself must
-come from a trusted checkout or be verified with the official release attestation
-policy before root execution; no unsigned remote helper bootstraps trust.
+Ordinary `install.sh` installs both binaries for the current user. Without a
+Yggdrasil setup ticket it leaves the updater unconfigured; `--without-updater`
+deliberately installs only the monitor. An administrator selects a known host
+in Yggdrasil and copies one complete shell command for managed setup. The command
+stages the official version-specific installer, verifies its catalog-pinned
+digest, and supplies the short-lived ticket through stdin. It never embeds a
+long-lived host credential or puts a ticket in a request URL.
 
-Both archive and manifest must pass exact official GitHub provenance. The pinned
-key verifies the canonical signed manifest and archive/binary digests before any
-packaged code runs. Safe bounded extraction forbids links and traversal.
-Full local preflight and read-only configuration validation precede enrollment
-or service mutation; dry run removes temporary downloads and makes no persistent
-installation, enrollment or service changes.
+The generated release installer embeds its stable version, full commit and
+architecture-specific standalone updater hashes. It is published outside the
+archive to avoid circular hashing. The verified static Go updater performs
+normal standalone or managed setup; Python and gh are not runtime requirements.
+Release public keys are compiled into that official binary through release
+configuration independent of Yggdrasil. Setup responses cannot replace those
+keys or choose local paths, services, executable hooks or shell commands.
 
-An existing active monitor is adopted without substituting the downloaded
-binary. Preview adoption remains explicit and never grants downgrade permission.
-A genuinely fresh host has neither the registered service/drop-ins nor an
-unmanaged executable. After enrollment, bootstrap adopts the signed baseline and
-creates only the exact locally registered service using its existing Unix user,
-loopback endpoint and explicit configuration. The root instance receives packaged
-root hardening and only the supplied network ranges.
+The setup ticket freezes the machine, stable version/commit, per-architecture
+release digests, initiating session and explicit preview choice. Its server
+record stores a digest, not the plaintext ticket. Redemption binds a locally
+generated CSR to a durable certificate/metadata receipt. Another key cannot
+reuse a redeemed ticket. Final authorization rechecks the session, current
+administrator authority and exact updater certificate in the same database
+transaction after release verification. Terminal receipts are independently
+reconcilable after control-plane interruption.
+
+Yggdrasil verifies archive, manifest, installer and standalone updater provenance
+against the exact official repository/workflow/tag/commit before offering setup.
+Older catalog entries remain usable for updates but cannot generate automatic
+setup commands. The host verifies signed manifests, bounded sizes and hashes
+before extracting or executing packaged code. Normal setup uses the configured
+HTTPS origin, TLS validation and redirect restrictions instead of a static IP
+allowlist that would break when DNS changes. Offline recovery remains isolated
+from the network and the updater retains its filesystem/capability sandbox.
+
+Fresh managed installation generates private updater state, pinned public-key
+files, the agent TOML and the hardened `leviathan@root.service`, with a loopback
+API and automatic CPU/GPU detection. A single existing supported active service
+is discovered and adopted without replacing its executable, configuration,
+Unix user or hardening. Ambiguous layouts fail with a specific explanation.
+Preview adoption remains explicit and never grants downgrade permission.
 
 A durable local bootstrap intent preserves identity and exact inputs across
 interruption. Failed initial startup stops only the newly created service and
@@ -145,14 +164,18 @@ polling. This ordering ensures an interrupted retry cannot stop a newer approved
 release installed after polling began. Managed reruns preserve the active release;
 conflicting inputs or unrelated partial service installations fail closed.
 
+The advanced `--with-updater` workflow retains its explicit local inputs and
+isolated Python verifier for compatibility. It is no longer the normal setup
+path shown in the README or Yggdrasil host panel.
+
 ## Operational gates
 
 Keep the central feature disabled by default. Provision the independent release
 trust key and verified stable catalog, then deploy and enable the approved canary
 control endpoints before issuing host enrollment tokens. Enroll and validate the
 canary before separately approving production hosts. Preserve an existing
-monitor's hardening; grant only the updater narrow Yggdrasil egress and its fixed
-write directories. Local/unit tests do not prove the actual Linux service ordering,
+monitor's hardening; restrict updater HTTP requests to its configured origin and
+filesystem writes to its fixed directories. Local/unit tests do not prove the actual Linux service ordering,
 proxy routes, GPU workloads, reboot recovery or production rollback.
 
 ## Persistent versus volatile history

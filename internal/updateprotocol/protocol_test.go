@@ -157,7 +157,7 @@ func TestOpenAPIFieldsMatchWire(t *testing.T) {
 	if err = json.Unmarshal(body, &spec); err != nil {
 		t.Fatal(err)
 	}
-	for _, value := range []any{MachineKey{}, Manifest{}, SignedManifest{}, Installation{}, Job{}, HeartbeatRequest{}, ClaimRequest{}, ClaimResponse{}, AuthorizeRequest{}, AuthorizeResponse{}, ReportRequest{}, ReportResponse{}, ArtifactRequest{}, CreateRequest{}, DelegationRequest{}, EnrollmentRequest{}, EnrollmentResponse{}, EnrollRequest{}, RenewRequest{}, CertificateResponse{}, ReleaseSummary{}, Delegate{}, HostListResponse{}, MachineStatus{}, SignedRequest{}} {
+	for _, value := range []any{MachineKey{}, Manifest{}, SignedManifest{}, Installation{}, Job{}, HeartbeatRequest{}, ClaimRequest{}, ClaimResponse{}, AuthorizeRequest{}, AuthorizeResponse{}, ReportRequest{}, ReportResponse{}, ArtifactRequest{}, CreateRequest{}, DelegationRequest{}, EnrollmentRequest{}, EnrollmentResponse{}, EnrollRequest{}, RenewRequest{}, CertificateResponse{}, ReleaseSummary{}, Delegate{}, HostListResponse{}, MachineStatus{}, SignedRequest{}, SetupReleaseSummary{}, SetupSummary{}, SetupTicketRequest{}, SetupTicketResponse{}, SetupRedeemRequest{}, SetupRedeemResponse{}, SetupAuthorizeRequest{}, SetupAuthorizeResponse{}, SetupArtifactRequest{}, SetupReportRequest{}, SetupStatusRequest{}, SetupStatusResponse{}} {
 		typ := reflect.TypeOf(value)
 		schema, ok := spec.Components.Schemas[typ.Name()]
 		if !ok {

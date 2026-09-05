@@ -39,6 +39,7 @@ type Config struct {
 	AgentConfigFile        string       `json:"agentConfigFile"`
 	AgentEnvironmentFile   string       `json:"agentEnvironmentFile"`
 	TrustedReleaseKeyFiles []string     `json:"trustedReleaseKeyFiles"`
+	CredentialDirectory    string       `json:"credentialDirectory,omitempty"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -73,7 +74,7 @@ func (c Config) Validate() error {
 			return ErrConfiguration
 		}
 	}
-	for _, s := range append([]string{c.AgentConfigFile, c.AgentEnvironmentFile}, c.TrustedReleaseKeyFiles...) {
+	for _, s := range append([]string{c.AgentConfigFile, c.AgentEnvironmentFile, c.CredentialDirectory}, c.TrustedReleaseKeyFiles...) {
 		if s != "" && !safeAbsolute(s) {
 			return ErrConfiguration
 		}
@@ -115,13 +116,16 @@ func LoadReleaseKeys(paths []string) (map[string]ed25519.PublicKey, error) {
 // ConfigurationFingerprint binds both local configuration sources, including
 // their presence and paths, without putting their contents on the wire.
 func ConfigurationFingerprint(c Config) (string, error) {
+	return configurationFingerprint(c, func(path string) ([]byte, error) { return safeRead(path, 256<<10, false) })
+}
+func configurationFingerprint(c Config, read func(string) ([]byte, error)) (string, error) {
 	h := sha256.New()
 	for _, path := range []string{c.AgentConfigFile, c.AgentEnvironmentFile} {
 		_, _ = fmt.Fprintf(h, "%d:%s\n", len(path), path)
 		if path == "" {
 			continue
 		}
-		body, e := safeRead(path, 256<<10, false)
+		body, e := read(path)
 		if e != nil {
 			return "", e
 		}
@@ -149,5 +153,23 @@ func prepareDirectories(c Config) error {
 			return e
 		}
 	}
+	if c.CredentialDirectory != "" {
+		if e := os.MkdirAll(c.CredentialDirectory, 0700); e != nil {
+			return e
+		}
+		if e := safeDirectory(c.CredentialDirectory); e != nil {
+			return e
+		}
+		if info, e := os.Stat(c.CredentialDirectory); e != nil || info.Mode().Perm()&0077 != 0 {
+			return ErrConfiguration
+		}
+	}
 	return nil
+}
+
+func (c Config) credentialDirectory() string {
+	if c.CredentialDirectory != "" {
+		return c.CredentialDirectory
+	}
+	return c.StateDirectory
 }

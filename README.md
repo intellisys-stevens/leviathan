@@ -42,7 +42,7 @@ scheduler-authoritative workspace assignments.
 
 ### Standalone monitoring
 
-This one-line installer installs the Leviathan binary for your current user:
+This one-line installer installs Leviathan and its updater for your current user:
 
 ```bash
 curl -fsSL https://github.com/intellisys-stevens/leviathan/releases/latest/download/install.sh | sh
@@ -50,7 +50,9 @@ leviathan serve
 ```
 
 Open [http://127.0.0.1:1397](http://127.0.0.1:1397). The installer uses
-`~/.local/bin` without `sudo` and prints PATH guidance when needed.
+`~/.local/bin` without `sudo` and prints PATH guidance when needed. The updater
+remains unconfigured until this host is connected to Yggdrasil. To install
+only Leviathan, append `-s -- --without-updater` after `sh`.
 
 No GPU is required for host monitoring. To preview GPU/MIG views with fixture
 data:
@@ -61,35 +63,23 @@ leviathan --fixture blackwell serve
 
 ### Managed through Yggdrasil
 
-Use `install.sh --with-updater` to install Leviathan as a service and enroll its
-updater on the same host. This requires a published stable release containing
-the updater and an enabled Yggdrasil update service.
+1. In Yggdrasil, select the host and open **Install Leviathan and updater**.
+2. Select the initial stable release and choose **Copy install command**.
+3. Run the command on that host within 15 minutes, using root or sudo.
 
-First follow the [managed installation setup](docs/managed-updates.md#install-leviathan-and-the-updater-together)
-to obtain and verify the installer, prepare the host configuration and private
-enrollment-token file, and pin the release public key. Set `REVIEWED_TAG` and
-`REVIEWED_COMMIT` to the exact approved release and full commit, and
-`YGGDRASIL_CIDR` to an approved destination range. Keep the token file under
-`CODEX_SECRETS_DIR` as described in that guide.
+The command installs both components, generates configuration, enrolls the host,
+starts the services, and reports readiness in Yggdrasil. No manual JSON, release
+hashes, signing-key files, network ranges, Python or GitHub CLI are needed on
+the host. A sudo password prompt may still appear.
 
-Then run this single command, wrapped here for readability:
+An existing supported service keeps its version, user and configuration.
+Adopting an existing preview requires the explicit checkbox in Yggdrasil; it
+never downgrades the host. Repeat the same command to resume an interrupted
+setup. Later version updates still require an explicit request in Yggdrasil.
 
-```bash
-sudo sh /root/leviathan-installer/install.sh --with-updater \
-  --version "$REVIEWED_TAG" --commit "$REVIEWED_COMMIT" \
-  --updater-config /root/leviathan-updater.json \
-  --token-file "$CODEX_SECRETS_DIR/host-updater.token" \
-  --release-public-key /etc/leviathan-updater/release-public.pem \
-  --yggdrasil-cidr "$YGGDRASIL_CIDR"
-```
-
-Append `--dry-run` to verify the release and local inputs before installation.
-Repeat `--yggdrasil-cidr` when more than one approved range is needed. A fresh
-installation starts both services; an existing active installation keeps its
-running Leviathan version. Existing previews require `--allow-preview`.
-
-Managed setup uses the verified installer and prepared host inputs above.
-After enrollment, individual updates are requested from Yggdrasil.
+This requires the setup endpoints and a compatible signed stable release.
+See [managed installation](docs/managed-updates.md) for requirements, recovery
+and the retained advanced installer flags.
 
 ## 🧭 Interfaces
 

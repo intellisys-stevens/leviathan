@@ -2,9 +2,10 @@
   "canonicalRepository": "https://github.com/intellisys-stevens/yggdrasil",
   "contractVersion": "1.0.0",
   "files": {
-    "api/agent-updates-v1-openapi.json": "f1809b298f3c28a551b23b7eb61d36b9f438273e63a77a7636944b68c30c5b45",
-    "internal/updateprotocol/protocol.go": "c705621b32803489b404a7633277e70417c3760d7260f6821eba57a13372be54",
-    "internal/updateprotocol/protocol_test.go": "a0a42a0039b25297dfa18885e2348c5b5c2ca1f0fdfc8c6382c30897f490d174",
-    "internal/updateprotocol/testdata/release-v1.golden.json": "74218364f014594a512d2192881f3130d10b816fa7bf00fb0213ffbca524f93e"
+    "api/agent-updates-v1-openapi.json": "b6e1746f1116c54685ff4b8b2b97c8fc8eb4f975a9a42936cc5086fda56ae183",
+    "internal/updateprotocol/protocol.go": "2a1a76463c1ca4fa5e45fc8026cffdca17aa09d630db75fad1b82591b8a0f006",
+    "internal/updateprotocol/protocol_test.go": "4388f763a0bb210a7674c4cb12d5b8114c6f23d961546b23db2a959a1bca11fa",
+    "internal/updateprotocol/testdata/release-v1.golden.json": "74218364f014594a512d2192881f3130d10b816fa7bf00fb0213ffbca524f93e",
+    "internal/updateprotocol/setup.go": "7e0a343431207b0fa4797aa5c2697bfac1d36fa31e9e3a3954ab377c2f56ffe3"
   }
 }

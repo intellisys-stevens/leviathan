@@ -124,6 +124,9 @@ done < <(find "${root}" -type f -print0)
 
 [[ -x "${root}/leviathan" ]] || { echo "leviathan is not executable" >&2; exit 1; }
 [[ -x "${root}/leviathan-updater" ]] || { echo "leviathan-updater is not executable" >&2; exit 1; }
+helper="$(dirname "${archive}")/leviathan-updater_linux_${architecture}"
+[[ -s "${helper}" ]] || { echo "separate setup helper is missing" >&2; exit 1; }
+cmp "${root}/leviathan-updater" "${helper}" || { echo "separate setup helper differs from the archived binary" >&2; exit 1; }
 [[ "$("${root}/leviathan-updater" version)" == "${version}" ]] || { echo "updater release version does not match archive" >&2; exit 1; }
 grep -Fx 'ReadWritePaths=/opt/leviathan /var/lib/leviathan-updater' "${root}/contrib/systemd/leviathan-updater.service" >/dev/null
 grep -Fx 'IPAddressDeny=any' "${root}/contrib/systemd/leviathan-updater.service" >/dev/null

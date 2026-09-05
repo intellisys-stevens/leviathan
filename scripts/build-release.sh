@@ -8,6 +8,11 @@ architecture="${ARCHITECTURE:-$("${go_command}" env GOARCH)}"
 output_directory="${OUTPUT_DIRECTORY:-dist}"
 native_architecture="$("${go_command}" env GOARCH)"
 glibc_baseline="${GLIBC_BASELINE:-2.34}"
+key_validation=()
+if [[ "${LEVIATHAN_RELEASE_TEST_ONLY:-}" == 1 ]]; then
+  key_validation+=(--allow-test-key)
+fi
+release_public_keys="$(python3 scripts/validate-update-public-keys.py "${key_validation[@]}")"
 
 if [[ "${architecture}" != "${native_architecture}" ]]; then
   echo "release builds use native CGO runners: requested ${architecture}, running ${native_architecture}" >&2
@@ -42,7 +47,10 @@ CGO_CFLAGS="${CGO_CFLAGS:--Wno-deprecated-declarations}" "${go_command}" build \
   -ldflags "-s -w -X github.com/intellisys-stevens/leviathan/internal/cli.Version=${release_version} -X github.com/intellisys-stevens/leviathan/internal/cli.Commit=${commit} -X github.com/intellisys-stevens/leviathan/internal/cli.BuildDate=${build_date}" \
   -o "${stage}/leviathan" ./cmd/leviathan
 CGO_ENABLED=0 "${go_command}" build -trimpath -buildvcs=false \
-  -ldflags "-s -w -X main.Version=${release_version}" -o "${stage}/leviathan-updater" ./cmd/leviathan-updater
+  -ldflags "-s -w -X main.Version=${release_version} -X github.com/intellisys-stevens/leviathan/internal/updater.ReleasePublicKeys=${release_public_keys}" \
+  -o "${stage}/leviathan-updater" ./cmd/leviathan-updater
+cp "${stage}/leviathan-updater" "${output_directory}/leviathan-updater_linux_${architecture}"
+printf '%s\n' "${release_public_keys}" > "${output_directory}/leviathan-update-public-keys_linux_${architecture}.txt"
 
 command -v objdump >/dev/null 2>&1 || {
   echo "objdump is required to verify the glibc baseline" >&2

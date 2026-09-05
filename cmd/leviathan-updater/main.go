@@ -30,6 +30,11 @@ func main() {
 	}
 }
 func execute(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	// Setup is also the unprivileged standalone installer. Dispatch it before
+	// reading root-only managed configuration or creating a control client.
+	if len(args) > 0 && args[0] == "setup" {
+		return setupCommand(ctx, args[1:], os.Stdin, stdout, stderr)
+	}
 	flags := flag.NewFlagSet("leviathan-updater", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	configFile := flags.String("config", "/etc/leviathan-updater/config.json", "root-owned local configuration file")
@@ -109,12 +114,16 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	backoff := 15 * time.Second
 	var previous string
 	for ctx.Err() == nil {
+		setupErr := client.ReconcileSetup(ctx)
 		// Tick first: local recovery/result reporting remains independent of
 		// renewal or control-plane availability.
 		err := engine.Tick(ctx)
 		renewErr := client.Renew(ctx)
 		if err == nil {
 			err = renewErr
+		}
+		if err == nil {
+			err = setupErr
 		}
 		code := ""
 		if err != nil {
@@ -149,6 +158,30 @@ func execute(ctx context.Context, args []string, stdout, stderr io.Writer) error
 		}
 	}
 	return nil
+}
+
+func setupCommand(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	flags := flag.NewFlagSet("leviathan-updater setup", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	var opts updater.SetupOptions
+	flags.StringVar(&opts.Version, "version", "", "exact release version supplied by the installer")
+	flags.StringVar(&opts.Commit, "commit", "", "exact source commit supplied by the installer")
+	flags.StringVar(&opts.ArchiveURL, "archive-url", "", "release archive supplied by the installer")
+	flags.StringVar(&opts.ArchiveSHA256, "archive-sha256", "", "pinned release archive checksum")
+	flags.StringVar(&opts.InstallDirectory, "install-dir", "", "standalone executable directory (default ~/.local/bin)")
+	flags.StringVar(&opts.ControlOrigin, "control-origin", "", "Yggdrasil HTTPS origin for approved host setup")
+	flags.BoolVar(&opts.TicketStdin, "ticket-stdin", false, "read the private setup ticket from standard input")
+	flags.BoolVar(&opts.WithoutUpdater, "without-updater", false, "install only the standalone monitor")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("unexpected setup arguments")
+	}
+	if opts.Version != Version {
+		return errors.New("setup release differs from this verified installer executable")
+	}
+	return updater.Setup(ctx, opts, stdin, stdout)
 }
 func jitter(d time.Duration) time.Duration {
 	n, e := rand.Int(rand.Reader, big.NewInt(2001))

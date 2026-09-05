@@ -1,25 +1,83 @@
 # Approved host updates
 
-Managed updates require one explicit installation/enrollment on each host.
-Use `install.sh --with-updater` for a new host or to adopt an existing active
-installation; a normal `install.sh` invocation still installs only Leviathan. The independent,
-root-owned `leviathan-updater` polls Yggdrasil every 15 seconds during normal
-operation, using its own enrolled identity. Yggdrasil serves the verified release
-archive from its origin; subsequent updates need no GitHub outbound access. Updates target
-one locally registered `leviathan@<user>.service` and retain its existing Unix
-user, configuration, loopback API and security drop-ins.
+The default installer includes both Leviathan and `leviathan-updater`. Without
+Yggdrasil setup information it installs the binaries in `~/.local/bin`; the
+updater remains unconfigured. Use `--without-updater` to install only Leviathan.
 
-The dashboard can offer only a newer compatible stable release. A preview is
-adopted only with `--allow-preview`; adoption preserves its actual version and
-does not make an older stable release eligible. Unknown development versions are
-not accepted as a bootstrap baseline. The updater executable itself is installed
-out of band and is never replaced by a dashboard update.
+An enrolled updater polls Yggdrasil over outbound HTTPS every 15 seconds with
+jitter and backoff. Later updates require an explicit request for one host and
+one compatible stable release. They change only Leviathan, preserve its local
+configuration and compatible persistent state, and retain the previous release
+for rollback. The updater itself is not replaced by a dashboard update.
 
 ## Install Leviathan and the updater together
 
+Deploy Yggdrasil's setup endpoints and import a verified, installer-capable
+stable release first. An administrator selects the host, opens **Install
+Leviathan and updater**, selects the initial stable release, and chooses
+**Copy install command**. Run that exact command on the selected Linux host
+within 15 minutes. Root or sudo is required; unattended execution needs root
+or existing passwordless sudo.
+
+The command downloads the official release-specific installer and verifies its
+pinned digest. That installer verifies the architecture-specific static updater
+before executing `leviathan-updater setup`. Setup requires neither Python nor
+`gh`. It detects AMD64/ARM64 on the host, verifies the release using public keys
+compiled into the official updater, generates configuration and private
+credentials, enrolls, starts the services, and reports readiness. No release
+keys, JSON, hashes or ingress CIDRs need to be prepared by the user.
+
+The copied command contains a short-lived, single-host capability. It is sent
+to the bootstrap over standard input, never in a URL. The host generates its
+own key and writes credentials to private files under `CODEX_SECRETS_DIR`
+(default `/var/lib/leviathan-updater/secrets`).
+Yggdrasil stores the ticket hash and durable public receipt; the raw ticket is
+returned only when created. Keep the command private until it expires. The
+browser clears it when setup closes, the selected host changes, or it expires.
+
+On a fresh host, setup creates a hardened `leviathan@root.service` and a
+separate updater and offline recovery service. The dashboard listens on
+loopback and CPU/GPU detection is automatic. Agent configuration is generated
+at `/etc/leviathan/config.toml`, updater configuration at
+`/etc/leviathan-updater/config.json`, and the durable setup journal at
+`/var/lib/leviathan-updater/setup.json`. Existing running installations
+are adopted only when a single supported service can be identified safely.
+Their running version, configuration, service user and existing credentials
+are preserved. Conflicting binaries, multiple services and ambiguous
+configuration stop setup with an explanation.
+
+An existing preview requires **Allow adoption of an existing preview** in
+Yggdrasil before generating the command. Adoption preserves that preview;
+it does not install an older stable release or change later eligibility.
+Unknown development versions are not accepted as a baseline.
+
+Setup journals and the locally generated identity survive interrupted
+connections and startup. Rerun the same command on the same host to resume or
+confirm completion. Another key cannot replay a redeemed ticket. A received
+receipt can be retried without recreating the identity. An unstarted expired
+command requires a new command; an operation that has started retains its
+recovery state. A `recovery_required` result requires local operator inspection.
+
+The updater allows only the configured HTTPS control origin, validates TLS,
+and rejects redirects. DNS changes do not require editing a static IP list.
+The polling service retains filesystem and capability restrictions; the
+separate boot recovery service has no network access. Initial bootstrap needs
+access to GitHub release assets; normal updates and artifact downloads use
+only the configured Yggdrasil origin.
+
+## Advanced compatibility paths
+
+The following flags and Python bootstrap remain available for existing
+operator scripts. They are not required by the README installer or the
+Yggdrasil-generated command. Their explicit inputs, dependencies and dry-run
+behavior are retained.
+
+## Advanced combined installer
+
 Deploy and enable the approved Yggdrasil canary endpoints and verified release
-catalog first. In Yggdrasil, an administrator generates the updater enrollment
-token for the exact host. Keep that token in a root-owned mode-0600 file under
+catalog first. Advanced provisioning scripts can use Yggdrasil's retained
+administrator-only `/api/agent-updates/v1/enrollments` endpoint to generate an
+updater enrollment token for the exact host. Keep that token in a root-owned mode-0600 file under
 `CODEX_SECRETS_DIR`, for example `/etc/leviathan-updater/secrets`. It expires after
 15 minutes. Prepare the updater JSON, independently pinned public key, and
 registered agent TOML/environment files listed below before running the command.
@@ -92,7 +150,7 @@ startup fails, the installer stops only the new service it created, reports an
 incomplete installation, and retains its enrolled identity and baseline for an
 identical retry. Existing active services never enter that cleanup path.
 
-## Before standalone bootstrap
+## Advanced standalone bootstrap
 
 Obtain an approved stable release archive and verify its SHA-256 and GitHub
 provenance against the official repository, release workflow, exact tag and full
@@ -131,8 +189,7 @@ reuse viewer certificates, viewer tokens or the Leviathan uplink token.
 
 Supply the current Yggdrasil ingress IPs or approved narrow CIDRs. Every resolved
 origin address must fall within the supplied allowlist. `0.0.0.0/0` and `::/0`
-are rejected. The updater keeps `IPAddressDeny=any` and localhost access; only
-its own network drop-in receives those ranges. DNS should use the host's local
+are rejected. The legacy bootstrap network drop-in retains its explicit ingress ranges. DNS should use the host's local
 resolver. Changing ingress addresses later requires an explicit administrator
 change to that updater network drop-in.
 
@@ -152,9 +209,9 @@ sudo /root/leviathan-bootstrap/scripts/bootstrap-updater.sh \
 
 After reviewing the host, service, key and network scope, run the identical
 command without `--dry-run`. Add `--allow-preview` only when intentionally
-adopting the current preview. The combined installer invokes this bootstrap
-only after `--with-updater` and release verification; normal installation never
-enrolls a host or starts the updater implicitly.
+adopting the current preview. The advanced combined installer invokes this bootstrap only after
+`--with-updater` and release verification. The default managed command uses
+the static updater setup implementation described above.
 
 Bootstrap validates all inputs before copying. It then installs the updater
 and registry, enrolls its separate identity, adopts the exact existing binary,
