@@ -36,6 +36,11 @@ func TestSystemdAutomaticSetupAcceptance(t *testing.T) {
 	if os.Geteuid() != 0 || err != nil || string(marker) != "per-host-update-acceptance\n" {
 		t.Fatal("refusing an unmarked/non-root host")
 	}
+	defer func() {
+		if t.Failed() {
+			automaticSetupDiagnostics(t)
+		}
+	}()
 	for _, path := range []string{"/usr/local/bin/leviathan", "/usr/local/bin/leviathan-updater", "/etc/leviathan-updater/config.json", "/var/lib/leviathan-updater/setup.json", "/etc/systemd/system/leviathan@root.service"} {
 		if _, err := os.Lstat(path); !os.IsNotExist(err) {
 			t.Fatal("refusing existing installation", path)
@@ -86,8 +91,18 @@ func TestSystemdAutomaticSetupAcceptance(t *testing.T) {
 	if err = first.Start(); err != nil {
 		t.Fatal(err)
 	}
+	firstExit := make(chan error, 1)
+	go func() { firstExit <- first.Wait() }()
 	started := false
+	firstExited := false
+waitForStart:
 	for until := time.Now().Add(40 * time.Second); time.Now().Before(until); {
+		select {
+		case <-firstExit:
+			firstExited = true
+			break waitForStart
+		default:
+		}
 		var record setupRecord
 		if readSetupRecord("/var/lib/leviathan-updater/setup.json", &record) == nil && record.Started {
 			state, _ := exec.Command("systemctl", "is-active", "leviathan@root.service").Output()
@@ -99,14 +114,16 @@ func TestSystemdAutomaticSetupAcceptance(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	if !started {
-		_ = syscall.Kill(-first.Process.Pid, syscall.SIGKILL)
-		first.Wait()
+		if !firstExited {
+			_ = syscall.Kill(-first.Process.Pid, syscall.SIGKILL)
+			<-firstExit
+		}
 		t.Fatalf("fresh setup did not start monitor: %s", firstLog.String())
 	}
 	if err = syscall.Kill(-first.Process.Pid, syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
-	_ = first.Wait()
+	<-firstExit
 	initialPID := hostCommand(t, "systemctl", "show", "leviathan@root.service", "--property=MainPID", "--value")
 	var interrupted setupRecord
 	if err = readSetupRecord("/var/lib/leviathan-updater/setup.json", &interrupted); err != nil || interrupted.Complete {
@@ -189,6 +206,46 @@ func TestSystemdAutomaticSetupAcceptance(t *testing.T) {
 	receipt := map[string]any{"architecture": runtime.GOARCH, "version": completed.Installation.Version, "commit": completed.Installation.Commit, "runningPIDPreservedAcrossResume": true, "identityPreserved": true, "renewedCertificatePreserved": true, "unrelatedWorkloadPreserved": true, "expiredLeaseVerificationResume": true, "releasePinnedShellVerifiedRealHelper": true, "helperDownloadFixtureOnly": true, "normalPathPythonOrGH": false}
 	data, _ := json.MarshalIndent(receipt, "", "  ")
 	hostWrite(t, "/root/automatic-setup-receipt.json", append(data, '\n'), 0600)
+}
+
+// Diagnostics deliberately contain only transaction-stage booleans and the
+// metadata of fixed public installation paths. Never print configuration,
+// setup receipts, certificates, private identities, tickets or arbitrary logs.
+func automaticSetupDiagnostics(t *testing.T) {
+	t.Helper()
+	var record setupRecord
+	if err := readSetupRecord("/var/lib/leviathan-updater/setup.json", &record); err == nil {
+		t.Logf("setup stage: mode=%s authorized=%t started=%t complete=%t recovery_required=%t", record.Mode, record.Authorized, record.Started, record.Complete, record.RecoveryRequired)
+	} else {
+		t.Logf("setup journal readable=false error=%v", err)
+	}
+	for _, path := range []string{
+		"/", "/usr", "/usr/local", "/usr/local/bin", "/usr/local/bin/leviathan", "/usr/local/bin/leviathan-updater",
+		"/opt", "/opt/leviathan", "/opt/leviathan/releases", "/opt/leviathan/current",
+		"/var", "/var/lib", "/var/lib/leviathan-updater", "/var/lib/leviathan-updater/setup-candidate", "/var/lib/leviathan-updater/installed.json",
+		"/etc", "/etc/leviathan", "/etc/leviathan/config.toml", "/etc/leviathan-updater", "/etc/leviathan-updater/config.json",
+		"/etc/systemd", "/etc/systemd/system", "/etc/systemd/system/leviathan@root.service", "/etc/systemd/system/leviathan@root.service.d",
+		"/etc/systemd/system/leviathan-updater.service", "/etc/systemd/system/leviathan-updater-recover.service",
+	} {
+		info, err := os.Lstat(path)
+		if os.IsNotExist(err) {
+			t.Logf("setup public path: %s absent", path)
+			continue
+		}
+		if err != nil {
+			t.Logf("setup public path: %s unavailable", path)
+			continue
+		}
+		if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+			t.Logf("setup public path: %s mode=%s uid=%d gid=%d", path, info.Mode(), stat.Uid, stat.Gid)
+		}
+	}
+	for _, unit := range []string{"leviathan@root.service", "leviathan-updater.service", "leviathan-updater-recover.service"} {
+		body, err := exec.Command("/usr/bin/systemctl", "show", unit, "--property=LoadState,ActiveState,SubState,MainPID").Output()
+		if err == nil {
+			t.Logf("setup unit state: %s %s", unit, strings.ReplaceAll(strings.TrimSpace(string(body)), "\n", " "))
+		}
+	}
 }
 
 func fixtureAutomaticInstaller(t *testing.T, helper string, m p.Manifest) (string, string) {

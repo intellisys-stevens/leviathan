@@ -9,7 +9,9 @@ disposable-host evidence, not a production release or deployment approval.
 
 ## Automatic installer and one-command setup
 
-On 2026-09-05, both main refs above were fetched and verified again. Normal
+On 2026-09-05, both main refs above were fetched and verified again. Release
+metadata remains `0.4.0`; `scripts/verify-release-metadata.sh 0.4.0` passed.
+The `0.4.1` builds below are isolated test fixtures, not a version bump. Normal
 installation now installs both binaries through a release-specific shell
 bootstrap and the static Go updater. The Yggdrasil command generates local
 configuration and credentials, enrolls the selected host, and starts and

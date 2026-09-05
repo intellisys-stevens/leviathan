@@ -123,6 +123,10 @@ jobs:
         run: |
           set -euo pipefail
           test "$(cat /proc/1/comm)" = systemd
+          # runner-images/configure-system.sh makes /opt world-writable.
+          # Restore the normal system-directory boundary on this disposable VM.
+          sudo chown root:root /opt
+          sudo chmod 0755 /opt
           printf 'per-host-update-acceptance\n' | sudo tee /run/leviathan-updater-disposable-test >/dev/null
           sudo env LEVIATHAN_UPDATER_DISPOSABLE_HOST=1 /root/updater-package/automatic-setup.test -test.run '^TestSystemdAutomaticSetupAcceptance$' -test.v -test.timeout=240s | tee "$RUNNER_TEMP/automatic-setup.log"
           sudo cat /root/automatic-setup-receipt.json > "$RUNNER_TEMP/automatic-setup-receipt.json"
