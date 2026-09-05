@@ -76,6 +76,8 @@ jobs:
         run: scripts/verify-uplink-contract.sh
       - run: go generate ./internal/api
       - run: git diff --exit-code -- internal/api/wire.gen.go
+      - name: Verify managed update contract and signature vectors
+        run: scripts/verify-update-contract.sh
       - run: go test ./...
       - run: go test -race ./...
       - run: go vet ./...
@@ -87,6 +89,56 @@ jobs:
           go run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/leviathan-kubernetes-bridge --disallowed_types=forbidden,restricted,unknown
       - name: Check reachable Go vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+
+  automatic-setup-systemd:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    env:
+      CGO_CFLAGS: -Wno-deprecated-declarations
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Build disposable setup fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="$RUNNER_TEMP/automatic-setup-package"
+          mkdir -p "$package"
+          go build -trimpath -ldflags "-X github.com/intellisys-stevens/leviathan/internal/cli.Version=0.4.1 -X github.com/intellisys-stevens/leviathan/internal/cli.Commit=1111111111111111111111111111111111111111 -X github.com/intellisys-stevens/leviathan/internal/cli.BuildDate=2026-09-05T00:00:00Z" -o "$package/agent-new" ./cmd/leviathan
+          # Test-only public root. These executables are never published.
+          CGO_ENABLED=0 go build -trimpath -ldflags "-X main.Version=0.4.1 -X github.com/intellisys-stevens/leviathan/internal/updater.ReleasePublicKeys=eZRrIVpuolPS/SjQVWmCnGqOZHMZlp/iHGR2Uku9WlI" -o "$package/leviathan-updater" ./cmd/leviathan-updater
+          go test -c -o "$package/automatic-setup.test" ./internal/updater
+          cp scripts/install.sh "$package/install.sh"
+          sudo install -d -m 0700 /root/updater-package
+          sudo cp "$package/"* /root/updater-package/
+      - name: Verify generated installer on native systemd
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(cat /proc/1/comm)" = systemd
+          # runner-images makes /opt and /usr/local/bin world-writable.
+          # Restore normal system-directory boundaries on this disposable VM.
+          sudo chown root:root /opt /usr/local/bin
+          sudo chmod 0755 /opt /usr/local/bin
+          printf 'per-host-update-acceptance\n' | sudo tee /run/leviathan-updater-disposable-test >/dev/null
+          sudo env LEVIATHAN_UPDATER_DISPOSABLE_HOST=1 /root/updater-package/automatic-setup.test -test.run '^TestSystemdAutomaticSetupAcceptance$' -test.v -test.timeout=240s | tee "$RUNNER_TEMP/automatic-setup.log"
+          sudo cat /root/automatic-setup-receipt.json > "$RUNNER_TEMP/automatic-setup-receipt.json"
+      - name: Retain public acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: automatic-setup-${{ matrix.runner }}
+          path: |
+            ${{ runner.temp }}/automatic-setup.log
+            ${{ runner.temp }}/automatic-setup-receipt.json
+          if-no-files-found: ignore
 
   bridge-image:
     runs-on: ubuntu-24.04
@@ -150,7 +202,12 @@ jobs:
           scripts/verify-branding.sh
           scripts/verify-release-metadata.sh 0.4.0
       - name: Test installer
-        run: scripts/install_test.sh
+        run: |
+          scripts/install_test.sh
+          python3 scripts/release-installer-test.py
+          python3 scripts/sync-managed-installer.py --check
+          python3 scripts/install-managed-test.py
+          python3 scripts/bootstrap-updater-test.py
       - name: Dry-run Helm chart package
         id: chart
         run: |
@@ -205,6 +262,8 @@ jobs:
           ARCHITECTURE: ${{ matrix.architecture }}
           OUTPUT_DIRECTORY: ${{ runner.temp }}/leviathan-package
           VERSION: v0.4.0
+          LEVIATHAN_RELEASE_TEST_ONLY: "1"
+          LEVIATHAN_UPDATE_PUBLIC_KEYS: 11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo
         run: |
           archive=$(scripts/build-release.sh)
           scripts/verify-release-archive.sh "$archive" "$VERSION" "$ARCHITECTURE"

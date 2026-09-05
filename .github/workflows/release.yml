@@ -45,7 +45,7 @@ jobs:
           build_date=$(date -u -d "@$source_epoch" +%Y-%m-%dT%H:%M:%SZ)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "source_epoch=$source_epoch" >> "$GITHUB_OUTPUT"
-          echo "commit=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "build_date=$build_date" >> "$GITHUB_OUTPUT"
 
   release-validation:
@@ -71,10 +71,17 @@ jobs:
         run: |
           go test ./cmd/leviathan-kubernetes-bridge ./internal/attribution ./internal/kubernetesbridge
           go vet ./cmd/leviathan-kubernetes-bridge ./internal/attribution ./internal/kubernetesbridge
+          go test ./cmd/leviathan-update-manifest ./cmd/leviathan-updater ./internal/updater ./internal/updateprotocol
+          python3 scripts/bootstrap-updater-test.py
+          scripts/install_test.sh
+          python3 scripts/release-installer-test.py
+          python3 scripts/sync-managed-installer.py --check
+          python3 scripts/install-managed-test.py
       - name: Check Go dependency licenses
         run: |
           go run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/leviathan --disallowed_types=forbidden,restricted,unknown
           go run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/leviathan-kubernetes-bridge --disallowed_types=forbidden,restricted,unknown
+          go run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/leviathan-updater --disallowed_types=forbidden,restricted,unknown
       - name: Check reachable Go vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
       - name: Check frontend dependencies
@@ -129,6 +136,7 @@ jobs:
         env:
           ARCHITECTURE: ${{ matrix.architecture }}
           VERSION: ${{ github.ref_name }}
+          LEVIATHAN_UPDATE_PUBLIC_KEYS: ${{ vars.LEVIATHAN_UPDATE_PUBLIC_KEYS }}
         run: |
           archive=$(scripts/build-release.sh)
           scripts/verify-release-archive.sh "$archive" "$VERSION" "$ARCHITECTURE"
@@ -146,7 +154,10 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest@v4
         with:
-          subject-path: ${{ steps.package.outputs.archive }}
+          subject-path: |
+            ${{ steps.package.outputs.archive }}
+            dist/leviathan-updater_linux_${{ matrix.architecture }}
+            dist/leviathan-update-public-keys_linux_${{ matrix.architecture }}.txt
       - name: Attest archive SBOM
         uses: actions/attest@v4
         with:
@@ -332,8 +343,73 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  sign-update-manifests:
+    needs: [release-metadata, build]
+    if: github.repository == 'intellisys-stevens/leviathan'
+    runs-on: ubuntu-24.04
+    # Administrators must configure required reviewers, stable-tag deployment
+    # restrictions, and the signing secret on this protected environment.
+    environment: managed-release-signing
+    permissions:
+      actions: read
+      artifact-metadata: write
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Build the manifest signer before exposing its key
+        run: go build -trimpath -buildvcs=false -o "$RUNNER_TEMP/leviathan-update-manifest" ./cmd/leviathan-update-manifest
+      - name: Sign both immutable managed update manifests
+        shell: bash
+        env:
+          SIGNING_KEY: ${{ secrets.LEVIATHAN_UPDATE_SIGNING_KEY }}
+          SIGNING_KEY_ID: ${{ vars.LEVIATHAN_UPDATE_SIGNING_KEY_ID }}
+          LEVIATHAN_UPDATE_PUBLIC_KEYS: ${{ vars.LEVIATHAN_UPDATE_PUBLIC_KEYS }}
+          SOURCE_COMMIT: ${{ needs.release-metadata.outputs.commit }}
+          CODEX_SECRETS_DIR: ${{ runner.temp }}/leviathan-release-secrets
+        run: |
+          set -euo pipefail
+          if [[ -z "$SIGNING_KEY" || ! "$SIGNING_KEY_ID" =~ ^[0-9a-f]{32}$ ]]; then
+            echo 'Protected managed-release-signing key and public key ID are required; refusing to publish unsigned updates.' >&2
+            exit 1
+          fi
+          umask 077
+          mkdir -p "$CODEX_SECRETS_DIR"
+          key_file="$CODEX_SECRETS_DIR/release.key"
+          trap 'rm -f -- "$key_file"' EXIT
+          printf '%s' "$SIGNING_KEY" > "$key_file"
+          unset SIGNING_KEY
+          public_keys=$(python3 scripts/validate-update-public-keys.py --signing-key-file "$key_file" --expected-key-id "$SIGNING_KEY_ID")
+          for arch in amd64 arm64; do
+            test "$(cat "dist/leviathan-update-public-keys_linux_${arch}.txt")" = "$public_keys"
+            "$RUNNER_TEMP/leviathan-update-manifest" \
+              --archive "dist/leviathan_linux_${arch}.tar.gz" \
+              --version "$GITHUB_REF_NAME" --commit "$SOURCE_COMMIT" --arch "$arch" \
+              --key-file "$key_file" --expected-key-id "$SIGNING_KEY_ID" \
+              > "dist/leviathan_linux_${arch}.manifest.json"
+          done
+      - name: Attest managed release manifests
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/*.manifest.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-manifests
+          path: dist/*.manifest.json
+          if-no-files-found: error
+
   publish:
-    needs: [build, bridge-image, chart]
+    needs: [release-metadata, build, bridge-image, chart, sign-update-manifests]
     runs-on: ubuntu-24.04
     permissions:
       actions: read
@@ -348,14 +424,20 @@ jobs:
           pattern: release-*
           path: dist
           merge-multiple: true
-      - name: Stage installer
+      - name: Generate installer with immutable native helper and archive pins
+        env:
+          SOURCE_COMMIT: ${{ needs.release-metadata.outputs.commit }}
+          LEVIATHAN_UPDATE_PUBLIC_KEYS: ${{ vars.LEVIATHAN_UPDATE_PUBLIC_KEYS }}
         run: |
-          cp scripts/install.sh dist/install.sh
-          chmod 0755 dist/install.sh
+          python3 scripts/validate-update-public-keys.py >/dev/null
+          python3 scripts/stamp-installer.py --version "$GITHUB_REF_NAME" --commit "$SOURCE_COMMIT" --directory dist
+          sh -n dist/install.sh
       - name: Create checksums
         working-directory: dist
         run: |
-          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.tgz' -o -name '*.spdx.json' -o -name 'install.sh' \) -printf '%f\n' | LC_ALL=C sort | xargs sha256sum > checksums.txt
+          test -s leviathan_linux_amd64.manifest.json
+          test -s leviathan_linux_arm64.manifest.json
+          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.tgz' -o -name '*.json' -o -name 'install.sh' -o -name 'leviathan-updater_linux_*' -o -name 'leviathan-update-public-keys_linux_*.txt' \) -printf '%f\n' | LC_ALL=C sort | xargs sha256sum > checksums.txt
       - name: Attest installer
         uses: actions/attest@v4
         with:
