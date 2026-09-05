@@ -21,8 +21,9 @@ not become permission to change a host executable.
 - Add update status, manual controls, maintainer administration and deliberate
   one-time enrollment to existing machine detail and live views. Include an
   updater-only host chooser for delegated maintainers without inventory ownership.
-- Add explicit local bootstrap and boot-time recovery without enabling managed
-  updates through the normal installer.
+- Add explicit local bootstrap and boot-time recovery. `install.sh --with-updater`
+  can verify, install and enroll both services on a fresh host or adopt an existing
+  active service; an ordinary installer invocation remains unchanged.
 
 ## Scope and compatibility
 

@@ -171,5 +171,9 @@ Yggdrasil's catalog importer automates these checks for both artifacts before
 mirroring, then verifies the Ed25519 signature against an independently pinned
 PKIX public key and checks the archive and binary digests without extracting
 untrusted paths. Hosts fetch the resulting archive through Yggdrasil's origin.
-See [managed host bootstrap](managed-updates.md) for the separate, explicit
-installation step. Nothing in the build or release workflow deploys it to a host.
+The attested `install.sh` also embeds the trusted managed-install verifier.
+After verifying that installer itself against the same reviewed tag and commit,
+`--with-updater` verifies the archive and signed manifest before executing the
+packaged bootstrap. Normal installation stays unchanged. See
+[combined installation and host bootstrap](managed-updates.md) for the explicit
+one-time setup step. Nothing in the build or release workflow deploys it to a host.

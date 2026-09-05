@@ -73,6 +73,8 @@ for required_path in \
   "${archive_root}/contrib/systemd/leviathan-updater.config.example.json" \
   "${archive_root}/scripts/bootstrap-updater.sh" \
   "${archive_root}/scripts/bootstrap-updater.py" \
+  "${archive_root}/scripts/install.sh" \
+  "${archive_root}/scripts/install-managed.py" \
   "${archive_root}/charts/leviathan-attribution/Chart.yaml" \
   "${archive_root}/charts/leviathan-attribution/values.yaml" \
   "${archive_root}/charts/leviathan-attribution/values.schema.json" \
@@ -110,7 +112,9 @@ root="${temporary_directory}/${archive_root}"
 while IFS= read -r -d '' file; do
   relative=${file#"${root}/"}
   case "${relative}" in
-    leviathan | leviathan-updater | LICENSE | NOTICE | docs/migration-v0.3.md | docs/releasing.md) continue ;;
+    # The installer retains only the deliberate legacy-environment rejection,
+    # matching verify-branding.sh's existing source allowlist.
+    leviathan | leviathan-updater | LICENSE | NOTICE | docs/migration-v0.3.md | docs/releasing.md | scripts/install.sh) continue ;;
   esac
   if grep -In -i -- "${legacy_name}" "${file}" >/dev/null 2>&1; then
     echo "archive contains an unexpected legacy product reference: ${relative}" >&2

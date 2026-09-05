@@ -154,6 +154,8 @@ jobs:
       - name: Test installer
         run: |
           scripts/install_test.sh
+          python3 scripts/sync-managed-installer.py --check
+          python3 scripts/install-managed-test.py
           python3 scripts/bootstrap-updater-test.py
       - name: Dry-run Helm chart package
         id: chart

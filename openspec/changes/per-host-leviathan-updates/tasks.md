@@ -22,8 +22,10 @@ item implies deployment readiness. Keep this file identical in both repos.
 
 ## Local validation
 
-- [x] Run frontend Vitest: 53 files and 278 tests passed on 2026-09-05.
-- [x] Run all 88 existing Playwright checks, frontend format, lint and production build.
+- [x] Rebase onto freshly fetched Yggdrasil main `ac7590e`; confirm Leviathan
+  main remains `b524433`. Preserve current MCP, lifecycle and presentation changes.
+- [x] Run frontend Vitest after integration: 55 files and 287 tests passed.
+- [x] Run all 100 Playwright checks, frontend format, lint and production build.
 - [x] Run frontend lint and TypeScript/production build on Node 24.19.0;
   refresh the embedded dashboard assets. The existing large-chunk warning
   remains informational.
@@ -36,6 +38,9 @@ item implies deployment readiness. Keep this file identical in both repos.
   record the observed results in the validation reports.
 - [x] Complete source and cross-component security/recovery review and fix
   supported findings. Independent Claude review timed out; no retry was made.
+- [x] Revalidate the initiating session and exact updater certificate within
+  installation authorization's SQLite transaction; reject revocation/expiry
+  during catalog verification and require one identity/PKI/update database.
 
 ## Test-host acceptance gates
 
@@ -71,3 +76,18 @@ item implies deployment readiness. Keep this file identical in both repos.
 - [ ] Authorize and perform enrollment/bootstrap for each production host.
 - [ ] Enable the feature only for the approved rollout after canary evidence,
   rollback readiness and final approval are recorded.
+
+## Combined installer follow-up
+
+- [x] Add self-contained, opt-in `install.sh --with-updater` verification with
+  exact release/commit, independent Ed25519 key and official provenance gates.
+- [x] Support fresh registered service installation and unchanged active-service
+  adoption; preserve existing previews and managed release pointers.
+- [x] Add isolated dry-run, trust-tampering, missing-input/dependency,
+  enrollment-loss, startup-failure and interrupted-completion regression tests.
+- [x] Publish setup commands and correct canary endpoint-before-enrollment order.
+- [x] Pass all 19 bootstrap tests, nine managed verification tests, ordinary
+  installer tests, embedded-source synchronization and ShellCheck.
+- [x] Record final real fresh-host ARM64 systemd/HTTPS acceptance (3.88s),
+  covering dry run, exact non-root service, identity/configuration preservation,
+  an identical retry and an unchanged unrelated workload.

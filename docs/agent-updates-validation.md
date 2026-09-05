@@ -6,6 +6,43 @@ Leviathan starts from main `b524433b6b5596892b9b7f366791692af31229f3`.
 The feature remains disabled by default. These results are implementation and
 disposable-host evidence, not a production release or deployment approval.
 
+## Review branch integration and combined installer
+
+On 2026-09-05, a fresh fetch confirmed Leviathan `origin/main` remains
+`b524433b6b5596892b9b7f366791692af31229f3`. The companion Yggdrasil branch
+was rebased onto `ac7590e1bd47a48942f53b6f5682fcd3669d22d1`, preserving
+the new administrator MCP and lifecycle/presentation changes.
+
+The full Leviathan Go suite, full vet and updater/protocol/CLI race checks
+passed again as non-root in a Linux ARM64 Go 1.27 Bookworm container. A macOS
+full-suite attempt hit existing Linux-only DCGM linker flags and Unix socket
+path limits; Linux is the authoritative platform for that suite.
+
+The combined `install.sh --with-updater` path is opt-in and requires an exact
+stable version/commit, independent release public key, host configuration,
+private enrollment token and explicit egress CIDRs. Its embedded verifier
+checks official provenance and the signed archive before running the packaged
+bootstrap. Fresh-install intent is completed before starting the autonomous
+updater, so an interrupted installer cannot stop a subsequently updated host
+when the same command is retried.
+
+`TestSystemdFreshInstallAcceptance` additionally exercises the combined shell
+installer on a new isolated Ubuntu 24.04 ARM64 VM, using real Ed25519 manifest
+verification, packaged helpers, HTTPS enrollment, systemd and a non-root CPU
+monitor. GitHub publication and attestation responses are synthetic fixtures.
+It checks that dry run neither installs nor enrolls, the exact requested build
+produces telemetry, an identical rerun preserves the monitor PID and updater
+identity, and configuration and an unrelated workload remain unchanged.
+This test does not replace official provenance or physical GPU canary gates.
+
+The final combined-installer acceptance passed in 3.88 seconds. SHA-256 checks
+confirmed the VM executed the final repository installer and bootstrap scripts.
+All 19 bootstrap tests, nine managed-installer verification tests, the ordinary
+installer suite, embedded-source synchronization check and ShellCheck passed.
+The final scripts additionally reject Python import injection, serialize
+concurrent bootstrap attempts and preserve later updates after interrupted
+setup. The disposable VM is stopped; its fixture disk is retained.
+
 ## Results
 
 | Boundary | Evidence |

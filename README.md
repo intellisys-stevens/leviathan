@@ -40,6 +40,11 @@ scheduler-authoritative workspace assignments.
 
 ## 🚀 Quick start
 
+For a host managed through Yggdrasil, the optional
+[`install.sh --with-updater` setup](docs/managed-updates.md#install-leviathan-and-the-updater-together)
+installs Leviathan and its updater together. The ordinary command below installs
+only the Leviathan binary.
+
 ```bash
 curl -fsSL https://github.com/intellisys-stevens/leviathan/releases/latest/download/install.sh | sh
 leviathan serve

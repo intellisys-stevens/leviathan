@@ -110,13 +110,49 @@ Polling stops when unmounted; disabled endpoints do not create repeated
 errors. Stage and outcome changes use an accessible live region. Enrollment
 tokens remain in memory and clear on close, host change or expiry.
 
+## Opt-in combined installation
+
+`install.sh --with-updater` uses the same bootstrap for initial installation and
+existing-service adoption. Its trusted verifier is embedded in the standalone
+installer and executes Python in isolated mode. It requires a reviewed stable
+version/full commit, prepared root-owned local configuration and token file,
+an independently pinned release public key and explicit Yggdrasil egress ranges.
+The ordinary installer remains binary-only. The initial installer itself must
+come from a trusted checkout or be verified with the official release attestation
+policy before root execution; no unsigned remote helper bootstraps trust.
+
+Both archive and manifest must pass exact official GitHub provenance. The pinned
+key verifies the canonical signed manifest and archive/binary digests before any
+packaged code runs. Safe bounded extraction forbids links and traversal.
+Full local preflight and read-only configuration validation precede enrollment
+or service mutation; dry run removes temporary downloads and makes no persistent
+installation, enrollment or service changes.
+
+An existing active monitor is adopted without substituting the downloaded
+binary. Preview adoption remains explicit and never grants downgrade permission.
+A genuinely fresh host has neither the registered service/drop-ins nor an
+unmanaged executable. After enrollment, bootstrap adopts the signed baseline and
+creates only the exact locally registered service using its existing Unix user,
+loopback endpoint and explicit configuration. The root instance receives packaged
+root hardening and only the supplied network ranges.
+
+A durable local bootstrap intent preserves identity and exact inputs across
+interruption. Failed initial startup stops only the newly created service and
+retains the baseline for an identical retry; it cannot affect an existing active
+monitor. Exact executable identity and advancing telemetry must pass before
+bootstrap durably marks the fresh monitor complete and enables autonomous update
+polling. This ordering ensures an interrupted retry cannot stop a newer approved
+release installed after polling began. Managed reruns preserve the active release;
+conflicting inputs or unrelated partial service installations fail closed.
+
 ## Operational gates
 
-Keep the central feature disabled until a reviewed host bootstrap, separate
-identity enrollment, trust-key provisioning, verified catalog import and
-failure/recovery canary have succeeded. Preserve the monitor's existing
-hardening; grant only the updater narrow Yggdrasil egress and its fixed write
-directories. Local/unit tests do not prove the actual Linux service ordering,
+Keep the central feature disabled by default. Provision the independent release
+trust key and verified stable catalog, then deploy and enable the approved canary
+control endpoints before issuing host enrollment tokens. Enroll and validate the
+canary before separately approving production hosts. Preserve an existing
+monitor's hardening; grant only the updater narrow Yggdrasil egress and its fixed
+write directories. Local/unit tests do not prove the actual Linux service ordering,
 proxy routes, GPU workloads, reboot recovery or production rollback.
 
 ## Persistent versus volatile history

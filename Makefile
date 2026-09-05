@@ -84,6 +84,8 @@ test-race:
 
 test-install:
 	scripts/install_test.sh
+	python3 scripts/sync-managed-installer.py --check
+	python3 scripts/install-managed-test.py
 
 test-updater-bootstrap:
 	python3 scripts/bootstrap-updater-test.py

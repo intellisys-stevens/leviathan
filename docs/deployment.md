@@ -30,6 +30,12 @@ to Leviathan separately.
 
 ## ⚙️ User-scoped systemd service
 
+For a host managed through Yggdrasil, use the opt-in
+[`install.sh --with-updater` workflow](managed-updates.md#install-leviathan-and-the-updater-together)
+to install and enroll both services in one command. It supports a fresh host and
+preserves an existing active installation. The plain installer remains a
+binary-only installation.
+
 Release archives include a systemd service template. Install it with the binary
 and start an instance named for the GPU workload user:
 

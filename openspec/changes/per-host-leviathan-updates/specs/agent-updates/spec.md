@@ -149,12 +149,60 @@ action; tokens SHALL not enter URLs, logs or persistent browser storage.
 - **THEN** the token is cleared and a new deliberate request is needed to
   generate another token.
 
+### Requirement: Explicit combined installer
+
+The installer SHALL support an explicit `--with-updater` mode requiring a
+reviewed stable version/full commit, prepared host registry, private enrollment
+token file, independently pinned release public key and approved egress CIDRs.
+Ordinary installation SHALL remain unchanged. The standalone installer SHALL
+verify official archive/manifest provenance and the independently signed
+manifest/archive/binary before executing packaged helpers. Verification SHALL
+isolate Python imports from the working directory and environment; extraction
+SHALL reject links, traversal, duplicate paths and oversized contents.
+
+#### Scenario: First installation on an empty host
+- **GIVEN** a verified stable package, valid host registration and token, existing
+  Unix service user, readable compatible TOML and no prior binary/service/drop-ins
+- **WHEN** the administrator runs `install.sh --with-updater`
+- **THEN** the host enrolls its independent updater, adopts the signed baseline,
+  creates only the registered service, verifies its exact running build and
+  advancing telemetry, and enables updater polling.
+
+#### Scenario: Existing active installation
+- **GIVEN** the host already runs a supported Leviathan service
+- **WHEN** combined installation is requested
+- **THEN** its actual executable and service security settings are preserved
+  during adoption, an installed preview requires explicit adoption, and the
+  downloaded baseline does not replace or downgrade the running monitor.
+
+#### Scenario: Dry run or untrusted package
+- **GIVEN** an explicit dry run or a failed signature/provenance/configuration gate
+- **WHEN** combined installation is attempted
+- **THEN** no enrollment or service changes occur, no persistent installation is
+  performed, and no unverified downloaded helper executes.
+
+#### Scenario: Interrupted first installation
+- **GIVEN** enrollment response loss or failed first service startup
+- **WHEN** the administrator retries identical verified inputs
+- **THEN** the saved identity and baseline are reused, unrelated services remain
+  unchanged, and conflicting inputs or service files cause rejection.
+
+#### Scenario: Interruption after autonomous updater starts
+- **GIVEN** the first monitor passed health and updater polling subsequently
+  installed a newer authorized release
+- **WHEN** the initial combined installer is retried after an interruption
+- **THEN** its durable completed bootstrap record prevents re-adoption, restart
+  or stopping of the newer running monitor to validate the original baseline.
+
 ### Requirement: Gated rollout
 
 The feature SHALL remain disabled by default. Test-host bootstrap, release-key
 provisioning, official stable publication/import, enrollment, failure-injection
 acceptance and production enablement SHALL be separate explicit operational
-gates. Local test success SHALL not imply those gates have passed.
+gates. Approved canary server endpoints and catalog SHALL be deployed and enabled
+before token issuance and host enrollment. Production host enablement SHALL
+follow the canary acceptance gate. Local test success SHALL not imply those
+gates have passed.
 
 #### Scenario: Source change is ready for review
 - **GIVEN** source and local checks are complete but no production enrollment is approved

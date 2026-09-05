@@ -75,7 +75,8 @@ mkdir -p "${stage}/api" "${stage}/charts" "${stage}/contrib" "${stage}/web/publi
 cp -R charts/leviathan-attribution "${stage}/charts/"
 cp -R contrib/systemd "${stage}/contrib/"
 mkdir -p "${stage}/scripts"
-cp scripts/bootstrap-updater.sh scripts/bootstrap-updater.py "${stage}/scripts/"
+python3 scripts/sync-managed-installer.py --check
+cp scripts/install.sh scripts/install-managed.py scripts/bootstrap-updater.sh scripts/bootstrap-updater.py "${stage}/scripts/"
 cp -R docs "${stage}/"
 cp -R licenses "${stage}/"
 cp api/openapi.yaml "${stage}/api/openapi.yaml"

@@ -1,9 +1,11 @@
 # Approved host updates
 
-Managed updates require one explicit bootstrap on each host. The independent,
+Managed updates require one explicit installation/enrollment on each host.
+Use `install.sh --with-updater` for a new host or to adopt an existing active
+installation; a normal `install.sh` invocation still installs only Leviathan. The independent,
 root-owned `leviathan-updater` polls Yggdrasil every 15 seconds during normal
 operation, using its own enrolled identity. Yggdrasil serves the verified release
-archive from its origin; the host needs no GitHub outbound access. Updates target
+archive from its origin; subsequent updates need no GitHub outbound access. Updates target
 one locally registered `leviathan@<user>.service` and retain its existing Unix
 user, configuration, loopback API and security drop-ins.
 
@@ -13,14 +15,93 @@ does not make an older stable release eligible. Unknown development versions are
 not accepted as a bootstrap baseline. The updater executable itself is installed
 out of band and is never replaced by a dashboard update.
 
-## Before bootstrap
+## Install Leviathan and the updater together
+
+Deploy and enable the approved Yggdrasil canary endpoints and verified release
+catalog first. In Yggdrasil, an administrator generates the updater enrollment
+token for the exact host. Keep that token in a root-owned mode-0600 file under
+`CODEX_SECRETS_DIR`, for example `/etc/leviathan-updater/secrets`. It expires after
+15 minutes. Prepare the updater JSON, independently pinned public key, and
+registered agent TOML/environment files listed below before running the command.
+For a fresh non-root service, the selected Unix user must already exist and must
+be able to read the agent TOML; the updater JSON and token remain private to root.
+Set `agentEnvironmentFile` to an empty string when no environment file is needed.
+
+Use a reviewed `install.sh` from a trusted checkout, or download the named stable
+release's `install.sh` into a root-owned directory and verify its GitHub
+attestation using the exact tag/full commit and the policy in
+[release verification](releasing.md#managed-update-signing) before running it as
+root. Do not substitute a mutable `latest` script for this trust step. The
+installer embeds its own verifier: it never downloads a helper to verify itself.
+Python 3.11+, OpenSSL with Ed25519 support, `gh` with the documented attestation
+flags, systemd and glibc 2.34+ are required. The installer never invokes `sudo` or
+creates a Unix user itself.
+
+Replace every example value, then run this on the intended Linux host:
+
+```bash
+export CODEX_SECRETS_DIR=/etc/leviathan-updater/secrets
+REVIEWED_TAG=vX.Y.Z
+REVIEWED_COMMIT='<reviewed-full-40-character-commit>'
+sudo sh /root/leviathan-installer/install.sh \
+  --with-updater \
+  --version "$REVIEWED_TAG" --commit "$REVIEWED_COMMIT" \
+  --updater-config /root/leviathan-updater.json \
+  --token-file "$CODEX_SECRETS_DIR/host-updater.token" \
+  --release-public-key /etc/leviathan-updater/release-public.pem \
+  --yggdrasil-cidr 203.0.113.10/32 \
+  --dry-run
+```
+
+`vX.Y.Z`, the commit, host identity and documentation CIDR are placeholders; the
+command refuses them unchanged. After reviewing the dry-run result, repeat the
+same command without `--dry-run`. The dry run downloads and verifies temporary
+artifacts, validates configuration and service ownership, then removes its
+staging files; it does not enroll, install persistent files or change services.
+`--with-updater` requires an exact stable release and uses `/usr/local/bin`.
+An independently supplied `--release-public-key` must also appear in the updater
+configuration's `trustedReleaseKeyFiles`.
+
+The installer verifies official GitHub provenance for both the archive and
+manifest, the Ed25519 manifest signature, exact version/commit/platform, glibc
+compatibility and archive/binary hashes before executing any packaged helper.
+It rejects links, traversal, duplicate paths and oversized archives. It then
+validates local inputs and the release's read-only configuration check.
+
+- On a fresh host with no Leviathan executable, service or service drop-ins, it
+  enrolls the updater, adopts the signed release directly into the managed
+  directory, installs the single registered service, and verifies the exact
+  running executable plus advancing telemetry before enabling update polling.
+  A root instance uses the packaged root hardening and only the supplied
+  Yggdrasil egress ranges; a non-root instance retains the packaged service's
+  ordinary hardening. No configuration or environment file is generated from
+  guesses.
+- On an existing active installation, it adopts the existing executable and
+  keeps the running service, Unix user and hardening. The downloaded Leviathan
+  executable is not substituted. Subsequent version changes use Yggdrasil's
+  approved update workflow. Add `--allow-preview` to deliberately adopt a
+  recognized installed preview; that never permits a downgrade.
+- On an identically configured managed installation, it preserves the updater
+  identity and active release. A conflicting binary, configuration or service
+  causes a refusal. An inactive or partly installed unmanaged service requires
+  operator reconciliation before adoption.
+
+The combined installer needs GitHub access during this one-time setup. Normal
+updater polling and artifact downloads afterwards use only Yggdrasil. If initial
+startup fails, the installer stops only the new service it created, reports an
+incomplete installation, and retains its enrolled identity and baseline for an
+identical retry. Existing active services never enter that cleanup path.
+
+## Before standalone bootstrap
 
 Obtain an approved stable release archive and verify its SHA-256 and GitHub
 provenance against the official repository, release workflow, exact tag and full
 source commit. See [release verification](releasing.md#managed-update-signing).
 Stage the verified extracted package in a root-owned directory such as
 `/root/leviathan-bootstrap`; its ancestors, updater binary, scripts and systemd
-templates must not be writable by another user. Python 3 and systemd are required.
+templates must not be writable by another user. This lower-level workflow is for
+an existing active service; use the combined installer above for a fresh host.
+Python 3 and systemd are required.
 
 Keep the existing monitoring service active with
 `ExecStart=/usr/local/bin/leviathan ... serve`. Its explicit `--listen` address
@@ -39,7 +120,7 @@ Prepare these files as the host administrator:
 | --- | --- |
 | `/root/leviathan-updater.json` | Root, mode 0600; copy the packaged `contrib/systemd/leviathan-updater.config.example.json` and set the real origin, machine identity and existing service |
 | `/etc/leviathan-updater/release-public.pem` | Root, mode 0644 or stricter; PKIX Ed25519 public key pinned through an independent trusted channel |
-| Private enrollment token file | Root, mode 0600; the one-time token created for this host's updater purpose |
+| `$CODEX_SECRETS_DIR/host-updater.token` | Root, mode 0600; the one-time token created for this host's updater purpose |
 | Existing agent TOML/environment files | Root-owned, not writable by group or others; TOML is required, while an empty environment-file string is allowed only when the service declares no environment file |
 
 The example contains placeholders and cannot enroll a real machine unchanged.
@@ -64,15 +145,16 @@ and token path below with the reviewed values:
 sudo /root/leviathan-bootstrap/scripts/bootstrap-updater.sh \
   --config /root/leviathan-updater.json \
   --updater-binary /root/leviathan-bootstrap/leviathan-updater \
-  --token-file /root/private-updater-enrollment.token \
+  --token-file "$CODEX_SECRETS_DIR/host-updater.token" \
   --yggdrasil-cidr 203.0.113.10/32 \
   --enable-managed-updates --dry-run
 ```
 
 After reviewing the host, service, key and network scope, run the identical
 command without `--dry-run`. Add `--allow-preview` only when intentionally
-adopting the current preview. This script is not part of `install.sh` and never
-runs implicitly during a normal release download.
+adopting the current preview. The combined installer invokes this bootstrap
+only after `--with-updater` and release verification; normal installation never
+enrolls a host or starts the updater implicitly.
 
 Bootstrap validates all inputs before copying. It then installs the updater
 and registry, enrolls its separate identity, adopts the exact existing binary,
@@ -127,6 +209,8 @@ Packaging tests run without touching real services:
 
 ```bash
 python3 scripts/bootstrap-updater-test.py
+python3 scripts/install-managed-test.py
+python3 scripts/sync-managed-installer.py --check
 scripts/install_test.sh
 go test ./cmd/leviathan-update-manifest
 ```
