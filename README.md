@@ -19,36 +19,13 @@ local React dashboard. An optional in-process uploader sends a sanitized
 machine observation to Yggdrasil, while an optional Kubernetes bridge adds
 scheduler-authoritative workspace assignments.
 
-**0.4.0 is unreleased.** The standalone command below pins published 0.3.2.
-Managed setup requires a compatible signed release with updater assets.
-
 ## ✨ Highlights
 
-- MIG-aware topology, profiles, memory, activity, and parent-GPU telemetry.
-- Host-wide CPU utilization and load, RAM capacity/utilization, aggregate disk
-  throughput, and sanitized per-filesystem capacity from procfs and statfs.
-- Independent system and GPU workers: CPU-only hosts remain operational, and a
-  failed GPU sample does not stop host telemetry publication.
-- NVML GPM with optional DCGM fallback, including exact PCIe transfer rates.
-- Compact CPU, RAM, GPU assignment, and storage capacity cards, with all
-  utilization and transfer charts visible in Overview.
-- Four-view browser workbench for Overview, Resources, Workloads, and Status,
-  with responsive layouts, keyboard navigation, and accessible dark/light themes.
-- Interactive, fanless 3D GPU boards expose a selectable central chip. MIG
-  compute instances form logical chip regions, with keyboard and touch controls.
-  Their equal-area layout does not imply physical silicon placement or equal capacity.
-- Optional Coder workspace attribution through Kubernetes DRA.
-- Optional [per-owner CPU, RAM, and storage I/O charts](docs/workload-telemetry.md),
-  including CPU-only workspaces, using independent cgroup v2 accounting.
-- Explicit unavailable, stale, permission-denied, and error states—never fake zeros.
-- GPU-connected process collection remains available through the API and CLI,
-  with optional Coder workspace labels and no container-runtime socket.
-- Twelve-hour bounded in-memory host and GPU history: the latest hour stays at
-  collector cadence, while older 4h/12h views use gap-preserving compact trends.
-  Browser refresh defaults to 0.5 seconds, with optional 1s and 2s display
-  intervals; backend sampling stays at 0.5 seconds.
-- Ninety days of private local health observations that survive restarts,
-  with explicit unknown periods, observation coverage, and separate host uptime.
+- CPU, RAM, storage, and NVIDIA GPU monitoring, including CPU-only hosts.
+- MIG topology and GPU activity, memory, and PCIe transfer metrics.
+- Responsive dashboard with interactive GPU views, dark/light themes, and keyboard navigation.
+- Optional Coder/Kubernetes attribution and [per-owner resource charts](docs/workload-telemetry.md).
+- Twelve-hour telemetry history and 90-day persistent health records.
 
 ## 🚀 Quick start
 
