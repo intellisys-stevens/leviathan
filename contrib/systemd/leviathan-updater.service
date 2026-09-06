@@ -1,0 +1,45 @@
+[Unit]
+Description=Leviathan approved host updater
+Documentation=https://github.com/intellisys-stevens/leviathan
+Wants=network-online.target
+After=network-online.target leviathan-updater-recover.service
+Wants=leviathan-updater-recover.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/leviathan-updater --config /etc/leviathan-updater/config.json run
+Restart=on-failure
+RestartSec=15s
+TimeoutStopSec=360s
+UMask=0077
+NoNewPrivileges=true
+# Reading /proc/<main-pid>/exe for a non-root monitored service requires the
+# ptrace read check; no other capabilities are needed by the updater.
+CapabilityBoundingSet=CAP_SYS_PTRACE
+AmbientCapabilities=
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/leviathan /var/lib/leviathan-updater
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+# bootstrap-updater writes only the operator-supplied Yggdrasil CIDRs to
+# leviathan-updater.service.d/10-network.conf. No GitHub network access is needed.
+
+[Install]
+WantedBy=multi-user.target

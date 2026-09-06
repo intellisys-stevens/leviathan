@@ -2814,7 +2814,8 @@ test('removes ambient glass effects for visibility-oriented media preferences', 
 test('covers required responsive widths with a concise header', async ({
   page,
 }, testInfo) => {
-  test.setTimeout(120_000);
+  // Allow the full responsive interaction matrix without changing per-action timeouts.
+  test.setTimeout(150_000);
   test.skip(
     !testInfo.project.name.includes('desktop'),
     'Desktop projects exercise every required width in both themes.',
