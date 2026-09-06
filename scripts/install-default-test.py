@@ -68,7 +68,8 @@ class DefaultInstallTest(unittest.TestCase):
         self.write_command("uname", '#!/bin/sh\ncase "$1" in -s) echo "${FIXTURE_OS:-Linux}";; -m) echo "${FIXTURE_ARCH:-x86_64}";; esac\n')
         self.write_command("getconf", '#!/bin/sh\nprintf "%s\\n" "${FIXTURE_LIBC:-glibc 2.34}"\n')
         self.write_command("id", '#!/bin/sh\nprintf "%s\\n" "${FIXTURE_UID:-1000}"\n')
-        self.write_command("mktemp", '#!/bin/sh\n[ "$1" = -d ] || exit 30\nexec /usr/bin/mktemp -d "$FIXTURE_TEMP/install.XXXXXX"\n')
+        self.write_command("mktemp", '#!/bin/sh\n[ "$1" = -d ] || exit 30\nprintf "%s\\n" "$2" >> "$FIXTURE_TEMP/../staging-templates"\nexec /usr/bin/mktemp -d "$FIXTURE_TEMP/install.XXXXXX"\n')
+        self.write_command("stat", '#!/bin/sh\nprintf "%s\\n" "${FIXTURE_STAGE_INFO:-0:755:directory}"\n')
         self.write_command("curl", r'''#!/bin/sh
 set -eu
 output=
@@ -186,6 +187,20 @@ cp "$FIXTURE_RELEASE/${url##*/}" "$output"
     def test_source_managed_command_retains_stdin_across_download(self):
         self.successful("--yggdrasil=https://control.example", "--ticket-stdin", source=True, stdin="fixture-ticket\n", FIXTURE_UID="0")
         self.assertEqual((self.root / "ticket").read_text(), "fixture-ticket\n")
+
+    def test_root_executable_staging_does_not_require_exec_on_run(self):
+        self.successful("--yggdrasil", "https://control.example", "--ticket-stdin",
+                        stdin="fixture-ticket\n", FIXTURE_UID="0")
+        self.assertEqual((self.root / "staging-templates").read_text().splitlines(),
+                         ["/var/lib/leviathan-install.XXXXXX"])
+
+    def test_root_staging_rejects_untrusted_ancestors_before_download(self):
+        for unsafe in ("1000:755:directory", "0:777:directory", "0:775:directory",
+                       "0:755:symbolic link", "0:755:regular file"):
+            with self.subTest(unsafe=unsafe):
+                self.assert_before_helper_failure("--yggdrasil", "https://control.example",
+                    "--ticket-stdin", FIXTURE_UID="0", FIXTURE_STAGE_INFO=unsafe)
+                self.assertEqual(self.requests(), "")
 
     def test_rejects_bad_managed_arguments_and_nonroot_before_download(self):
         for arguments in (("--yggdrasil", "https://control.example"), ("--ticket-stdin",), ("--yggdrasil", "http://control.example", "--ticket-stdin"), ("--yggdrasil", "https://control.example", "--ticket-stdin", "--without-updater"), ("--yggdrasil", "https://control.example", "--ticket-stdin")):

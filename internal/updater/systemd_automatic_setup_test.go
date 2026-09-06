@@ -281,7 +281,7 @@ func fixtureAutomaticInstaller(t *testing.T, helper string, m p.Manifest) (strin
 		}
 		body = bytes.Replace(body, []byte(old), []byte(name+"='"+value+"'"), 1)
 	}
-	dir, err := os.MkdirTemp("/run", "leviathan-shell-fixture-")
+	dir, err := os.MkdirTemp("/var/lib", "leviathan-shell-fixture-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +292,7 @@ func fixtureAutomaticInstaller(t *testing.T, helper string, m p.Manifest) (strin
 	if err = os.Mkdir(bin, 0700); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"awk", "chmod", "env", "getconf", "grep", "id", "mktemp", "readlink", "rm", "sha256sum", "sh", "uname", "cp"} {
+	for _, name := range []string{"awk", "chmod", "env", "getconf", "grep", "id", "mktemp", "readlink", "rm", "sha256sum", "sh", "stat", "uname", "cp"} {
 		path, err := exec.LookPath(name)
 		if err != nil {
 			t.Fatal(err)
@@ -304,7 +304,7 @@ func fixtureAutomaticInstaller(t *testing.T, helper string, m p.Manifest) (strin
 	// Fixture only: accept the single pinned official helper URL and copy the
 	// exact native helper. Unexpected downloads fail; no general network shim.
 	url := "https://github.com/intellisys-stevens/leviathan/releases/download/v" + m.Version + "/leviathan-updater_linux_" + runtime.GOARCH
-	curl := "#!/bin/sh\nset -eu\noutput=\nurl=\nwhile [ \"$#\" -gt 0 ]; do\n case \"$1\" in\n --output) output=$2; shift 2;;\n --proto|--tls-max) shift 2;;\n --*) shift;;\n *) url=$1; shift;;\n esac\ndone\n[ \"$url\" = '" + url + "' ] || exit 91\ncase \"$output\" in /run/leviathan-install.*/leviathan-updater) ;; *) exit 92;; esac\ncp '" + helper + "' \"$output\"\n"
+	curl := "#!/bin/sh\nset -eu\noutput=\nurl=\nwhile [ \"$#\" -gt 0 ]; do\n case \"$1\" in\n --output) output=$2; shift 2;;\n --proto|--tls-max) shift 2;;\n --*) shift;;\n *) url=$1; shift;;\n esac\ndone\n[ \"$url\" = '" + url + "' ] || exit 91\ncase \"$output\" in /var/lib/leviathan-install.*/leviathan-updater) ;; *) exit 92;; esac\ncp '" + helper + "' \"$output\"\n"
 	hostWrite(t, filepath.Join(bin, "curl"), []byte(curl), 0700)
 	for _, forbidden := range []string{"python", "python3", "gh"} {
 		if _, err = os.Lstat(filepath.Join(bin, forbidden)); !os.IsNotExist(err) {

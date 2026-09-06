@@ -37,6 +37,13 @@ sentinel workload's PID. The receipt is retained with the exact-source native
 fixture package, checksums, and `SOURCE_COMMIT`. Native fixtures must require no
 newer than glibc 2.34; architecture alone is not evidence of compatibility.
 
+Both native runs retain a `noexec` mount on `/run`. Root installer executables
+use mode-0700 temporary directories under `/var/lib`, after checking every
+ancestor is a real root-owned directory without group/other write access. This
+does not remount a production filesystem, use shared caller-controlled staging,
+or relax any digest/signature check. Data-only locks/configuration may stay in
+`/run`; the installer cleans its temporary executable staging on normal exit.
+
 ## Separate whole-machine reboot gate
 
 Whole-machine reboots are an additional operator-controlled gate, not simulated

@@ -232,7 +232,19 @@ def trusted_file(path, maximum, private=False, uid=0, boundary=Path("/")):
         fail("updater configuration and enrollment token require mode 0600 or stricter")
 
 
-def install(args, runner=run, *, uid=0, boundary=Path("/"), temporary_parent=Path("/run"), architecture=None):
+def trusted_directory(path, uid=0, boundary=Path("/")):
+    if not path.is_absolute() or ".." in path.parts or not path.is_relative_to(boundary):
+        fail("staging path must remain inside its trusted boundary")
+    for item in [path] + list(path.parents):
+        info = item.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != uid or info.st_mode & 0o022:
+            fail("staging ancestors must be real root-owned directories without group or other writes")
+        if item == boundary:
+            return
+    fail("staging path does not reach its trusted boundary")
+
+
+def install(args, runner=run, *, uid=0, boundary=Path("/"), temporary_parent=Path("/var/lib"), architecture=None):
     if not args.with_updater or not re.fullmatch("v?" + STABLE, args.version) or not re.fullmatch(r"[0-9a-f]{40}", args.commit):
         fail("--with-updater requires an exact stable --version and full lowercase --commit; latest is not accepted")
     if args.install_dir and args.install_dir != "/usr/local/bin":
@@ -254,11 +266,12 @@ def install(args, runner=run, *, uid=0, boundary=Path("/"), temporary_parent=Pat
     token = token_file.read_bytes().strip()
     if not token.startswith(b"yenr1_") or len(token) > 256:
         fail("a one-time updater enrollment token file is required")
+    trusted_directory(temporary_parent, uid, boundary)
     release = decode(runner(["gh", "release", "view", args.tag, "--repo", REPOSITORY, "--json", "tagName,isDraft,isPrerelease"]))
     if not isinstance(release, dict) or release.get("tagName") != args.tag or release.get("isDraft") is not False or release.get("isPrerelease") is not False:
         fail("GitHub release must be published, stable and match the selected tag")
-    # /run is root-owned and not a shared writable /tmp ancestor. All transient
-    # download and dry-run files disappear when this invocation returns.
+    # /var/lib supports verified executable staging without weakening a noexec
+    # /run mount. The private directory is removed on ordinary success/failure.
     with tempfile.TemporaryDirectory(prefix="leviathan-install-", dir=temporary_parent) as temp:
         temporary = Path(temp)
         archive = temporary / f"leviathan_linux_{args.arch}.tar.gz"

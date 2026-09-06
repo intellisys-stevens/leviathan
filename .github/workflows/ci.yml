@@ -146,6 +146,10 @@ jobs:
           # Restore normal system-directory boundaries on this disposable VM.
           sudo chown root:root /opt /usr/local/bin
           sudo chmod 0755 /opt /usr/local/bin
+          # Exercise the normal noexec /run boundary found on the approved
+          # Ubuntu 22.04 host; never relax that host's mount permissions.
+          sudo mount -o remount,noexec /run
+          findmnt -no OPTIONS /run | grep -q '\bnoexec\b'
           printf 'per-host-update-acceptance\n' | sudo tee /run/leviathan-updater-disposable-test >/dev/null
           sudo env LEVIATHAN_UPDATER_DISPOSABLE_HOST=1 /root/updater-package/automatic-setup.test -test.run '^TestSystemdAutomaticSetupAcceptance$' -test.v -test.timeout=720s | tee "$RUNNER_TEMP/automatic-setup.log"
           sudo cat /root/automatic-setup-receipt.json > "$RUNNER_TEMP/automatic-setup-receipt.json"

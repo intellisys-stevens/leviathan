@@ -147,6 +147,19 @@ class ManagedInstallTest(unittest.TestCase):
         helper = next(c for c in self.calls if c[0] == sys.executable)
         self.assertEqual(helper[helper.index("--release-commit") + 1], "a" * 40)
 
+    def test_executable_staging_rejects_writable_and_symlink_ancestors(self):
+        target = self.root / "staging"
+        target.mkdir(mode=0o700)
+        link = self.root / "staging-link"
+        link.symlink_to(target)
+        with self.assertRaises(managed.InstallError):
+            managed.trusted_directory(link, os.getuid(), self.root)
+        target.chmod(0o777)
+        with self.assertRaises(managed.InstallError):
+            managed.trusted_directory(target, os.getuid(), self.root)
+        target.chmod(0o700)
+        managed.trusted_directory(target, os.getuid(), self.root)
+
     def test_dry_run_and_preview_are_explicitly_forwarded_without_token_contents(self):
         self.args.dry_run, self.args.allow_preview = True, True
         self.install()
