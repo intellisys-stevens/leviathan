@@ -9,14 +9,17 @@ on CPU-only machines and runs independently from the NVIDIA provider.
 | Domain | Source | Semantics |
 | --- | --- | --- |
 | CPU | `/proc/stat`, `/proc/loadavg`, `/proc/cpuinfo` | Aggregate utilization, 1/5/15-minute load, model, and logical processor count |
+| Host uptime | `/proc/uptime` | Optional provenance-bearing metric in seconds since host boot; independent from monitor runtime |
 | RAM | `/proc/meminfo` | Integral total, used, and available bytes plus utilization |
 | Storage capacity | `/proc/self/mountinfo` and `statfs` | Aggregate and per-filesystem integral capacity |
 | Storage I/O | `/proc/diskstats` | Aggregate read/write bytes per second for directly mounted block devices |
 
 Host samples follow the configured collector interval, one second by default.
 Mount topology is rediscovered every ten seconds by default; capacity is read on
-each host sample. The browser display cadence changes rendering only and does
-not start or reconfigure another collector.
+each host sample. All dashboard views render the latest available sample at the
+browser's selected 0.5-, 1-, or 2-second display interval (0.5 seconds by default).
+This preference never starts or reconfigures a collector; backend sampling and
+retained history remain independent of browser display updates.
 
 ## Delta and fallback rules
 
@@ -52,3 +55,16 @@ nor exposed.
 domain has a valid snapshot. `leviathan doctor` treats a healthy CPU-only host
 as successful with a warning; `leviathan doctor --require-gpu` makes GPU
 availability mandatory.
+
+`GET /api/v1/status` reports current component states, monitor start time, and
+90 UTC days of minute observations. Status shows Yggdrasil connection, host
+telemetry, and GPU telemetry. Workspace attribution remains available in its
+existing API history but does not affect Status; workspace failures appear in
+Workloads. Host uptime stays separate from healthy observations and coverage.
+Healthy observations use operational / (operational + degraded + unavailable);
+coverage uses that same measured denominator / expected minute slots.
+Unsupported and unknown observations display as **No data**; they are excluded
+from measured counts but remain in expected coverage. Partial days are hatched,
+with their worst measured state determining the bar color. Unknown gaps never
+imply availability. Persistence configuration, restart behavior, and
+downgrade handling are described in [Deployment](deployment.md#persistent-health-history).

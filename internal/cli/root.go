@@ -19,12 +19,14 @@ import (
 	"github.com/intellisys-stevens/leviathan/internal/collector"
 	"github.com/intellisys-stevens/leviathan/internal/config"
 	"github.com/intellisys-stevens/leviathan/internal/doctor"
+	"github.com/intellisys-stevens/leviathan/internal/health"
 	"github.com/intellisys-stevens/leviathan/internal/model"
 	"github.com/intellisys-stevens/leviathan/internal/render"
 	systemtelemetry "github.com/intellisys-stevens/leviathan/internal/system"
 	"github.com/intellisys-stevens/leviathan/internal/tui"
 	"github.com/intellisys-stevens/leviathan/internal/uplink"
 	"github.com/intellisys-stevens/leviathan/internal/webui"
+	"github.com/intellisys-stevens/leviathan/internal/workload"
 	"github.com/spf13/cobra"
 )
 
@@ -80,7 +82,11 @@ func (a *application) command() *cobra.Command {
 	flags.BoolVar(&a.flags.NoColor, "no-color", a.flags.NoColor, "disable terminal colors")
 	flags.BoolVar(&a.flags.ASCII, "ascii", a.flags.ASCII, "use ASCII terminal glyphs")
 	flags.StringVar(&a.flags.Fixture, "fixture", a.flags.Fixture, "use a deterministic fixture (see README for scenarios)")
+	flags.StringVar(&a.flags.AttributionCheckpointPath, "attribution-checkpoint-path", a.flags.AttributionCheckpointPath, "optional read-only NVIDIA DRA v0.4.1 checkpoint")
 	flags.StringVar(&a.flags.AttributionSocket, "attribution-socket", a.flags.AttributionSocket, "optional Leviathan attribution bridge Unix socket")
+	flags.BoolVar(&a.flags.WorkloadTelemetry, "workload-telemetry", a.flags.WorkloadTelemetry, "collect Coder owner cgroup telemetry using the private workload inventory")
+	flags.BoolVar(&a.flags.Health.Enabled, "health-history", a.flags.Health.Enabled, "save 30 days of local health observations during serve")
+	flags.StringVar(&a.flags.Health.Directory, "health-dir", a.flags.Health.Directory, "private local health history directory")
 
 	root.AddCommand(a.tuiCommand(), a.snapshotCommand(), a.watchCommand(), a.serveCommand(), a.doctorCommand(), a.configCheckCommand(), versionCommand(a.stdout))
 	return root
@@ -110,6 +116,12 @@ func (a *application) prepareConfig(command *cobra.Command) error {
 }
 
 func (a *application) applyFlags(command *cobra.Command, cfg *config.Config) {
+	if flagChanged(command, "health-history") {
+		cfg.Health.Enabled = a.flags.Health.Enabled
+	}
+	if flagChanged(command, "health-dir") {
+		cfg.Health.Directory = a.flags.Health.Directory
+	}
 	if flagChanged(command, "interval") {
 		cfg.Interval = a.flags.Interval
 	}
@@ -148,6 +160,12 @@ func (a *application) applyFlags(command *cobra.Command, cfg *config.Config) {
 	}
 	if flagChanged(command, "fixture") {
 		cfg.Fixture = a.flags.Fixture
+	}
+	if flagChanged(command, "workload-telemetry") {
+		cfg.WorkloadTelemetry = a.flags.WorkloadTelemetry
+	}
+	if flagChanged(command, "attribution-checkpoint-path") {
+		cfg.AttributionCheckpointPath = a.flags.AttributionCheckpointPath
 	}
 	if flagChanged(command, "attribution-socket") {
 		cfg.AttributionSocket = a.flags.AttributionSocket
@@ -373,7 +391,12 @@ func (a *application) serveCommand() *cobra.Command {
 				cancelServe()
 				_ = engine.Stop()
 			}()
-			uplinkRunner, err := newConfiguredUplink(a.cfg.Uplink, engine, buildInfo(), uplinkAttemptReporter(a.stderr))
+			uplinkTracker := health.NewUplinkTracker(health.UplinkOptions{Enabled: a.cfg.Uplink.Enabled, Interval: a.cfg.Uplink.Interval})
+			reportAttempt := uplinkAttemptReporter(a.stderr)
+			uplinkRunner, err := newConfiguredUplink(a.cfg.Uplink, engine, buildInfo(), func(result uplink.AttemptResult) {
+				uplinkTracker.Observe(result)
+				reportAttempt(result)
+			})
 			if err != nil {
 				return err
 			}
@@ -389,8 +412,22 @@ func (a *application) serveCommand() *cobra.Command {
 				return err
 			}
 			defer listener.Close()
+			healthRecorder := health.New(engine, health.Options{
+				Enabled:   a.cfg.Health.Enabled && a.cfg.Provider != "fake" && a.cfg.Fixture == "",
+				Directory: a.cfg.Health.Directory, Attribution: a.cfg.AttributionSocket != "", Uplink: uplinkTracker,
+			})
+			healthContext, cancelHealth := context.WithCancel(serveContext)
+			healthDone := make(chan struct{})
+			go func() { defer close(healthDone); healthRecorder.Run(healthContext) }()
+			defer func() {
+				cancelHealth()
+				<-healthDone
+				if err := healthRecorder.Close(); err != nil {
+					fmt.Fprintln(a.stderr, "Health history flush:", err)
+				}
+			}()
 			server := &http.Server{
-				Handler:           api.NewServer(engine, webui.FS(), buildInfo()),
+				Handler:           api.NewServer(engine, webui.FS(), buildInfo(), healthRecorder),
 				ReadHeaderTimeout: 5 * time.Second,
 				IdleTimeout:       2 * time.Minute,
 				// SSE connections are intentionally long-lived. Tie their base context
@@ -520,14 +557,25 @@ func (a *application) startEngine(ctx context.Context) (*collector.Engine, error
 	if err != nil {
 		return nil, err
 	}
+	var ownerSampler workload.Sampler
+	if a.cfg.WorkloadTelemetry && a.cfg.Provider != "fake" && a.cfg.Fixture == "" {
+		ownerSampler, err = workload.NewSampler(workload.Options{SocketPath: a.cfg.AttributionSocket})
+		if err != nil {
+			return nil, err
+		}
+	}
 	engine := collector.NewWithOptions(source, collector.Options{
 		SamplingInterval: a.cfg.Interval,
 		HistoryWindow:    a.cfg.HistoryWindow,
 		ProfileInterval:  maxDuration(a.cfg.ProfileInterval, a.cfg.Interval),
 		ProcessInterval:  maxDuration(a.cfg.ProcessInterval, a.cfg.Interval),
 		SystemSampler:    a.systemSampler(),
+		WorkloadSampler:  ownerSampler,
 	})
 	if err := engine.Start(ctx); err != nil {
+		if ownerSampler != nil {
+			_ = ownerSampler.Close()
+		}
 		return nil, err
 	}
 	return engine, nil

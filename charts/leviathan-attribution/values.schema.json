@@ -14,6 +14,12 @@
       }
     },
     "driver": { "type": "string", "minLength": 1 },
+    "workloadInventory": {
+      "type": "object",
+      "properties": { "enabled": { "type": "boolean" } },
+      "required": ["enabled"],
+      "additionalProperties": false
+    },
     "socketPath": {
       "type": "string",
       "pattern": "^/run/leviathan/[A-Za-z0-9._-]+\\.sock$"

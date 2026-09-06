@@ -34,6 +34,7 @@ export type SnapshotPayload = Omit<
   | 'processes'
   | 'diagnostics'
   | 'attribution'
+  | 'workloadTelemetry'
   | 'capabilities'
 > & {
   system?: Snapshot['system'] | null;
@@ -41,6 +42,7 @@ export type SnapshotPayload = Omit<
   processes?: Snapshot['processes'] | null;
   diagnostics?: Snapshot['diagnostics'] | null;
   attribution?: NullableAttribution | null;
+  workloadTelemetry?: Snapshot['workloadTelemetry'] | null;
   capabilities: LegacyCapabilities;
 };
 
@@ -127,6 +129,19 @@ export function normalizeSnapshot(payload: SnapshotPayload): Snapshot {
       ...payload.capabilities,
       system: payload.capabilities.system ?? legacySystem,
     },
+    workloadTelemetry:
+      payload.workloadTelemetry == null
+        ? undefined
+        : {
+            ...payload.workloadTelemetry,
+            owners: arrayOrEmpty(payload.workloadTelemetry.owners).map(
+              (owner) => ({
+                ...owner,
+                workspaces: arrayOrEmpty(owner.workspaces),
+                metrics: owner.metrics ?? {},
+              }),
+            ),
+          },
     attribution:
       attribution == null
         ? undefined
@@ -200,6 +215,7 @@ function sameAttribution(
     left.provider === right.provider &&
     left.status === right.status &&
     left.observedAt === right.observedAt &&
+    JSON.stringify(left.resolution) === JSON.stringify(right.resolution) &&
     sameArray(
       left.workloads,
       right.workloads,
@@ -254,6 +270,13 @@ export function shareStableSnapshot(
     attribution: sameAttribution(previous.attribution, next.attribution)
       ? previous.attribution
       : next.attribution,
+    // Owner counters arrive independently every two seconds. Keep their exact
+    // timestamps/status, but do not resubmit the same sample on every host tick.
+    workloadTelemetry:
+      JSON.stringify(previous.workloadTelemetry) ===
+      JSON.stringify(next.workloadTelemetry)
+        ? previous.workloadTelemetry
+        : next.workloadTelemetry,
   };
 }
 
@@ -272,35 +295,87 @@ export function useLeviathan(displayCadenceMs = 0) {
   const failures = useRef(0);
   const snapshotEventGeneration = useRef(0);
   const settingsEventGeneration = useRef(0);
+  const streamEpochRef = useRef(0);
   const snapshotRef = useRef<Snapshot | null>(null);
-  const pendingSnapshotRef = useRef<Snapshot | null>(null);
+  const pendingSnapshotRef = useRef<{
+    snapshot: Snapshot;
+    streamEpoch?: number;
+  } | null>(null);
   const snapshotCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
   const displayCadenceRef = useRef(displayCadenceMs);
+  const samplingIntervalRef = useRef(0);
+  const streamExpiryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const lastSnapshotCommitRef = useRef(0);
   const remoteCSRFRef = useRef<string | null>(null);
 
-  const commitSnapshot = useCallback((next: Snapshot) => {
+  useEffect(() => {
+    samplingIntervalRef.current = settings?.samplingIntervalMs ?? 0;
+  }, [settings?.samplingIntervalMs]);
+
+  const clearStreamExpiry = useCallback(() => {
+    if (streamExpiryTimerRef.current != null)
+      clearTimeout(streamExpiryTimerRef.current);
+    streamExpiryTimerRef.current = null;
+  }, []);
+
+  const armStreamExpiry = useCallback(() => {
+    clearStreamExpiry();
+    const epoch = streamEpochRef.current;
+    const intervals = [samplingIntervalRef.current, displayCadenceRef.current];
+    const timeout = Math.max(
+      5000,
+      ...intervals.map((interval) =>
+        Number.isFinite(interval) ? interval * 3 : 0,
+      ),
+    );
+    const deadline = performance.now() + timeout;
+    const expire = () => {
+      streamExpiryTimerRef.current = null;
+      if (epoch !== streamEpochRef.current) return;
+      const remaining = deadline - performance.now();
+      if (remaining > 0) {
+        streamExpiryTimerRef.current = setTimeout(expire, remaining);
+        return;
+      }
+      streamEpochRef.current += 1;
+      setConnection('reconnecting');
+      setStreamError('Telemetry delayed. Waiting for a fresh sample.');
+    };
+    streamExpiryTimerRef.current = setTimeout(expire, timeout);
+  }, [clearStreamExpiry]);
+
+  const commitSnapshot = useCallback((next: Snapshot, streamEpoch?: number) => {
     const current = snapshotRef.current;
     if (current && next.sequence <= current.sequence) return;
     const shared = shareStableSnapshot(current, next);
     snapshotRef.current = shared;
     lastSnapshotCommitRef.current = Date.now();
     setSnapshot(shared);
+    // Socket open is insufficient: only the fresh sample now on screen can
+    // restore live activity. Errors also invalidate samples waiting on cadence.
+    if (streamEpoch !== undefined && streamEpoch === streamEpochRef.current) {
+      setConnection('live');
+      setSnapshotError(null);
+      setStreamError(null);
+    }
   }, []);
 
   const flushPendingSnapshot = useCallback(() => {
     snapshotCommitTimerRef.current = null;
     const pending = pendingSnapshotRef.current;
     pendingSnapshotRef.current = null;
-    if (pending) commitSnapshot(pending);
+    if (pending) commitSnapshot(pending.snapshot, pending.streamEpoch);
   }, [commitSnapshot]);
 
   const queueSnapshot = useCallback(
-    (next: Snapshot) => {
-      const current = pendingSnapshotRef.current ?? snapshotRef.current;
-      if (current && next.sequence <= current.sequence) return;
+    (next: Snapshot, streamEpoch?: number) => {
+      const current =
+        pendingSnapshotRef.current?.snapshot ?? snapshotRef.current;
+      if (current && next.sequence <= current.sequence) return false;
       const cadence = displayCadenceRef.current;
       if (cadence <= 0 || snapshotRef.current == null) {
         pendingSnapshotRef.current = null;
@@ -308,16 +383,17 @@ export function useLeviathan(displayCadenceMs = 0) {
           clearTimeout(snapshotCommitTimerRef.current);
           snapshotCommitTimerRef.current = null;
         }
-        commitSnapshot(next);
-        return;
+        commitSnapshot(next, streamEpoch);
+        return true;
       }
-      pendingSnapshotRef.current = next;
-      if (snapshotCommitTimerRef.current != null) return;
+      pendingSnapshotRef.current = { snapshot: next, streamEpoch };
+      if (snapshotCommitTimerRef.current != null) return true;
       const elapsed = Date.now() - lastSnapshotCommitRef.current;
       snapshotCommitTimerRef.current = setTimeout(
         flushPendingSnapshot,
         Math.max(0, cadence - elapsed),
       );
+      return true;
     },
     [commitSnapshot, flushPendingSnapshot],
   );
@@ -344,8 +420,9 @@ export function useLeviathan(displayCadenceMs = 0) {
     () => () => {
       if (snapshotCommitTimerRef.current != null)
         clearTimeout(snapshotCommitTimerRef.current);
+      clearStreamExpiry();
     },
-    [],
+    [clearStreamExpiry],
   );
 
   useEffect(() => {
@@ -428,9 +505,17 @@ export function useLeviathan(displayCadenceMs = 0) {
   useEffect(() => {
     const events = new EventSource('/api/v1/events');
     events.onopen = () => {
+      clearStreamExpiry();
+      streamEpochRef.current += 1;
       failures.current = 0;
-      setConnection('live');
-      setStreamError(null);
+      setConnection((previous) =>
+        previous === 'connecting' ? 'connecting' : 'reconnecting',
+      );
+      setStreamError(
+        snapshotRef.current
+          ? 'Stream connected. Waiting for fresh telemetry.'
+          : null,
+      );
     };
     events.addEventListener('snapshot', (event) => {
       try {
@@ -438,12 +523,20 @@ export function useLeviathan(displayCadenceMs = 0) {
           (event as MessageEvent<string>).data,
         ) as SnapshotPayload;
         const next = normalizeSnapshot(payload);
-        snapshotEventGeneration.current += 1;
-        queueSnapshot(next);
-        setConnection('live');
-        setSnapshotError(null);
-        setStreamError(null);
+        if (
+          !Number.isSafeInteger(next.sequence) ||
+          next.sequence < 0 ||
+          !Number.isFinite(Date.parse(next.sampledAt))
+        )
+          throw new Error('Invalid snapshot metadata');
+        if (queueSnapshot(next, streamEpochRef.current)) {
+          snapshotEventGeneration.current += 1;
+          armStreamExpiry();
+        }
       } catch {
+        clearStreamExpiry();
+        streamEpochRef.current += 1;
+        setConnection(snapshotRef.current ? 'reconnecting' : 'connecting');
         setStreamError('A malformed snapshot event was ignored.');
       }
     });
@@ -461,6 +554,8 @@ export function useLeviathan(displayCadenceMs = 0) {
       }
     });
     events.onerror = () => {
+      clearStreamExpiry();
+      streamEpochRef.current += 1;
       failures.current += 1;
       setConnection(failures.current > 4 ? 'disconnected' : 'reconnecting');
       setStreamError('The live stream was interrupted. Reconnecting…');
@@ -468,7 +563,7 @@ export function useLeviathan(displayCadenceMs = 0) {
     return () => {
       events.close();
     };
-  }, [queueSnapshot]);
+  }, [queueSnapshot, armStreamExpiry, clearStreamExpiry]);
 
   const retrySnapshot = useCallback(() => {
     setSnapshotError(null);

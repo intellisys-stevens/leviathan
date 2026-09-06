@@ -12,6 +12,11 @@ workspaceNamespaces:
 
 driver: gpu.nvidia.com
 
+# Optional private /v1/workloads handoff. Reads only metadata from Coder Pods
+# on this node in workspaceNamespaces; does not grant logs, exec or Secrets.
+workloadInventory:
+  enabled: false
+
 socketPath: /run/leviathan/attribution.sock
 
 serviceAccount:

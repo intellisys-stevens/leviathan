@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/intellisys-stevens/leviathan/internal/health"
 	"github.com/intellisys-stevens/leviathan/internal/history"
 	"github.com/intellisys-stevens/leviathan/internal/model"
 )
@@ -30,17 +31,18 @@ type DataSource interface {
 }
 
 type Server struct {
-	source    DataSource
-	assets    fs.FS
-	buildInfo model.BuildInfo
-	mux       *http.ServeMux
+	source       DataSource
+	assets       fs.FS
+	buildInfo    model.BuildInfo
+	statusSource interface{ Status() health.Report }
+	mux          *http.ServeMux
 
 	settingsMu          sync.Mutex
 	settingsSubscribers map[uint64]chan model.RuntimeSettings
 	nextSettingsSubID   uint64
 }
 
-func NewServer(source DataSource, assets fs.FS, buildInfo model.BuildInfo) *Server {
+func NewServer(source DataSource, assets fs.FS, buildInfo model.BuildInfo, statusSources ...interface{ Status() health.Report }) *Server {
 	server := &Server{
 		source:              source,
 		assets:              assets,
@@ -48,6 +50,10 @@ func NewServer(source DataSource, assets fs.FS, buildInfo model.BuildInfo) *Serv
 		mux:                 http.NewServeMux(),
 		settingsSubscribers: make(map[uint64]chan model.RuntimeSettings),
 	}
+	if len(statusSources) > 0 {
+		server.statusSource = statusSources[0]
+	}
+	server.mux.HandleFunc("GET /api/v1/status", server.status)
 	server.mux.HandleFunc("GET /api/v1/snapshot", server.snapshot)
 	server.mux.HandleFunc("GET /api/v1/history", server.history)
 	server.mux.HandleFunc("POST /api/v1/history/aligned", server.alignedHistory)
@@ -62,6 +68,14 @@ func NewServer(source DataSource, assets fs.FS, buildInfo model.BuildInfo) *Serv
 	})
 	server.mux.HandleFunc("/", server.static)
 	return server
+}
+
+func (s *Server) status(writer http.ResponseWriter, _ *http.Request) {
+	if s.statusSource == nil {
+		writeError(writer, http.StatusServiceUnavailable, "health observation recorder is unavailable")
+		return
+	}
+	writeJSON(writer, http.StatusOK, s.statusSource.Status())
 }
 
 func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -105,6 +119,19 @@ func snapshotForWire(snapshot model.Snapshot) model.Snapshot {
 			attribution.Assignments = []model.ResourceAssignment{}
 		}
 		snapshot.Attribution = &attribution
+	}
+	if snapshot.WorkloadTelemetry != nil {
+		telemetry := *snapshot.WorkloadTelemetry
+		telemetry.Owners = append([]model.WorkloadOwnerTelemetry{}, telemetry.Owners...)
+		for index := range telemetry.Owners {
+			if telemetry.Owners[index].Workspaces == nil {
+				telemetry.Owners[index].Workspaces = []model.WorkloadAttribution{}
+			}
+			if telemetry.Owners[index].Metrics == nil {
+				telemetry.Owners[index].Metrics = model.MetricSet{}
+			}
+		}
+		snapshot.WorkloadTelemetry = &telemetry
 	}
 	validWorkloads := map[string]struct{}{}
 	if snapshot.Attribution != nil {

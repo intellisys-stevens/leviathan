@@ -4,6 +4,7 @@
   "printWidth": 80,
   "sortPackageJson": false,
   "ignorePatterns": [
+    "src/assets/gpu-brands/LICENSE.simple-icons.md",
     "package-lock.json",
     "pnpm-lock.yaml",
     "yarn.lock",

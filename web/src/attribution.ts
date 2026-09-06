@@ -5,6 +5,7 @@ import type {
   Selection,
   Snapshot,
   WorkloadAttribution,
+  WorkloadOwnerTelemetry,
 } from './types';
 
 export type AttributionTarget = Pick<
@@ -25,6 +26,7 @@ export type AssignedResource = {
 export type AttributedWorkspace = {
   workload: WorkloadAttribution;
   resources: AssignedResource[];
+  unresolvedAssignments?: number;
 };
 
 export type AttributedPerson = {
@@ -33,6 +35,7 @@ export type AttributedPerson = {
   ownerName: string;
   workspaces: AttributedWorkspace[];
   resourceCount: number;
+  telemetry?: WorkloadOwnerTelemetry;
 };
 
 export type PeopleAttributionView = {
@@ -59,7 +62,9 @@ export function attributedWorkloads(
     ),
   );
   const workloadsByRef = new Map(
-    attribution.workloads.map((workload) => [workload.ref, workload]),
+    (attribution?.status === 'available' ? attribution.workloads : []).map(
+      (workload) => [workload.ref, workload],
+    ),
   );
   const byRef = new Map<string, AttributedWorkload>();
   for (const assignment of attribution.assignments) {
@@ -125,10 +130,11 @@ export function buildPeopleAttributionView(
   snapshot: Snapshot,
 ): PeopleAttributionView {
   const attribution = snapshot.attribution;
-  if (!attribution) return { people: [], unresolvedAssignments: 0 };
 
   const workloads = new Map(
-    attribution.workloads.map((workload) => [workload.ref, workload]),
+    (attribution?.status === 'available' ? attribution.workloads : []).map(
+      (workload) => [workload.ref, workload],
+    ),
   );
   const physical = new Map<string, Selection>();
   const compute = new Map<string, Selection>();
@@ -142,7 +148,9 @@ export function buildPeopleAttributionView(
   }
 
   const deduplicated = new Map<string, ResourceAssignment>();
-  for (const assignment of attribution.assignments) {
+  for (const assignment of attribution?.status === 'available'
+    ? attribution.assignments
+    : []) {
     const key = `${assignment.workloadRef}\u0000${assignment.entityType}\u0000${assignment.entityUuid}`;
     const current = deduplicated.get(key);
     if (!current || assignment.state === 'allocated')
@@ -150,7 +158,8 @@ export function buildPeopleAttributionView(
   }
 
   const resourcesByWorkload = new Map<string, AssignedResource[]>();
-  let unresolvedAssignments = 0;
+  let unresolvedAssignments =
+    attribution?.resolution?.unresolvedAssignments ?? 0;
   for (const assignment of deduplicated.values()) {
     if (!workloads.has(assignment.workloadRef)) {
       unresolvedAssignments += 1;
@@ -170,29 +179,65 @@ export function buildPeopleAttributionView(
     else resourcesByWorkload.set(assignment.workloadRef, [resource]);
   }
 
-  const people = new Map<
-    string,
-    Omit<AttributedPerson, 'workspaces' | 'resourceCount'> & {
-      workspaces: AttributedWorkspace[];
+  const people = new Map<string, Omit<AttributedPerson, 'resourceCount'>>();
+  const ownerByWorkspace = new Map<string, string>();
+  const ambiguous = new Set<string>();
+  // Inventory, rather than GPU allocation, establishes who can have host usage.
+  for (const owner of snapshot.workloadTelemetry?.owners ?? []) {
+    const key = `owner:${owner.ref}`;
+    people.set(key, {
+      key,
+      platform: owner.platform,
+      ownerName: owner.name,
+      telemetry: owner,
+      workspaces: owner.workspaces.map((workload) => ({
+        workload,
+        resources: [],
+      })),
+    });
+    for (const workload of owner.workspaces) {
+      if (
+        ownerByWorkspace.has(workload.ref) &&
+        ownerByWorkspace.get(workload.ref) !== key
+      )
+        ambiguous.add(workload.ref);
+      ownerByWorkspace.set(workload.ref, key);
     }
-  >();
-  for (const [workloadRef, resources] of resourcesByWorkload) {
-    const workload = workloads.get(workloadRef);
-    if (!workload) continue;
+  }
+  for (const workload of workloads.values()) {
+    if (ambiguous.has(workload.ref)) {
+      unresolvedAssignments +=
+        resourcesByWorkload.get(workload.ref)?.length ?? 0;
+      continue;
+    }
+    const key =
+      ownerByWorkspace.get(workload.ref) ??
+      `${workload.platform}\u0000${workload.ownerName}`;
+    const person = people.get(key) ?? {
+      key,
+      platform: workload.platform,
+      ownerName: workload.ownerName,
+      workspaces: [],
+    };
+    const resources = resourcesByWorkload.get(workload.ref) ?? [];
     resources.sort((left, right) =>
       selectionSortKey(left.selection).localeCompare(
         selectionSortKey(right.selection),
       ),
     );
-    const personKey = `${workload.platform}\u0000${workload.ownerName}`;
-    const person = people.get(personKey) ?? {
-      key: personKey,
-      platform: workload.platform,
-      ownerName: workload.ownerName,
-      workspaces: [],
-    };
-    person.workspaces.push({ workload, resources });
-    people.set(personKey, person);
+    const workspace = person.workspaces.find(
+      (item) => item.workload.ref === workload.ref,
+    );
+    if (workspace) workspace.resources = resources;
+    else person.workspaces.push({ workload, resources });
+    const row = person.workspaces.find(
+      (item) => item.workload.ref === workload.ref,
+    )!;
+    row.unresolvedAssignments =
+      attribution?.resolution?.workloads.find(
+        (item) => item.workloadRef === workload.ref,
+      )?.unresolvedAssignments ?? 0;
+    people.set(key, person);
   }
 
   return {

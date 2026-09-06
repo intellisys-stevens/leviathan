@@ -57,6 +57,35 @@ describe('stable chart trends', () => {
     expect(trend.map((row) => row.value)).toEqual([null, 30]);
   });
 
+  it.each([5, 15, 30, 60, 240, 720])(
+    'keeps independently sampled series separate in the %i minute window',
+    (minutes) => {
+      const window = minutes * 60_000;
+      const bucket = trendBucketMilliseconds(window);
+      const rows = buildTrendRows(
+        [
+          { time: 100, fast: 10 },
+          { time: 500, slow: 0 },
+          { time: bucket + 100, fast: 30 },
+          { time: 2 * bucket + 100, fast: null },
+          { time: 2 * bucket + 500, slow: 20 },
+          { time: 3 * bucket + 100, fast: 50 },
+        ],
+        ['fast', 'slow'],
+        window,
+      );
+      expect(rows.map((row) => row.fast)).toEqual([10, 30, null, 50]);
+      expect(rows.map((row) => row.slow)).toEqual([
+        0,
+        undefined,
+        20,
+        undefined,
+      ]);
+      expect(trendValueSummary(rows[0], 'slow').count).toBe(1);
+      expect(trendValueSummary(rows[1], 'slow').count).toBe(0);
+    },
+  );
+
   it('anchors time to epoch buckets and quantizes dynamic ceilings', () => {
     expect(trendTimeDomain(31_001, 30 * 60_000)).toEqual([-1_765_000, 35_000]);
     expect(niceTrendCeiling(0)).toBe(1);

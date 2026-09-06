@@ -18,6 +18,13 @@ const testStreamID = "AAAAAAAAAAAAAAAAAAAAAA"
 
 func TestProjectSanitizesAndDeepCopiesSnapshot(t *testing.T) {
 	snapshot := projectionSnapshot()
+	uptime := model.AvailableMetric(12345, "seconds", model.SourceProcFS, model.ScopeHost, snapshot.SampledAt)
+	snapshot.System.Uptime = &uptime
+	snapshot.WorkloadTelemetry = &model.WorkloadTelemetry{
+		SampledAt: snapshot.SampledAt,
+		Status:    model.WorkloadTelemetryAvailable,
+		Owners:    []model.WorkloadOwnerTelemetry{{Ref: "private-owner-canary", Name: "private-owner-name-canary"}},
+	}
 	envelope, err := Project(snapshot, model.BuildInfo{Version: "0.4.0", Commit: "abc123", BuildDate: "2026-09-02"}, testStreamID, 9)
 	if err != nil {
 		t.Fatal(err)
@@ -43,10 +50,17 @@ func TestProjectSanitizesAndDeepCopiesSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if bytes.Contains(document, []byte(`"uptime"`)) {
+		t.Fatal("local host uptime changed the locked uplink contract")
+	}
+	if bytes.Contains(document, []byte(`"workloadTelemetry"`)) {
+		t.Fatal("local workload telemetry changed the locked uplink contract")
+	}
 	for _, canary := range []string{
 		"raw-device-canary", "process-user-canary", "command-line-canary", "attribution-canary",
 		"pci-bus-canary", "generation-canary", "diagnostic-detail-canary", "diagnostic-remedy-canary",
 		"diagnostic-component-canary", "metric-message-canary", "secret_metric_canary",
+		"private-owner-canary", "private-owner-name-canary", "resolution-canary", "checkpoint-private-canary",
 	} {
 		if bytes.Contains(document, []byte(canary)) {
 			t.Fatalf("private value %q crossed boundary: %s", canary, document)
@@ -206,7 +220,7 @@ func projectionSnapshot() model.Snapshot {
 			}},
 		}},
 		Processes:    []model.Process{{PID: 123, User: "process-user-canary", CommandLine: "command-line-canary"}},
-		Attribution:  &model.Attribution{Workloads: []model.WorkloadAttribution{{Name: "attribution-canary"}}},
+		Attribution:  &model.Attribution{Workloads: []model.WorkloadAttribution{{Name: "attribution-canary"}}, Resolution: &model.AttributionResolution{Status: "resolution-canary", ReasonCodes: []string{"checkpoint-private-canary"}}},
 		Capabilities: model.Capabilities{NVML: model.ProviderState{Available: true, Status: model.StatusAvailable}},
 		Diagnostics: []model.Diagnostic{{
 			Code: "collector_sample", Severity: "warning", Component: "diagnostic-component-canary", Summary: "GPU sample delayed",

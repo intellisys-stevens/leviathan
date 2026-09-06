@@ -139,20 +139,23 @@ func Limit(series Series, maxPoints int) Series {
 }
 
 type Buffer struct {
-	mu                      sync.RWMutex
-	window                  time.Duration
-	rawWindow               time.Duration
-	interval                time.Duration
-	capacity                int
-	aggregateCapacity       int
-	series                  map[string]*ring
-	timeline                timelineRing
-	systemTimeline          timelineRing
-	aggregates              map[string]*aggregateRing
-	aggregateTimeline       aggregateTimelineRing
-	systemAggregateTimeline aggregateTimelineRing
-	lastTimeline            timelineSample
-	lastSystemTimeline      timelineSample
+	mu                        sync.RWMutex
+	window                    time.Duration
+	rawWindow                 time.Duration
+	interval                  time.Duration
+	capacity                  int
+	aggregateCapacity         int
+	series                    map[string]*ring
+	timeline                  timelineRing
+	systemTimeline            timelineRing
+	workloadTimeline          timelineRing
+	aggregates                map[string]*aggregateRing
+	aggregateTimeline         aggregateTimelineRing
+	systemAggregateTimeline   aggregateTimelineRing
+	workloadAggregateTimeline aggregateTimelineRing
+	lastTimeline              timelineSample
+	lastSystemTimeline        timelineSample
+	lastWorkloadTimeline      timelineSample
 }
 
 const (
@@ -242,6 +245,79 @@ func New(window, interval time.Duration) *Buffer {
 
 func (b *Buffer) Add(snapshot model.Snapshot) {
 	b.addSnapshot(snapshot, true, true, true)
+	if snapshot.WorkloadTelemetry != nil {
+		b.AddWorkload(snapshot)
+	}
+}
+
+// AddWorkload preserves the collector's independent two-second timestamps.
+// Absent or partial metrics become real gaps instead of carried GPU samples.
+func (b *Buffer) AddWorkload(snapshot model.Snapshot) {
+	if snapshot.WorkloadTelemetry == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	telemetry := snapshot.WorkloadTelemetry
+	at := telemetry.SampledAt
+	if at.IsZero() {
+		return
+	}
+	if !b.lastWorkloadTimeline.sampledAt.IsZero() && !at.After(b.lastWorkloadTimeline.sampledAt) {
+		return
+	}
+	sample := timelineSample{sampledAt: at, interval: 2 * time.Second}
+	b.addTimelineTo(&b.workloadTimeline, sample)
+	b.addAggregateTimelineTo(&b.workloadAggregateTimeline, &b.lastWorkloadTimeline, sample)
+	// With no aggregate tier, still remember the last publication timestamp.
+	if b.aggregateCapacity == 0 {
+		b.lastWorkloadTimeline = sample
+	}
+	b.prune(at)
+	for _, owner := range telemetry.Owners {
+		if !owner.SampledAt.Equal(at) {
+			continue
+		}
+		values := map[string]float64{}
+		for _, name := range []string{"cpu_cores", "memory_used_bytes", "storage_read_bps", "storage_write_bps"} {
+			metric := owner.Metrics[name]
+			if metric.Status == model.StatusAvailable && metric.Value != nil && metric.SampledAt.Equal(at) {
+				values[name] = *metric.Value
+			}
+		}
+		entity := "owner:" + owner.Ref
+		b.add(entity, at, values)
+		b.addAggregate(entity, at, values)
+	}
+	// Bound churn as well as per-owner point counts. Recent owners displace the
+	// oldest retained owner histories; GPU and host retention are unaffected.
+	owners := map[string]time.Time{}
+	for entity, series := range b.series {
+		if strings.HasPrefix(entity, "owner:") {
+			owners[entity] = series.last
+		}
+	}
+	for entity, series := range b.aggregates {
+		if strings.HasPrefix(entity, "owner:") && series.last.After(owners[entity]) {
+			owners[entity] = series.last
+		}
+	}
+	if len(owners) > 256 {
+		keys := make([]string, 0, len(owners))
+		for key := range owners {
+			keys = append(keys, key)
+		}
+		sort.Slice(keys, func(i, j int) bool {
+			if owners[keys[i]].Equal(owners[keys[j]]) {
+				return keys[i] < keys[j]
+			}
+			return owners[keys[i]].Before(owners[keys[j]])
+		})
+		for _, key := range keys[:len(keys)-256] {
+			delete(b.series, key)
+			delete(b.aggregates, key)
+		}
+	}
 }
 
 // AddSystem records one system-domain publication without carrying the last
@@ -333,9 +409,11 @@ func valuesForSystem(system model.System) map[string]float64 {
 	addIntegralValue(values, "memory_used_bytes", system.Memory.UsedBytes, system.Memory.Status)
 	addIntegralValue(values, "memory_available_bytes", system.Memory.AvailableBytes, system.Memory.Status)
 	addMetricValue(values, "memory_utilization", system.Memory.Utilization)
-	addIntegralValue(values, "storage_total_bytes", system.Storage.TotalBytes, system.Storage.Status)
-	addIntegralValue(values, "storage_used_bytes", system.Storage.UsedBytes, system.Storage.Status)
-	addIntegralValue(values, "storage_available_bytes", system.Storage.AvailableBytes, system.Storage.Status)
+	if usableStatus(system.Storage.Status) {
+		addIntegralValue(values, "storage_total_bytes", system.Storage.TotalBytes, system.Storage.Status)
+		addIntegralValue(values, "storage_used_bytes", system.Storage.UsedBytes, system.Storage.Status)
+		addIntegralValue(values, "storage_available_bytes", system.Storage.AvailableBytes, system.Storage.Status)
+	}
 	addMetricValue(values, "disk_read_bytes_per_second", system.Storage.ReadBytesPerSecond)
 	addMetricValue(values, "disk_write_bytes_per_second", system.Storage.WriteBytesPerSecond)
 	return values
@@ -343,6 +421,9 @@ func valuesForSystem(system model.System) map[string]float64 {
 
 func valuesForFilesystem(filesystem model.Filesystem) map[string]float64 {
 	values := make(map[string]float64, 3)
+	if !usableStatus(filesystem.Status) {
+		return values
+	}
 	addIntegralValue(values, "storage_total_bytes", filesystem.TotalBytes, filesystem.Status)
 	addIntegralValue(values, "storage_used_bytes", filesystem.UsedBytes, filesystem.Status)
 	addIntegralValue(values, "storage_available_bytes", filesystem.AvailableBytes, filesystem.Status)
@@ -422,15 +503,19 @@ func (b *Buffer) add(entity string, at time.Time, values map[string]float64) {
 		b.series[entity] = r
 	}
 	point := Point{SampledAt: at, Values: values}
-	if len(r.points) < b.capacity {
+	capacity := b.capacity
+	if strings.HasPrefix(entity, "owner:") {
+		capacity = b.workloadCapacity()
+	}
+	if len(r.points) < capacity {
 		r.points = append(r.points, point)
-		if len(r.points) == b.capacity {
+		if len(r.points) == capacity {
 			r.next = 0
 			r.full = true
 		}
 	} else {
 		r.points[r.next] = point
-		r.next = (r.next + 1) % b.capacity
+		r.next = (r.next + 1) % capacity
 		r.full = true
 	}
 	r.last = at
@@ -445,16 +530,20 @@ func (b *Buffer) addSystemTimeline(sample timelineSample) {
 }
 
 func (b *Buffer) addTimelineTo(timeline *timelineRing, sample timelineSample) {
-	if len(timeline.samples) < b.capacity {
+	capacity := b.capacity
+	if timeline == &b.workloadTimeline {
+		capacity = b.workloadCapacity()
+	}
+	if len(timeline.samples) < capacity {
 		timeline.samples = append(timeline.samples, sample)
-		if len(timeline.samples) == b.capacity {
+		if len(timeline.samples) == capacity {
 			timeline.next = 0
 			timeline.full = true
 		}
 		return
 	}
 	timeline.samples[timeline.next] = sample
-	timeline.next = (timeline.next + 1) % b.capacity
+	timeline.next = (timeline.next + 1) % capacity
 	timeline.full = true
 }
 
@@ -1170,6 +1259,9 @@ func (b *Buffer) EnsureCapacity(interval time.Duration) {
 	b.systemTimeline.samples = b.systemTimeline.ordered()
 	b.systemTimeline.next = 0
 	b.systemTimeline.full = false
+	b.workloadTimeline.samples = b.workloadTimeline.ordered()
+	b.workloadTimeline.next = 0
+	b.workloadTimeline.full = false
 	b.capacity = capacity
 }
 
@@ -1177,45 +1269,61 @@ func systemHistoryEntity(entity string) bool {
 	return entity == "@host" || strings.HasPrefix(entity, "fs_")
 }
 
-func historyDomains(entities []string) (system, gpu bool) {
+func (b *Buffer) workloadCapacity() int {
+	capacity := int(b.rawWindow/(2*time.Second)) + 2
+	if capacity < 2 {
+		return 2
+	}
+	return capacity
+}
+
+func historyDomains(entities []string) (system, gpu, workload bool) {
 	for _, entity := range entities {
-		if systemHistoryEntity(entity) {
+		if strings.HasPrefix(entity, "owner:") {
+			workload = true
+		} else if systemHistoryEntity(entity) {
 			system = true
 		} else {
 			gpu = true
 		}
 	}
-	if !system && !gpu {
+	if !system && !gpu && !workload {
 		gpu = true
 	}
-	return system, gpu
+	return system, gpu, workload
 }
 
 // timelineForEntities keeps independent workers from creating alternating
 // false gaps. Mixed-domain requests receive the timestamp union without
 // carrying either domain's values forward.
 func (b *Buffer) timelineForEntities(entities []string) []timelineSample {
-	system, gpu := historyDomains(entities)
-	switch {
-	case system && gpu:
-		return mergeTimelineSamples(b.systemTimeline.ordered(), b.timeline.ordered())
-	case system:
-		return b.systemTimeline.ordered()
-	default:
-		return b.timeline.ordered()
+	system, gpu, workload := historyDomains(entities)
+	var result []timelineSample
+	if system {
+		result = b.systemTimeline.ordered()
 	}
+	if gpu {
+		result = mergeTimelineSamples(result, b.timeline.ordered())
+	}
+	if workload {
+		result = mergeTimelineSamples(result, b.workloadTimeline.ordered())
+	}
+	return result
 }
 
 func (b *Buffer) aggregateTimelineForEntities(entities []string) []aggregateTimelinePoint {
-	system, gpu := historyDomains(entities)
-	switch {
-	case system && gpu:
-		return mergeAggregateTimelinePoints(b.systemAggregateTimeline.ordered(), b.aggregateTimeline.ordered())
-	case system:
-		return b.systemAggregateTimeline.ordered()
-	default:
-		return b.aggregateTimeline.ordered()
+	system, gpu, workload := historyDomains(entities)
+	var result []aggregateTimelinePoint
+	if system {
+		result = b.systemAggregateTimeline.ordered()
 	}
+	if gpu {
+		result = mergeAggregateTimelinePoints(result, b.aggregateTimeline.ordered())
+	}
+	if workload {
+		result = mergeAggregateTimelinePoints(result, b.workloadAggregateTimeline.ordered())
+	}
+	return result
 }
 
 func mergeTimelineSamples(left, right []timelineSample) []timelineSample {

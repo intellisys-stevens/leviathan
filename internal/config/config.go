@@ -28,23 +28,31 @@ type UplinkConfig struct {
 	Interval  time.Duration `toml:"interval"`
 }
 
+type HealthConfig struct {
+	Enabled   bool   `toml:"enabled"`
+	Directory string `toml:"directory"`
+}
+
 type Config struct {
-	Interval          time.Duration `toml:"interval"`
-	ProfileInterval   time.Duration `toml:"profile_interval"`
-	ProcessInterval   time.Duration `toml:"process_interval"`
-	HistoryWindow     time.Duration `toml:"history_window"`
-	TopologyInterval  time.Duration `toml:"topology_interval"`
-	Provider          string        `toml:"provider"`
-	DCGMAddress       string        `toml:"dcgm_address"`
-	ShowCommandLine   bool          `toml:"show_command_line"`
-	NoProfile         bool          `toml:"no_profile"`
-	Listen            string        `toml:"listen"`
-	NoColor           bool          `toml:"no_color"`
-	ASCII             bool          `toml:"ascii"`
-	Fixture           string        `toml:"fixture"`
-	AttributionSocket string        `toml:"attribution_socket"`
-	Uplink            UplinkConfig  `toml:"uplink"`
-	ConfigFile        string        `toml:"-"`
+	Interval                  time.Duration `toml:"interval"`
+	ProfileInterval           time.Duration `toml:"profile_interval"`
+	ProcessInterval           time.Duration `toml:"process_interval"`
+	HistoryWindow             time.Duration `toml:"history_window"`
+	TopologyInterval          time.Duration `toml:"topology_interval"`
+	Provider                  string        `toml:"provider"`
+	DCGMAddress               string        `toml:"dcgm_address"`
+	ShowCommandLine           bool          `toml:"show_command_line"`
+	NoProfile                 bool          `toml:"no_profile"`
+	Listen                    string        `toml:"listen"`
+	NoColor                   bool          `toml:"no_color"`
+	ASCII                     bool          `toml:"ascii"`
+	Fixture                   string        `toml:"fixture"`
+	AttributionCheckpointPath string        `toml:"attribution_checkpoint_path"`
+	AttributionSocket         string        `toml:"attribution_socket"`
+	WorkloadTelemetry         bool          `toml:"workload_telemetry"`
+	Uplink                    UplinkConfig  `toml:"uplink"`
+	Health                    HealthConfig  `toml:"health"`
+	ConfigFile                string        `toml:"-"`
 }
 
 type fileDuration time.Duration
@@ -59,21 +67,24 @@ func (d *fileDuration) UnmarshalText(text []byte) error {
 }
 
 type fileConfig struct {
-	Interval          fileDuration     `toml:"interval"`
-	ProfileInterval   fileDuration     `toml:"profile_interval"`
-	ProcessInterval   fileDuration     `toml:"process_interval"`
-	HistoryWindow     fileDuration     `toml:"history_window"`
-	TopologyInterval  fileDuration     `toml:"topology_interval"`
-	Provider          string           `toml:"provider"`
-	DCGMAddress       string           `toml:"dcgm_address"`
-	ShowCommandLine   bool             `toml:"show_command_line"`
-	NoProfile         bool             `toml:"no_profile"`
-	Listen            string           `toml:"listen"`
-	NoColor           bool             `toml:"no_color"`
-	ASCII             bool             `toml:"ascii"`
-	Fixture           string           `toml:"fixture"`
-	AttributionSocket string           `toml:"attribution_socket"`
-	Uplink            fileUplinkConfig `toml:"uplink"`
+	Interval                  fileDuration     `toml:"interval"`
+	ProfileInterval           fileDuration     `toml:"profile_interval"`
+	ProcessInterval           fileDuration     `toml:"process_interval"`
+	HistoryWindow             fileDuration     `toml:"history_window"`
+	TopologyInterval          fileDuration     `toml:"topology_interval"`
+	Provider                  string           `toml:"provider"`
+	DCGMAddress               string           `toml:"dcgm_address"`
+	ShowCommandLine           bool             `toml:"show_command_line"`
+	NoProfile                 bool             `toml:"no_profile"`
+	Listen                    string           `toml:"listen"`
+	NoColor                   bool             `toml:"no_color"`
+	ASCII                     bool             `toml:"ascii"`
+	Fixture                   string           `toml:"fixture"`
+	AttributionCheckpointPath string           `toml:"attribution_checkpoint_path"`
+	AttributionSocket         string           `toml:"attribution_socket"`
+	WorkloadTelemetry         bool             `toml:"workload_telemetry"`
+	Uplink                    fileUplinkConfig `toml:"uplink"`
+	Health                    HealthConfig     `toml:"health"`
 }
 
 type fileUplinkConfig struct {
@@ -119,11 +130,13 @@ func ApplyEnv(cfg *Config) error {
 		}
 	}
 	stringsMap := map[string]*string{
-		"LEVIATHAN_PROVIDER":           &cfg.Provider,
-		"LEVIATHAN_DCGM_ADDRESS":       &cfg.DCGMAddress,
-		"LEVIATHAN_LISTEN":             &cfg.Listen,
-		"LEVIATHAN_FIXTURE":            &cfg.Fixture,
-		"LEVIATHAN_ATTRIBUTION_SOCKET": &cfg.AttributionSocket,
+		"LEVIATHAN_PROVIDER":                    &cfg.Provider,
+		"LEVIATHAN_DCGM_ADDRESS":                &cfg.DCGMAddress,
+		"LEVIATHAN_LISTEN":                      &cfg.Listen,
+		"LEVIATHAN_FIXTURE":                     &cfg.Fixture,
+		"LEVIATHAN_ATTRIBUTION_SOCKET":          &cfg.AttributionSocket,
+		"LEVIATHAN_ATTRIBUTION_CHECKPOINT_PATH": &cfg.AttributionCheckpointPath,
+		"LEVIATHAN_HEALTH_DIR":                  &cfg.Health.Directory,
 	}
 	for name, target := range stringsMap {
 		if value, ok := os.LookupEnv(name); ok {
@@ -131,10 +144,12 @@ func ApplyEnv(cfg *Config) error {
 		}
 	}
 	bools := map[string]*bool{
-		"LEVIATHAN_SHOW_COMMAND_LINE": &cfg.ShowCommandLine,
-		"LEVIATHAN_NO_PROFILE":        &cfg.NoProfile,
-		"LEVIATHAN_NO_COLOR":          &cfg.NoColor,
-		"LEVIATHAN_ASCII":             &cfg.ASCII,
+		"LEVIATHAN_SHOW_COMMAND_LINE":  &cfg.ShowCommandLine,
+		"LEVIATHAN_NO_PROFILE":         &cfg.NoProfile,
+		"LEVIATHAN_NO_COLOR":           &cfg.NoColor,
+		"LEVIATHAN_ASCII":              &cfg.ASCII,
+		"LEVIATHAN_HEALTH_ENABLED":     &cfg.Health.Enabled,
+		"LEVIATHAN_WORKLOAD_TELEMETRY": &cfg.WorkloadTelemetry,
 	}
 	for name, target := range bools {
 		if raw, ok := os.LookupEnv(name); ok {
@@ -157,7 +172,20 @@ func Defaults() Config {
 		HistoryWindow: 12 * time.Hour, TopologyInterval: 10 * time.Second,
 		Provider: "auto", DCGMAddress: "127.0.0.1:5555", Listen: DefaultListen,
 		Uplink: UplinkConfig{Interval: DefaultUplinkInterval},
+		Health: HealthConfig{Enabled: true, Directory: DefaultHealthDirectory()},
 	}
+}
+
+func DefaultHealthDirectory() string {
+	base := os.Getenv("XDG_STATE_HOME")
+	if !filepath.IsAbs(base) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		base = filepath.Join(home, ".local", "state")
+	}
+	return filepath.Join(base, "leviathan", "health-v1")
 }
 
 func DefaultPath() string {
@@ -187,8 +215,9 @@ func LoadFile(path string, cfg *Config) error {
 		Interval: fileDuration(cfg.Interval), ProfileInterval: fileDuration(cfg.ProfileInterval), ProcessInterval: fileDuration(cfg.ProcessInterval),
 		HistoryWindow: fileDuration(cfg.HistoryWindow), TopologyInterval: fileDuration(cfg.TopologyInterval),
 		Provider: cfg.Provider, DCGMAddress: cfg.DCGMAddress, ShowCommandLine: cfg.ShowCommandLine, NoProfile: cfg.NoProfile,
-		Listen: cfg.Listen, NoColor: cfg.NoColor, ASCII: cfg.ASCII, Fixture: cfg.Fixture, AttributionSocket: cfg.AttributionSocket,
+		Listen: cfg.Listen, NoColor: cfg.NoColor, ASCII: cfg.ASCII, Fixture: cfg.Fixture, AttributionSocket: cfg.AttributionSocket, AttributionCheckpointPath: cfg.AttributionCheckpointPath, WorkloadTelemetry: cfg.WorkloadTelemetry,
 		Uplink: fileUplinkConfig{Enabled: cfg.Uplink.Enabled, BaseURL: cfg.Uplink.BaseURL, TokenFile: cfg.Uplink.TokenFile, Interval: fileDuration(cfg.Uplink.Interval)},
+		Health: cfg.Health,
 	}
 	decoder := toml.NewDecoder(bytes.NewReader(data)).DisallowUnknownFields()
 	if err := decoder.Decode(&decoded); err != nil {
@@ -203,11 +232,28 @@ func LoadFile(path string, cfg *Config) error {
 		Enabled: decoded.Uplink.Enabled, BaseURL: decoded.Uplink.BaseURL, TokenFile: decoded.Uplink.TokenFile,
 		Interval: time.Duration(decoded.Uplink.Interval),
 	}
+	cfg.AttributionCheckpointPath = decoded.AttributionCheckpointPath
+	cfg.WorkloadTelemetry = decoded.WorkloadTelemetry
+	cfg.Health = decoded.Health
 	cfg.ConfigFile = path
 	return nil
 }
 
 func Validate(cfg Config) error {
+	if path := cfg.AttributionCheckpointPath; path != "" {
+		if cfg.AttributionSocket == "" {
+			return fmt.Errorf("attribution checkpoint requires an attribution socket")
+		}
+		if len(path) > 4096 || !filepath.IsAbs(path) || filepath.Clean(path) != path || strings.IndexFunc(path, unicode.IsControl) >= 0 {
+			return fmt.Errorf("attribution checkpoint must be an absolute clean path")
+		}
+	}
+	if cfg.WorkloadTelemetry && cfg.AttributionSocket == "" {
+		return fmt.Errorf("workload telemetry requires an attribution socket")
+	}
+	if cfg.Health.Directory != "" && (!filepath.IsAbs(cfg.Health.Directory) || filepath.Clean(cfg.Health.Directory) != cfg.Health.Directory) {
+		return fmt.Errorf("health directory must be an absolute clean path")
+	}
 	if cfg.Interval < 250*time.Millisecond || cfg.Interval > 60*time.Second {
 		return fmt.Errorf("interval must be between 250ms and 60s")
 	}

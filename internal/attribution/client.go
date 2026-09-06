@@ -42,6 +42,8 @@ type Client struct {
 
 	mu         sync.RWMutex
 	document   *Document
+	modern     *DocumentV2
+	failed     bool
 	receivedAt time.Time
 	cancel     context.CancelFunc
 	done       chan struct{}
@@ -118,16 +120,31 @@ func (c *Client) Close() {
 
 // Poll performs one bounded handoff request. It is exported for health checks
 // and deterministic tests; normal callers use Start.
-func (c *Client) Poll(ctx context.Context) error {
+func (c *Client) Poll(ctx context.Context) (pollErr error) {
 	c.pollMu.Lock()
 	defer c.pollMu.Unlock()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://unix/v1/allocations", nil)
+	defer func() {
+		if pollErr != nil {
+			c.mu.Lock()
+			c.failed = true
+			c.mu.Unlock()
+		}
+	}()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://unix/v2/allocations", nil)
 	if err != nil {
 		return err
 	}
 	response, err := c.http.Do(request)
 	if err != nil {
 		return fmt.Errorf("bridge request: %w", err)
+	}
+	if response.StatusCode == http.StatusNotFound {
+		response.Body.Close()
+		request.URL.Path = "/v1/allocations"
+		response, err = c.http.Do(request)
+		if err != nil {
+			return fmt.Errorf("bridge request: %w", err)
+		}
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
@@ -146,15 +163,21 @@ func (c *Client) Poll(ctx context.Context) error {
 	if int64(len(data)) > c.options.MaxDocumentBytes {
 		return errors.New("bridge response exceeds the configured limit")
 	}
-	var document Document
+	var modern DocumentV2
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	if err := decoder.Decode(&document); err != nil {
+	if err := decoder.Decode(&modern); err != nil {
 		return fmt.Errorf("decode bridge response: %w", err)
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return errors.New("bridge response contains trailing JSON")
 	}
-	if err := document.Validate(); err != nil {
+	document := modern.Document
+	isV2 := document.SchemaVersion == SchemaVersionV2
+	if isV2 {
+		if err := modern.Validate(); err != nil {
+			return err
+		}
+	} else if err := document.Validate(); err != nil {
 		return err
 	}
 	now := c.options.Now().UTC()
@@ -162,10 +185,23 @@ func (c *Client) Poll(ctx context.Context) error {
 		return errors.New("bridge response contains a future timestamp")
 	}
 	if !document.Status.HasValidInventory {
+		c.mu.Lock()
+		c.failed = true
+		c.mu.Unlock()
 		return nil
 	}
 	c.mu.Lock()
+	if previous := c.document; previous != nil && previous.InstanceID == document.InstanceID &&
+		(document.Revision < previous.Revision || document.SourceObservedAt.Before(previous.SourceObservedAt)) {
+		c.mu.Unlock()
+		return errors.New("bridge observation moved backwards")
+	}
 	c.document = &document
+	c.modern = nil
+	if isV2 {
+		c.modern = &modern
+	}
+	c.failed = false
 	c.receivedAt = now
 	c.mu.Unlock()
 	return nil
@@ -180,11 +216,21 @@ func (c *Client) Current(now time.Time) model.Attribution {
 // with its internal process-scope join. Scope references never leave the
 // attribution provider.
 func (c *Client) CurrentWithProcessScopes(now time.Time) (model.Attribution, map[string]string) {
+	value, scopes, modern := c.inventory(now)
+	if modern != nil && value.Resolution != nil {
+		for _, b := range modern.Bindings {
+			AddResolutionIssue(value.Resolution, b.WorkloadRef, "preparation_pending", 1)
+		}
+	}
+	return value, scopes
+}
+
+func (c *Client) inventory(now time.Time) (model.Attribution, map[string]string, *DocumentV2) {
 	c.mu.RLock()
-	document, receivedAt := c.document, c.receivedAt
+	document, modern, receivedAt, failed := c.document, c.modern, c.receivedAt, c.failed
 	c.mu.RUnlock()
 	if document == nil {
-		return emptyAttribution(), map[string]string{}
+		return emptyAttribution(), map[string]string{}, nil
 	}
 
 	freshAt := receivedAt
@@ -198,7 +244,7 @@ func (c *Client) CurrentWithProcessScopes(now time.Time) (model.Attribution, map
 	workloads := append([]model.WorkloadAttribution{}, document.Workloads...)
 	assignments := append([]model.ResourceAssignment{}, document.Assignments...)
 	if age >= c.options.ExpireAfter {
-		return emptyAttribution(), map[string]string{}
+		return emptyAttribution(), map[string]string{}, nil
 	}
 	processScopes := make(map[string]string, len(document.ProcessScopes))
 	for _, processScope := range document.ProcessScopes {
@@ -206,14 +252,25 @@ func (c *Client) CurrentWithProcessScopes(now time.Time) (model.Attribution, map
 	}
 
 	status := model.AttributionAvailable
-	if age >= c.options.StaleAfter {
+	if age >= c.options.StaleAfter || failed || document.Status.State != SourceAvailable {
 		status = model.AttributionStale
+	}
+	resolution := CompleteResolution()
+	if modern == nil {
+		resolution.Status = "unknown"
+		resolution.ReasonCodes = []string{"legacy_bridge"}
+	} else {
+		resolution = CloneResolution(modern.Resolution)
+	}
+	if status != model.AttributionAvailable {
+		resolution.Status = "unknown"
+		resolution.ReasonCodes = uniqueReason(resolution.ReasonCodes, "source_stale")
 	}
 	observedAt := document.SourceObservedAt.UTC()
 	return model.Attribution{
 		Provider: model.AttributionProviderKubernetesDRA, Status: status, ObservedAt: &observedAt,
-		Workloads: workloads, Assignments: assignments,
-	}, processScopes
+		Workloads: workloads, Assignments: assignments, Resolution: &resolution,
+	}, processScopes, modern
 }
 
 func emptyAttribution() model.Attribution {

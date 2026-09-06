@@ -12,6 +12,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 COPY internal/model/ ./internal/model/
 COPY internal/provider/*.go ./internal/provider/
 COPY internal/attribution/ ./internal/attribution/
+COPY internal/workload/ ./internal/workload/
 COPY internal/kubernetesbridge/ ./internal/kubernetesbridge/
 COPY cmd/leviathan-kubernetes-bridge/ ./cmd/leviathan-kubernetes-bridge/
 RUN --mount=type=cache,target=/go/pkg/mod \

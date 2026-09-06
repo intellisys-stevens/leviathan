@@ -333,7 +333,7 @@ describe('Leviathan brand assets', () => {
     const document = readFileSync(indexPath, 'utf8');
 
     expect(document).toContain('href="/leviathan-mark.svg"');
-    expect(document).toContain('<title>Leviathan · GPU monitor</title>');
+    expect(document).toContain('<title>Leviathan · Host monitor</title>');
     expect(document).not.toContain('miglens-mark');
   });
 });

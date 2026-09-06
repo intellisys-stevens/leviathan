@@ -1,0 +1,327 @@
+.gpu-card.accelerator-card {
+  --gpu-accent: #426800;
+  --gpu-edge: color-mix(in oklch, var(--gpu-accent) 32%, var(--border));
+  position: relative;
+  isolation: auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  color: var(--foreground);
+  background: var(--card);
+  border: 1px solid var(--gpu-edge);
+  border-radius: 10px;
+}
+.dark .gpu-card.accelerator-card {
+  --gpu-accent: #76b900;
+}
+.gpu-hardware-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 12px;
+  padding: 12px 16px 8px;
+}
+.gpu-hardware-heading {
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+  align-items: center;
+}
+.gpu-hardware-heading h3 {
+  font-size: 16px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.gpu-identity-icon {
+  color: var(--gpu-accent);
+  flex-shrink: 0;
+}
+.gpu-mode-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.accelerator-detail-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  margin-left: auto;
+  color: var(--gpu-accent);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.gpu-hardware-status {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.gpu-model-name {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.gpu-scene-area {
+  position: relative;
+  min-width: 0;
+}
+.gpu-instance-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 10px 16px 12px;
+}
+.gpu-ci-button,
+.gpu-full-chip-button {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--foreground);
+  background: var(--background);
+  cursor: pointer;
+  transition:
+    border-color 180ms,
+    background-color 180ms;
+}
+.gpu-full-chip-button,
+.accelerator-empty {
+  grid-column: 1 / -1;
+}
+.gpu-ci-identity {
+  font: 500 12px/1.4 var(--font-mono);
+  white-space: nowrap;
+}
+.gpu-allocation-label {
+  --gpu-allocation-color: var(--gpu-chip-unknown);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 2px 7px;
+  border: 1px solid
+    color-mix(in oklch, var(--gpu-allocation-color) 40%, transparent);
+  border-radius: 5px;
+  background: color-mix(in oklch, var(--gpu-allocation-color) 11%, transparent);
+  font-size: 12px;
+  color: var(--gpu-allocation-color);
+  line-height: 16px;
+  white-space: nowrap;
+}
+.gpu-allocation-label[data-allocation-state='assigned'] {
+  --gpu-allocation-color: var(--gpu-chip-assigned);
+}
+.gpu-allocation-label[data-allocation-state='unassigned'] {
+  --gpu-allocation-color: var(--gpu-chip-unassigned);
+}
+.gpu-allocation-label[data-allocation-state='reserved'] {
+  --gpu-allocation-color: var(--gpu-chip-reserved);
+}
+.gpu-allocation-label[data-allocation-state='unknown'] {
+  border-style: dashed;
+}
+.gpu-ci-button[data-highlighted],
+.gpu-full-chip-button[data-highlighted],
+.accelerator-detail-button:hover {
+  background: color-mix(in oklch, var(--gpu-accent) 10%, var(--card));
+  border-color: var(--gpu-accent);
+}
+.gpu-card button:focus-visible {
+  outline: 2px solid var(--gpu-accent);
+  outline-offset: 3px;
+}
+.accelerator-empty {
+  padding: 8px 0;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.gpu-chip-summary {
+  position: absolute;
+  z-index: 6;
+  top: 8px;
+  left: 12px;
+  max-width: 330px;
+  width: calc(100% - 24px);
+  padding: 10px 12px;
+  border: 1px solid var(--gpu-edge);
+  border-radius: 7px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 12%);
+  pointer-events: none;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.gpu-chip-summary-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.gpu-chip-summary-heading strong {
+  font-family: var(--font-mono);
+}
+.gpu-chip-summary > p {
+  color: var(--muted-foreground);
+}
+.gpu-chip-summary > p {
+  margin-top: 4px;
+}
+.gpu-chip-summary dl {
+  margin-top: 7px;
+  display: grid;
+  gap: 4px;
+}
+.gpu-chip-summary dl > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.gpu-chip-summary dd {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.gpu-chip-summary .gpu-chip-notice {
+  color: var(--destructive);
+}
+.gpu-board-fallback {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 12px;
+  color: var(--gpu-accent);
+}
+.gpu-fallback-board {
+  fill: #102b23;
+  stroke: #5c8067;
+  stroke-width: 1.4;
+}
+.gpu-fallback-metal {
+  fill: #9eaeb1;
+  stroke: #4c5d61;
+}
+.gpu-fallback-port,
+.gpu-fallback-memory {
+  fill: #141b22;
+  stroke: #63757a;
+}
+.gpu-fallback-power {
+  fill: #819096;
+  stroke: #40545a;
+}
+.gpu-fallback-gold {
+  fill: #caa458;
+  stroke: none;
+}
+.gpu-fallback-trace {
+  fill: none;
+  stroke: #547e57;
+  stroke-width: 1;
+}
+.gpu-fallback-socket {
+  fill: #354a3a;
+  stroke: #8ab957;
+}
+.gpu-fallback-chip {
+  fill: color-mix(in srgb, var(--gpu-chip-tone) var(--gpu-chip-fill), #1d2626);
+  stroke: var(--gpu-chip-tone);
+}
+.gpu-fallback-chip[data-allocation-state='unknown'] rect {
+  stroke-dasharray: 3 3;
+}
+.gpu-fallback-chip text {
+  fill: #f1f8ed;
+  stroke: none;
+  font: 11px var(--font-mono);
+}
+.gpu-fallback-chip[data-highlighted] rect {
+  stroke: var(--primary);
+  stroke-width: 3;
+  stroke-dasharray: none;
+}
+.gpu-fallback-inactive {
+  fill: #263332;
+  stroke: #5d756e;
+}
+@media (max-width: 639px) {
+  .gpu-hardware-header {
+    padding: 8px 12px 6px;
+    gap: 2px 8px;
+  }
+  .gpu-hardware-heading {
+    gap: 6px;
+  }
+  .gpu-hardware-status {
+    grid-row: 3;
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    margin-top: 6px;
+  }
+  .gpu-instance-controls {
+    padding-inline: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gpu-card *,
+  .gpu-card *::before,
+  .gpu-card *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+@media (forced-colors: active) {
+  .gpu-card.accelerator-card {
+    --gpu-accent: LinkText;
+    border-color: CanvasText;
+  }
+  .gpu-board-fallback * {
+    fill: Canvas;
+    stroke: CanvasText;
+  }
+  .gpu-board-fallback text {
+    fill: CanvasText;
+    stroke: none;
+  }
+  .gpu-fallback-chip[data-highlighted] rect {
+    fill: Highlight;
+    stroke: HighlightText;
+  }
+  .gpu-fallback-chip[data-highlighted] text {
+    fill: HighlightText;
+  }
+  .gpu-ci-button,
+  .gpu-full-chip-button {
+    border: 1px solid ButtonText;
+  }
+  .gpu-chip-summary {
+    border-color: CanvasText;
+  }
+  .gpu-allocation-label {
+    color: CanvasText;
+    background: Canvas;
+    border-color: CanvasText;
+  }
+  .gpu-fallback-chip rect {
+    fill: Canvas;
+    stroke: CanvasText;
+  }
+  .gpu-fallback-chip text {
+    fill: CanvasText;
+  }
+}

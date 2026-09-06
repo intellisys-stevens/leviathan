@@ -1,0 +1,164 @@
+/* Keep graphics in the page's scroll layer, with chrome and labels above them. */
+.workbench-view[data-view='resources'] {
+  animation: none;
+  transform: none;
+  view-transition-name: none;
+}
+
+.hardware-board-layer {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  overflow: clip;
+  pointer-events: none;
+}
+
+.hardware-board-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  pointer-events: none;
+}
+
+.hardware-board-view {
+  position: relative;
+  min-width: 0;
+}
+
+.hardware-board-viewport {
+  position: relative;
+  width: 100%;
+  height: 320px;
+  touch-action: pan-y pinch-zoom;
+  outline: none;
+}
+
+.hardware-board-viewport:focus-visible::after {
+  /* The shared canvas paints above the viewport, so lift only its focus frame. */
+  content: '';
+  position: absolute;
+  z-index: 6;
+  inset: 1px;
+  border: 2px solid var(--gpu-accent, var(--ring));
+  pointer-events: none;
+}
+
+.hardware-board-static {
+  position: absolute;
+  inset: 0;
+}
+
+.hardware-board-view[data-render-mode='webgl'] .hardware-board-static {
+  visibility: hidden;
+}
+
+.hardware-board-toolbar {
+  min-width: 0;
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 12px 10px 6px;
+}
+
+.hardware-board-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--foreground);
+  background: var(--card);
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    background-color 180ms ease-out,
+    border-color 180ms ease-out;
+}
+
+.hardware-board-toolbar button:not(:disabled):is(:hover, :focus-visible),
+.hardware-board-toolbar button[aria-pressed='true'] {
+  border-color: var(--gpu-accent, var(--ring));
+  background: color-mix(
+    in oklch,
+    var(--gpu-accent, var(--ring)) 8%,
+    var(--card)
+  );
+}
+
+.hardware-board-toolbar button:focus-visible {
+  outline: 2px solid var(--gpu-accent, var(--ring));
+  outline-offset: 2px;
+}
+
+.hardware-board-toolbar button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.hardware-board-toolbar svg {
+  flex-shrink: 0;
+}
+.hardware-board-render-status {
+  position: absolute;
+  z-index: 6;
+  bottom: 8px;
+  left: 12px;
+  max-width: calc(100% - 24px);
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  background: var(--card);
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+@media (max-width: 767px) {
+  .hardware-board-viewport {
+    height: 280px;
+  }
+  .hardware-board-toolbar {
+    gap: 5px;
+    padding-inline: 8px;
+  }
+  .hardware-board-toolbar button {
+    padding-inline: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hardware-board-view,
+  .hardware-board-view * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .hardware-board-canvas {
+    display: none;
+  }
+  .hardware-board-view[data-render-mode='webgl'] .hardware-board-static {
+    visibility: visible;
+  }
+  .hardware-board-toolbar button {
+    border-color: ButtonText;
+  }
+  .hardware-board-viewport:focus-visible::after {
+    border-color: Highlight;
+  }
+  .hardware-board-toolbar button:focus-visible {
+    outline-color: Highlight;
+  }
+}

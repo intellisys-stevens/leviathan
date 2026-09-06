@@ -186,6 +186,29 @@ function deferred<T>() {
 }
 
 describe('detail sheet presentation', () => {
+  it.each([physicalSelection, computeSelection])(
+    'uses the physical GPU brand for physical and MIG inspection',
+    async (createSelection) => {
+      const selection = createSelection();
+      selection.gpu.name = 'NVIDIA RTX PRO 6000';
+      render(
+        <DetailSheet
+          selection={selection}
+          open
+          onOpenChange={() => undefined}
+          loadHistory={vi.fn().mockResolvedValue(history())}
+          chartWindowMs={30 * 60 * 1000}
+          retentionMs={60 * 60 * 1000}
+          onChartWindowChange={() => undefined}
+        />,
+      );
+      const dialog = await screen.findByRole('dialog');
+      expect(
+        dialog.querySelector('.mobile-detail-sheet-header svg'),
+      ).toHaveAttribute('data-gpu-brand', 'nvidia');
+    },
+  );
+
   it('uses one resource heading and concise profile metadata', async () => {
     const loadHistory = vi.fn().mockResolvedValue(history());
     render(
@@ -267,6 +290,35 @@ describe('detail sheet presentation', () => {
     ).toHaveLength(1);
   });
 
+  it('labels a MIG parent as the physical GPU instead of an undivided full GPU', async () => {
+    const selection = computeSelection();
+    const loadHistory = vi.fn().mockResolvedValue(history());
+    render(
+      <DetailSheet
+        selection={{ kind: 'physical_gpu', gpu: selection.gpu }}
+        open
+        onOpenChange={() => undefined}
+        loadHistory={loadHistory}
+        chartWindowMs={30 * 60 * 1000}
+        retentionMs={60 * 60 * 1000}
+        onChartWindowChange={() => undefined}
+      />,
+    );
+    const dialog = await screen.findByRole('dialog');
+    expect(
+      within(dialog).getByRole('heading', { name: 'GPU 0 · Physical GPU' }),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText('MIG enabled')).toBeInTheDocument();
+    expect(within(dialog).getByText('Physical GPU memory')).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('progressbar', {
+        name: 'Physical GPU memory used',
+      }),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByText('Full GPU')).toBeNull();
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledOnce());
+  });
+
   it('omits metric provenance footers and the PCIe explanatory sentence', async () => {
     const loadHistory = vi.fn().mockResolvedValue(history());
     render(
@@ -303,7 +355,8 @@ describe('detail sheet presentation', () => {
       within(dialog).getByTestId('detail-history-chart'),
       within(dialog).getByTestId('detail-pcie-chart'),
     ]) {
-      expect(chart).toHaveClass('detail-chart-frame', 'h-[216px]', 'md:h-56');
+      expect(chart).toHaveClass('detail-chart-frame', 'compact-chart-plot');
+      expect(chart).toHaveAttribute('tabindex', '0');
       expect(chart.querySelector('[data-chart-curve="linear"]')).not.toBeNull();
     }
 

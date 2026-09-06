@@ -2,7 +2,7 @@
 
 <h1><img src="web/public/leviathan-mark.svg" alt="Leviathan frost-dragon mark" width="48" height="48" valign="middle"> Leviathan</h1>
 
-**Whole-machine Linux monitoring with MIG-first NVIDIA GPU visibility.**
+**Whole-machine Linux monitoring for CPU, RAM, storage, and NVIDIA GPUs.**
 
 [![CI](https://github.com/intellisys-stevens/leviathan/actions/workflows/ci.yml/badge.svg)](https://github.com/intellisys-stevens/leviathan/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/intellisys-stevens/leviathan?display_name=tag&color=14b8a6)](https://github.com/intellisys-stevens/leviathan/releases/latest)
@@ -21,41 +21,29 @@ scheduler-authoritative workspace assignments.
 
 ## ✨ Highlights
 
-- MIG-aware topology, profiles, memory, activity, and parent-GPU telemetry.
-- Host-wide CPU utilization and load, RAM capacity/utilization, aggregate disk
-  throughput, and sanitized per-filesystem capacity from procfs and statfs.
-- Independent system and GPU workers: CPU-only hosts remain operational, and a
-  failed GPU sample does not stop host telemetry publication.
-- NVML GPM with optional DCGM fallback, including exact PCIe transfer rates.
-- Four-view browser workbench for Overview, Resources, Workloads, and Operations,
-  with a mobile-native layout and accessible dark/light themes.
-- Optional Coder workspace attribution through Kubernetes DRA.
-- Explicit unavailable, stale, permission-denied, and error states—never fake zeros.
-- GPU-connected processes visible in the current PID namespace, with optional
-  Coder workspace labels and no container-runtime socket.
-- Twelve-hour bounded in-memory host and GPU history: the latest hour stays at
-  collector cadence, while older 4h/12h views use gap-preserving compact trends.
-  Browser view updates are local to each operator and do not change host
-  sampling.
+- CPU, RAM, storage, and NVIDIA GPU monitoring, including CPU-only hosts.
+- MIG topology and GPU activity, memory, and PCIe transfer metrics.
+- Responsive dashboard with interactive GPU views, dark/light themes, and keyboard navigation.
+- Optional Coder/Kubernetes attribution and [per-owner resource charts](docs/workload-telemetry.md).
+- Twelve-hour telemetry history and 90-day persistent health records.
 
 ## 🚀 Quick start
 
 ### Standalone monitoring
 
-This one-line installer installs Leviathan and its updater for your current user:
+To install the published 0.3.2 standalone GPU monitor for your current user:
 
 ```bash
-curl -fsSL https://github.com/intellisys-stevens/leviathan/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/intellisys-stevens/leviathan/releases/download/v0.3.2/install.sh | sh -s -- --version v0.3.2
 leviathan serve
 ```
 
 Open [http://127.0.0.1:1397](http://127.0.0.1:1397). The installer uses
-`~/.local/bin` without `sudo` and prints PATH guidance when needed. The updater
-remains unconfigured until this host is connected to Yggdrasil. To install
-only Leviathan, append `-s -- --without-updater` after `sh`.
+`~/.local/bin` without `sudo` and prints PATH guidance when needed. See
+[Development](#development) to build the 0.4.0 source features before release.
 
-No GPU is required for host monitoring. To preview GPU/MIG views with fixture
-data:
+In 0.4.0, no GPU is required for host monitoring. To preview GPU/MIG views with
+fixture data:
 
 ```bash
 leviathan --fixture blackwell serve
@@ -63,34 +51,27 @@ leviathan --fixture blackwell serve
 
 ### Managed through Yggdrasil
 
-1. In Yggdrasil, select the host and open **Install Leviathan and updater**.
-2. Select the initial stable release and choose **Copy install command**.
-3. Run the command on that host within 15 minutes, using root or sudo.
+1. Ensure the host is in Yggdrasil inventory and the
+   [central prerequisites](docs/managed-updates.md#prerequisites) are ready.
+2. As an administrator, select the host → **Install Leviathan and updater** →
+   initial stable release → **Copy install command**.
+3. Run the command on that host with root or sudo within 15 minutes. Confirm
+   setup success and that the updater is online in Yggdrasil.
 
-The command installs both components, generates configuration, enrolls the host,
-starts the services, and reports readiness in Yggdrasil. No manual JSON, release
-hashes, signing-key files, network ranges, Python or GitHub CLI are needed on
-the host. A sudo password prompt may still appear.
-
-An existing supported service keeps its version, user and configuration.
-Adopting an existing preview requires the explicit checkbox in Yggdrasil; it
-never downgrades the host. Repeat the same command to resume an interrupted
-setup. Later version updates still require an explicit request in Yggdrasil.
-
-This requires the setup endpoints and a compatible signed stable release.
-See [managed installation](docs/managed-updates.md) for requirements, recovery
-and the retained advanced installer flags.
+Fresh-host telemetry upload and remote viewing need separate provisioning;
+later version changes require an explicit request. See
+[setup, recovery and automation scope](docs/managed-updates.md).
 
 ## 🧭 Interfaces
 
-| Command | Purpose |
-| --- | --- |
-| `leviathan` or `leviathan tui` | Interactive terminal monitor |
-| `leviathan snapshot -f table\|json` | One current snapshot |
-| `leviathan watch -f table\|jsonl` | Continuous scriptable output |
-| `leviathan serve` | Local dashboard on `127.0.0.1:1397` |
+| Command                                          | Purpose                                                    |
+| ------------------------------------------------ | ---------------------------------------------------------- |
+| `leviathan` or `leviathan tui`                   | Interactive terminal monitor                               |
+| `leviathan snapshot -f table\|json`              | One current snapshot                                       |
+| `leviathan watch -f table\|jsonl`                | Continuous scriptable output                               |
+| `leviathan serve`                                | Local dashboard on `127.0.0.1:1397`                        |
 | `leviathan doctor -f text\|json [--require-gpu]` | Capability and permission report; optionally require a GPU |
-| `leviathan version` | Version, commit, and build time |
+| `leviathan version`                              | Version, commit, and build time                            |
 
 The TUI supports arrows or `j`/`k`, `Tab`, `/`, `Enter`, `p`, `?`, and `q`.
 Use `NO_COLOR=1`, `--no-color`, or `--ascii` for terminal fallbacks.
@@ -114,7 +95,7 @@ prerequisites, RBAC, privacy, limits, and rollback.
 ## 🔐 Security and privacy
 
 Leviathan is read-only, exposes no GPU mutation endpoint, and refuses
-non-loopback dashboard addresses. Local history stays in memory; the optional
+non-loopback dashboard addresses. Local metric history stays in memory; the optional
 uplink sends only a sanitized machine observation. Command arguments are hidden
 unless explicitly enabled. Review the [security and privacy model](docs/security-and-privacy.md),
 [process permissions](docs/permissions.md), and [security policy](SECURITY.md)
@@ -136,6 +117,7 @@ credential file.
 
 | Topic | Reference |
 | --- | --- |
+| Browser workbench | [docs/browser-workbench.md](docs/browser-workbench.md) |
 | Deployment and remote access | [docs/deployment.md](docs/deployment.md) |
 | Architecture and metric semantics | [docs/architecture.md](docs/architecture.md) |
 | Host CPU, RAM, and storage telemetry | [docs/host-monitoring.md](docs/host-monitoring.md) |
@@ -150,6 +132,8 @@ credential file.
 | Yggdrasil-owned uplink contract vendor | [api/uplink-v1-openapi.yaml](api/uplink-v1-openapi.yaml) |
 | Development workflow | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Security boundary | [SECURITY.md](SECURITY.md) |
+
+<a id="development"></a>
 
 ## 🧑‍💻 Development
 

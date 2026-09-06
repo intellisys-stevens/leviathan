@@ -1,28 +1,13 @@
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
-import {
-  AlertTriangle,
-  ChevronDown,
-  Ellipsis,
-  ExternalLink,
-  Moon,
-  Sun,
-} from 'lucide-react';
+import { AlertTriangle, ChevronDown, Moon, Sun } from 'lucide-react';
 import { memo } from 'react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { formatSamplingInterval } from '../chart-window';
-import {
-  accessibleDisplayCadenceLabel,
-  availableDisplayCadenceOptions,
-  effectiveDisplayCadenceOption,
-  visibleDisplayCadenceLabel,
-} from '../display-cadence';
+import { displayCadencePresets } from '../display-cadence';
 import type { RuntimeSettings } from '../types';
 import { useMediaQuery } from '../use-media-query';
 import type { ConnectionState } from '../use-leviathan';
-import {
-  SegmentedControl,
-  type SegmentedControlOption,
-} from './segmented-control';
+import { SegmentedControl } from './segmented-control';
 
 type Props = {
   hostname?: string;
@@ -30,18 +15,11 @@ type Props = {
   degraded: boolean;
   settings: RuntimeSettings | null;
   settingsError?: string | null;
-  theme: 'dark' | 'light';
   displayCadenceMs: number;
   onDisplayCadenceChange: (milliseconds: number) => void;
+  theme: 'dark' | 'light';
   onRetrySettings?: () => void;
   onToggleTheme: () => void;
-};
-
-type ViewCadenceChoicesProps = {
-  current: number;
-  hostSamplingIntervalMs?: number | null;
-  mobile?: boolean;
-  onSelect: (milliseconds: number) => void;
 };
 
 function GitHubMark() {
@@ -61,44 +39,15 @@ function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-function ViewCadenceChoices({
-  current,
-  hostSamplingIntervalMs,
-  mobile = false,
-  onSelect,
-}: ViewCadenceChoicesProps) {
-  const options: SegmentedControlOption<number>[] =
-    availableDisplayCadenceOptions(hostSamplingIntervalMs).map(
-      (milliseconds) => ({
-        value: milliseconds,
-        label: visibleDisplayCadenceLabel(milliseconds, hostSamplingIntervalMs),
-        ariaLabel: accessibleDisplayCadenceLabel(
-          milliseconds,
-          hostSamplingIntervalMs,
-        ),
-      }),
-    );
-
-  return (
-    <SegmentedControl
-      ariaLabel="View updates"
-      className={mobile ? 'w-full' : ''}
-      options={options}
-      value={effectiveDisplayCadenceOption(current, hostSamplingIntervalMs)}
-      onValueChange={onSelect}
-    />
-  );
-}
-
 function StatusHeaderComponent({
   hostname,
   connection,
   degraded,
   settings,
   settingsError = null,
-  theme,
   displayCadenceMs,
   onDisplayCadenceChange,
+  theme,
   onRetrySettings,
   onToggleTheme,
 }: Props) {
@@ -113,18 +62,7 @@ function StatusHeaderComponent({
     : titleCase(connection);
   const healthy = live && !degraded;
   const hostSamplingIntervalMs = settings?.samplingIntervalMs;
-  const displayedCadenceOption = effectiveDisplayCadenceOption(
-    displayCadenceMs,
-    hostSamplingIntervalMs,
-  );
-  const displayedCadenceText = visibleDisplayCadenceLabel(
-    displayedCadenceOption,
-    hostSamplingIntervalMs,
-  );
-  const displayedCadenceAccessibleLabel = accessibleDisplayCadenceLabel(
-    displayedCadenceOption,
-    hostSamplingIntervalMs,
-  );
+  const displayedCadenceText = formatSamplingInterval(displayCadenceMs);
   const hostSamplingText =
     hostSamplingIntervalMs == null
       ? 'unavailable'
@@ -157,7 +95,7 @@ function StatusHeaderComponent({
 
   return (
     <header className="leviathan-header sticky top-0 z-30 border-b border-input bg-background/95 backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-[1680px] items-center justify-between gap-2 px-3 sm:gap-3 sm:px-6">
+      <div className="leviathan-header-inner mx-auto flex min-h-16 max-w-[1680px] flex-wrap items-center justify-between gap-2 px-3 py-2 sm:gap-3 sm:px-6">
         <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
           <span
             className="leviathan-mark size-8 shrink-0 bg-primary md:size-10"
@@ -170,7 +108,7 @@ function StatusHeaderComponent({
             data-testid="leviathan-header-mark"
           />
           <div className="min-w-0">
-            <p className="text-[15px] font-semibold tracking-tight">
+            <p className="leviathan-wordmark text-[15px] font-semibold tracking-tight">
               Leviathan
             </p>
             <p className="hidden truncate font-mono text-[13px] uppercase tracking-[0.12em] text-muted-foreground md:block">
@@ -179,14 +117,14 @@ function StatusHeaderComponent({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="leviathan-header-actions ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
           <div
             className="relative hidden md:block"
             data-testid="desktop-live-sampling"
           >
-            <fieldset
+            <div
               className="flex h-8 items-center gap-2 border-0 p-0"
-              aria-label="Live status and view updates"
+              title={`${cadenceTitle}. Browser view updates ${displayedCadenceText}.`}
             >
               <output
                 className={`flex h-full items-center gap-1.5 font-mono text-[13px] font-semibold ${healthy ? 'text-foreground' : 'text-amber-700 dark:text-amber-300'}`}
@@ -196,17 +134,13 @@ function StatusHeaderComponent({
                 {indicator}
                 {statusName}
               </output>
-              <div
-                className="flex items-center gap-2"
-                title={`${cadenceTitle}. Browser view updates ${displayedCadenceAccessibleLabel}.`}
-              >
-                <ViewCadenceChoices
-                  current={displayCadenceMs}
-                  hostSamplingIntervalMs={hostSamplingIntervalMs}
-                  onSelect={onDisplayCadenceChange}
-                />
-              </div>
-            </fieldset>
+              <SegmentedControl
+                ariaLabel="View updates"
+                options={displayCadencePresets}
+                value={displayCadenceMs}
+                onValueChange={onDisplayCadenceChange}
+              />
+            </div>
             {settingsError ? (
               <output
                 role="alert"
@@ -233,8 +167,8 @@ function StatusHeaderComponent({
           <div className="md:hidden" data-testid="mobile-live-sampling">
             <PopoverPrimitive.Root key={desktop ? 'desktop' : 'mobile'}>
               <PopoverPrimitive.Trigger
-                className="flex size-10 items-center justify-center gap-1.5 rounded-md border border-input bg-popover px-2 font-mono text-[13px] font-semibold text-foreground shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label={`${statusName} status, view updates ${displayedCadenceAccessibleLabel}`}
+                className="mobile-status-trigger flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-md border border-input bg-popover px-2 font-mono text-[13px] font-semibold text-foreground shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={`${statusName} status, view updates ${displayedCadenceText}`}
               >
                 {indicator}
                 <span className="whitespace-nowrap">
@@ -251,17 +185,14 @@ function StatusHeaderComponent({
                   className="z-50"
                 >
                   <PopoverPrimitive.Popup className="motion-popover w-[min(18rem,calc(100vw-2rem))] origin-[var(--transform-origin)] rounded-lg border border-input bg-popover p-3 text-popover-foreground shadow-2xl outline-none data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0">
-                    <div className="mb-3 flex items-start justify-between gap-3">
+                    <div className="flex items-start justify-between gap-3">
                       <div>
                         <PopoverPrimitive.Title className="text-sm font-semibold">
                           View updates
                         </PopoverPrimitive.Title>
-                        <PopoverPrimitive.Description className="mt-0.5 text-[13px] text-muted-foreground">
-                          This browser updates{' '}
-                          {displayedCadenceAccessibleLabel.toLowerCase()}.
-                          {' · '}
-                          {cadenceTitle}.
-                        </PopoverPrimitive.Description>
+                        <p className="mt-1 break-all text-xs text-muted-foreground">
+                          {hostname || 'This host'}
+                        </p>
                       </div>
                       <span
                         className={`flex items-center gap-1 font-mono text-[13px] ${healthy ? 'text-foreground' : 'text-amber-700 dark:text-amber-300'}`}
@@ -270,12 +201,14 @@ function StatusHeaderComponent({
                         {statusName}
                       </span>
                     </div>
-                    <div className="relative">
-                      <ViewCadenceChoices
-                        current={displayCadenceMs}
-                        hostSamplingIntervalMs={hostSamplingIntervalMs}
-                        mobile
-                        onSelect={onDisplayCadenceChange}
+                    <div className="relative mt-3">
+                      <SegmentedControl
+                        ariaLabel="View updates"
+                        options={displayCadencePresets}
+                        value={displayCadenceMs}
+                        onValueChange={onDisplayCadenceChange}
+                        className="w-full"
+                        itemClassName="min-h-11 min-w-11"
                       />
                       {settingsError ? (
                         <output
@@ -305,12 +238,12 @@ function StatusHeaderComponent({
             </PopoverPrimitive.Root>
           </div>
 
-          <div className="hidden items-center gap-1 md:flex">
+          <div className="flex items-center gap-2">
             <a
               href="https://github.com/intellisys-stevens/leviathan"
               target="_blank"
               rel="noreferrer"
-              className={buttonVariants({ variant: 'ghost', size: 'icon' })}
+              className={`${buttonVariants({ variant: 'ghost', size: 'icon' })} min-h-11 min-w-11`}
               aria-label="Open Leviathan repository on GitHub"
               title="Leviathan on GitHub"
             >
@@ -321,6 +254,7 @@ function StatusHeaderComponent({
               type="button"
               variant="ghost"
               size="icon"
+              className="min-h-11 min-w-11"
               onClick={onToggleTheme}
               aria-label={`Use ${theme === 'dark' ? 'light' : 'dark'} theme`}
             >
@@ -329,60 +263,6 @@ function StatusHeaderComponent({
                 <Moon data-active={theme === 'light'} />
               </span>
             </Button>
-          </div>
-
-          <div className="mobile-header-more md:hidden">
-            <PopoverPrimitive.Root key={desktop ? 'desktop' : 'mobile'}>
-              <PopoverPrimitive.Trigger
-                className={`${buttonVariants({ variant: 'ghost', size: 'icon' })} size-10`}
-                aria-label="Open app menu"
-              >
-                <Ellipsis className="size-5" aria-hidden="true" />
-              </PopoverPrimitive.Trigger>
-              <PopoverPrimitive.Portal>
-                <PopoverPrimitive.Positioner
-                  side="bottom"
-                  align="end"
-                  sideOffset={8}
-                  className="z-50"
-                >
-                  <PopoverPrimitive.Popup className="motion-popover w-[min(15rem,calc(100vw-1.5rem))] origin-[var(--transform-origin)] rounded-xl border border-input bg-popover p-2 text-popover-foreground shadow-2xl outline-none data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0">
-                    <PopoverPrimitive.Title className="sr-only">
-                      App menu
-                    </PopoverPrimitive.Title>
-                    <div className="grid gap-1">
-                      <a
-                        href="https://github.com/intellisys-stevens/leviathan"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
-                        aria-label="Open Leviathan repository on GitHub"
-                      >
-                        <GitHubMark />
-                        <span className="flex-1">GitHub Repo</span>
-                        <ExternalLink
-                          className="size-3.5 text-muted-foreground"
-                          aria-hidden="true"
-                        />
-                      </a>
-                      <button
-                        type="button"
-                        className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-left text-sm font-medium outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
-                        onClick={onToggleTheme}
-                        aria-label={`Use ${theme === 'dark' ? 'light' : 'dark'} theme`}
-                      >
-                        {theme === 'dark' ? (
-                          <Sun className="size-4" aria-hidden="true" />
-                        ) : (
-                          <Moon className="size-4" aria-hidden="true" />
-                        )}
-                        {theme === 'dark' ? 'Light Theme' : 'Dark Theme'}
-                      </button>
-                    </div>
-                  </PopoverPrimitive.Popup>
-                </PopoverPrimitive.Positioner>
-              </PopoverPrimitive.Portal>
-            </PopoverPrimitive.Root>
           </div>
         </div>
       </div>

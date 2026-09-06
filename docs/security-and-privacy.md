@@ -24,12 +24,31 @@ concise GPU/GI/CI numbers.
 
 ## 🧠 Telemetry and retention
 
-Host and GPU samples and local chart history remain in memory and are discarded
+Host, GPU, and optional owner samples and local chart history remain in memory and are discarded
 on restart.
 By default the latest hour is retained at collector cadence and older data is
 held as bounded, gap-preserving aggregate trends for up to twelve hours.
 Unavailable, stale, permission-denied, and failed measurements remain explicit;
 Leviathan does not substitute fabricated zeros.
+
+`serve` also retains one telemetry health observation per UTC minute for ninety
+UTC dates, including today. This separate journal contains only timestamps and
+component states; it never stores process, user, workspace, device, or diagnostic
+details. Host uptime is read separately from `/proc/uptime`; monitor runtime uses
+the process monotonic clock so clock corrections cannot alter elapsed time. The status panel's
+healthy-observation percentage excludes unknown and unsupported samples, with
+observation coverage reported separately. It is not external service availability
+or an uptime SLA, and outages between minute samples may be missed.
+
+Journals use private `0700` directories and `0600` regular files with a single
+writer lock. They survive restart, preserve unobserved minutes as unknown, and
+remove expired daily files. The default directory is
+`$XDG_STATE_HOME/leviathan/health-v1` or `~/.local/state/leviathan/health-v1`.
+Disable saving with `--health-history=false`; fake providers and fixtures always
+keep observations in memory. A storage failure leaves live monitoring available
+and is exposed by `/api/v1/status` as `persistence.saving=false`. Correct the
+reported storage issue and restart to resume saving. Local health history is
+never added to the Yggdrasil uplink contract.
 
 The browser API is loopback-only and returns security headers that deny framing,
 cross-origin dependencies, and active third-party content. An SSH or Tailnet
@@ -75,6 +94,15 @@ ResourceSlices and Coder-labeled ResourceClaims through least-privilege
 Kubernetes RBAC, then publishes sanitized assignments over a root-only Unix
 socket. The host service receives no Kubernetes credential and does not read
 Pods, Secrets, logs, exec data, or container-runtime metadata.
+
+The opt-in workload inventory adds namespace-scoped Pod `get/list/watch` to the
+bridge only. Requests select this node's Coder Pods and require metadata-only
+responses; full Pod fallback is rejected. The private `/v1/workloads` handoff
+contains sanitized owner/workspace identities and hashed Pod scopes. The host
+reads inclusive Pod cgroup counters without a runtime socket. Public owner
+telemetry excludes raw Pod UIDs, namespace names, cgroup paths, and device paths;
+the locked Yggdrasil upload excludes it entirely. See
+[Per-owner host telemetry](workload-telemetry.md) for bounds and failure behavior.
 
 When attribution is enabled, Leviathan reads a detected GPU client's cgroup path
 only to perform a one-way workspace join. The resulting label identifies

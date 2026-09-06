@@ -20,3 +20,6 @@ type Provider interface {
 	Capabilities() model.Capabilities
 	Close() error
 }
+
+// TopologyRefresher coalesces allocation-driven rescans into the next sample.
+type TopologyRefresher interface{ RefreshTopology() }

@@ -49,6 +49,9 @@ spec:
             - --node-name=$(NODE_NAME)
             - --namespaces={{ join "," .Values.workspaceNamespaces }}
             - --driver={{ .Values.driver }}
+            {{- if .Values.workloadInventory.enabled }}
+            - --workload-inventory
+            {{- end }}
           env:
             - name: NODE_NAME
               valueFrom:

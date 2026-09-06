@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { AlertTriangle, CheckCircle2, CircleX } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CircleX, Info } from 'lucide-react';
 import { shortUUID } from '../lib';
 import type { Diagnostic } from '../types';
 
@@ -38,22 +38,26 @@ export function groupDiagnostics(diagnostics: Diagnostic[]): DiagnosticGroup[] {
 
 function DiagnosticsPanelComponent({
   diagnostics,
+  title = 'Diagnostic details',
+  headingId = 'diagnostics-heading',
 }: {
   diagnostics: Diagnostic[];
+  title?: string;
+  headingId?: string;
 }) {
   const groups = groupDiagnostics(diagnostics);
   return (
     <section
       className="frost-panel border border-border/75 bg-card/90"
-      aria-labelledby="diagnostics-heading"
+      aria-labelledby={headingId}
     >
       <div className="border-b border-border/70 p-4">
         <h2
-          id="diagnostics-heading"
+          id={headingId}
           tabIndex={-1}
           className="scroll-mt-36 text-xl font-semibold tracking-[-0.018em] outline-none"
         >
-          Diagnostics
+          {title}
         </h2>
       </div>
       {groups.length === 0 ? (
@@ -64,19 +68,25 @@ function DiagnosticsPanelComponent({
         <ul className="divide-y divide-border/70">
           {groups.map(({ diagnostic, components, details }) => (
             <li
-              key={`${diagnostic.code}-${diagnostic.status}-${diagnostic.summary}-${diagnostic.remedy || ''}`}
+              key={`${diagnostic.code}-${diagnostic.severity}-${diagnostic.status === 'unsupported' ? 'No data' : diagnostic.status}-${diagnostic.summary}-${diagnostic.remedy || ''}`}
               className="flex gap-3 p-4"
             >
               {diagnostic.severity === 'error' ? (
                 <CircleX className="mt-0.5 size-4 shrink-0 text-destructive" />
+              ) : diagnostic.severity === 'info' ? (
+                <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
               ) : (
                 <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-300" />
               )}
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="text-sm font-medium">{diagnostic.summary}</p>
-                  <span className="font-mono text-[13px] uppercase text-amber-700 dark:text-amber-300">
-                    {diagnostic.status}
+                  <span
+                    className={`font-mono text-xs ${diagnostic.severity === 'info' ? 'text-muted-foreground' : diagnostic.severity === 'error' ? 'text-destructive' : 'text-amber-700 dark:text-amber-300'}`}
+                  >
+                    {diagnostic.status === 'unsupported'
+                      ? 'No data'
+                      : diagnostic.status}
                   </span>
                 </div>
                 <p className="mt-0.5 text-sm text-muted-foreground">

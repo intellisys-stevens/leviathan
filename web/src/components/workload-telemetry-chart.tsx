@@ -1,8 +1,25 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { SampledLine } from './sampled-line';
+import {
+  ChartRenderBoundary,
+  useChartVisibility,
+} from './chart-render-boundary';
+import { useOwnerHistory } from '../owner-history';
+import type { WorkloadOwnerTelemetry } from '../types';
+import type { ConnectionState } from '../use-leviathan';
+import { OwnerTelemetryPanel } from './owner-telemetry-chart';
+import { TimeAxisTick, StackedRateAxisTick } from './chart-axis-ticks';
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react';
 import {
   CartesianGrid,
-  Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -19,6 +36,11 @@ import {
 } from '../use-history-refresh';
 import { useTrendCeiling } from '../use-trend-ceiling';
 import {
+  formatAxisByteRate,
+  formatAxisTime,
+  useChartAxisGeometry,
+} from '../use-chart-axis-geometry';
+import {
   currentWorkloadRow,
   loadWorkloadHistory,
   mergeWorkloadRows,
@@ -32,7 +54,15 @@ import {
   chartTooltipPortalWrapperStyle,
 } from './chart-tooltip-portal';
 import { ChartWindowControl } from './chart-window-control';
+import { useChartLegendStrip } from './chart-legend-strip';
 import { MetricIcon, type MetricVisualKey } from './metric-icon';
+import {
+  ChartSelectionReadout,
+  compactChartValue,
+  useChartSelection,
+} from './chart-interaction';
+
+type PlotEntity = Omit<WorkloadTelemetryEntity, 'source'>;
 
 type TelemetryMetric = Exclude<keyof WorkloadHistoryKeys, 'descriptor'>;
 type TelemetryUnit = 'percent' | 'bytes_per_second';
@@ -49,6 +79,8 @@ type Props = {
   ownerName: string;
   sampledAt: string;
   entities: readonly WorkloadTelemetryEntity[];
+  ownerTelemetry?: WorkloadOwnerTelemetry;
+  connection?: ConnectionState;
   loadHistory: LoadAlignedHistory;
   chartWindowMs: number;
   retentionMs: number;
@@ -84,25 +116,25 @@ const dashPatterns = ['', '7 3', '2 3', '10 3 2 3', '5 3 1 3', '1 3'];
 const telemetryDefinitions: readonly TelemetryDefinition[] = [
   {
     metric: 'activity',
-    title: 'Activity',
+    title: 'GPU activity',
     icon: 'gpu_activity',
     unit: 'percent',
   },
   {
     metric: 'memory',
-    title: 'Memory usage',
+    title: 'GPU memory used',
     icon: 'memory',
     unit: 'percent',
   },
   {
     metric: 'memoryActivity',
-    title: 'Memory activity',
+    title: 'GPU memory activity',
     icon: 'memory_activity',
     unit: 'percent',
   },
   {
     metric: 'pcieTotal',
-    title: 'PCIe transfer',
+    title: 'GPU transfers',
     icon: 'pcie_total_bytes_per_second',
     unit: 'bytes_per_second',
   },
@@ -227,22 +259,28 @@ export function AssignedTelemetryTooltip({
   );
 }
 
-function AssignedTelemetryPlot({
+const AssignedTelemetryPlot = memo(function AssignedTelemetryPlot({
   rows,
   entities,
   metric,
   unit,
   chartWindowMs,
   interactive,
+  selectedTime,
+  activeKey,
 }: {
   rows: ChartRow[];
-  entities: readonly WorkloadTelemetryEntity[];
+  entities: readonly PlotEntity[];
   metric: TelemetryMetric;
   unit: TelemetryUnit;
   chartWindowMs: number;
   interactive: boolean;
+  selectedTime?: number | null;
+  activeKey: string | null;
 }) {
   const tooltipAnchorRef = useRef<HTMLDivElement>(null);
+  const axis = useChartAxisGeometry(tooltipAnchorRef);
+  const plotActive = useChartVisibility(tooltipAnchorRef);
   const latestTime = rows.at(-1)?.time ?? 0;
   const domain = trendTimeDomain(latestTime, chartWindowMs);
   const maximum = Math.max(
@@ -264,88 +302,123 @@ function AssignedTelemetryPlot({
       className="h-full w-full"
       data-chart-curve="linear"
     >
-      <ResponsiveContainer
-        width="100%"
-        height="100%"
-        minWidth={0}
-        initialDimension={{ width: 600, height: 216 }}
-      >
-        <LineChart
-          data={rows}
-          margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+      <ChartRenderBoundary active={plotActive} layout={axis}>
+        <ResponsiveContainer
+          width="100%"
+          height="100%"
+          minWidth={0}
+          initialDimension={{ width: 600, height: 216 }}
         >
-          <CartesianGrid stroke="var(--border)" vertical={false} />
-          <XAxis
-            dataKey="time"
-            type="number"
-            domain={[domain[0], domain[1]]}
-            allowDataOverflow
-            tickCount={4}
-            tickFormatter={(value) =>
-              new Date(value).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              })
-            }
-            tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
-            axisLine={false}
-            tickLine={false}
-          />
-          <YAxis
-            domain={throughput ? [0, throughputCeiling] : [0, 100]}
-            allowDataOverflow
-            interval={throughput ? undefined : 0}
-            ticks={throughput ? undefined : [0, 25, 50, 75, 100]}
-            tickFormatter={(value: number) =>
-              valueFormatter(unit, Number(value))
-            }
-            tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
-            axisLine={false}
-            tickLine={false}
-            tickMargin={4}
-            width={throughput ? 72 : 44}
-          />
-          {interactive ? (
-            <Tooltip
-              isAnimationActive={false}
-              portal={
-                typeof document === 'undefined' ? undefined : document.body
+          <LineChart
+            accessibilityLayer={false}
+            data={rows}
+            margin={{
+              top: throughput && axis.compactRates ? axis.rateTop : axis.top,
+              right: 8,
+              left: 0,
+              bottom: 4,
+            }}
+          >
+            <CartesianGrid stroke="var(--border)" vertical={false} />
+            {selectedTime != null ? (
+              <ReferenceLine
+                x={selectedTime}
+                stroke="var(--primary)"
+                strokeDasharray="3 3"
+              />
+            ) : null}
+            <XAxis
+              dataKey="time"
+              type="number"
+              domain={[domain[0], domain[1]]}
+              allowDataOverflow
+              tickCount={axis.xTickCount}
+              ticks={axis.singleTimeTick ? [domain[1]] : undefined}
+              interval="preserveStartEnd"
+              minTickGap={axis.minTickGap}
+              height="auto"
+              tickFormatter={formatAxisTime}
+              tick={<TimeAxisTick fontSize={axis.tick.fontSize} />}
+              fontSize={axis.tick.fontSize}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              domain={throughput ? [0, throughputCeiling] : [0, 100]}
+              allowDataOverflow
+              interval={throughput ? undefined : 0}
+              ticks={
+                throughput
+                  ? axis.compactRates
+                    ? [0, throughputCeiling]
+                    : undefined
+                  : [0, 25, 50, 75, 100]
               }
-              wrapperStyle={chartTooltipPortalWrapperStyle}
-              content={(tooltip) => (
-                <AssignedTelemetryTooltip
-                  active={tooltip.active}
-                  anchorRef={tooltipAnchorRef}
-                  coordinate={tooltip.coordinate}
-                  label={tooltip.label}
-                  payload={tooltip.payload}
-                  unit={unit}
-                  testId={`assigned-${metric}-tooltip`}
-                />
-              )}
+              tickFormatter={(value: number) =>
+                throughput
+                  ? formatAxisByteRate(value)
+                  : valueFormatter(unit, Number(value))
+              }
+              tick={
+                throughput && axis.compactRates ? (
+                  <StackedRateAxisTick fontSize={axis.tick.fontSize} />
+                ) : (
+                  axis.tick
+                )
+              }
+              fontSize={axis.tick.fontSize}
+              padding={
+                throughput && axis.compactRates
+                  ? { bottom: axis.rateBottom }
+                  : undefined
+              }
+              axisLine={false}
+              tickLine={false}
+              tickMargin={4}
+              width="auto"
             />
-          ) : null}
-          {entities.map((entity, index) => (
-            <Line
-              key={entity.key}
-              type="linear"
-              dataKey={workloadHistoryKeys(index)[metric]}
-              name={entity.label}
-              stroke={colors[index % colors.length]}
-              strokeWidth={2}
-              strokeDasharray={dashPatterns[index % dashPatterns.length]}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              dot={false}
-              connectNulls={false}
-              isAnimationActive={false}
-            />
-          ))}
-        </LineChart>
-      </ResponsiveContainer>
+            {plotActive && interactive ? (
+              <Tooltip
+                isAnimationActive={false}
+                portal={
+                  typeof document === 'undefined' ? undefined : document.body
+                }
+                wrapperStyle={chartTooltipPortalWrapperStyle}
+                content={(tooltip) => (
+                  <AssignedTelemetryTooltip
+                    active={tooltip.active}
+                    anchorRef={tooltipAnchorRef}
+                    coordinate={tooltip.coordinate}
+                    label={tooltip.label}
+                    payload={tooltip.payload}
+                    unit={unit}
+                    testId={`assigned-${metric}-tooltip`}
+                  />
+                )}
+              />
+            ) : null}
+            {entities.map((entity, index) => (
+              <SampledLine
+                key={entity.key}
+                type="linear"
+                dataKey={workloadHistoryKeys(index)[metric]}
+                name={entity.label}
+                stroke={colors[index % colors.length]}
+                strokeWidth={2}
+                strokeOpacity={activeKey && activeKey !== entity.key ? 0.2 : 1}
+                strokeDasharray={dashPatterns[index % dashPatterns.length]}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                dot={false}
+                isAnimationActive={false}
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </ChartRenderBoundary>
     </div>
   );
-}
+});
 
 function TelemetryLegend({
   ownerName,
@@ -354,18 +427,34 @@ function TelemetryLegend({
   metric,
   unit,
   rows,
+  selectedRow,
+  strip,
+  activeKey,
+  pinnedKey,
+  onFocusSeries,
+  onBlurSeries,
+  onToggleSeries,
 }: {
   ownerName: string;
   title: string;
-  entities: readonly WorkloadTelemetryEntity[];
+  entities: readonly PlotEntity[];
   metric: TelemetryMetric;
   unit: TelemetryUnit;
   rows: readonly ChartRow[];
+  selectedRow: ChartRow | null;
+  strip: ReturnType<typeof useChartLegendStrip>['props'];
+  activeKey: string | null;
+  pinnedKey: string | null;
+  onFocusSeries: (key: string) => void;
+  onBlurSeries: () => void;
+  onToggleSeries: (key: string) => void;
 }) {
-  const latest = rows.at(-1);
+  const latest = selectedRow ?? rows.at(-1);
   return (
-    <ul
-      className="mt-2 flex min-w-0 flex-wrap gap-x-3 gap-y-1"
+    <div
+      {...strip}
+      className="compact-chart-legend chart-legend-strip"
+      data-legend-unit={unit}
       aria-label={`${ownerName} ${title.toLowerCase()} assigned telemetry series`}
     >
       {entities.map((entity, index) => {
@@ -373,10 +462,19 @@ function TelemetryLegend({
         const available = typeof value === 'number' && Number.isFinite(value);
         const formatted = available ? valueFormatter(unit, value) : '—';
         return (
-          <li
+          <button
+            type="button"
             key={entity.key}
-            aria-label={`${entity.accessibleLabel}. ${title} current ${available ? formatted : 'Unavailable'}`}
-            className="inline-flex min-w-0 items-center gap-1.5 font-mono text-[13px] text-muted-foreground"
+            className={
+              activeKey && activeKey !== entity.key ? 'opacity-40' : ''
+            }
+            aria-label={`Focus ${entity.accessibleLabel}. ${title} ${selectedRow ? 'selected' : 'current'} ${available ? formatted : 'Unavailable'}`}
+            aria-pressed={pinnedKey === entity.key}
+            onMouseEnter={() => onFocusSeries(entity.key)}
+            onMouseLeave={onBlurSeries}
+            onFocus={() => onFocusSeries(entity.key)}
+            onBlur={onBlurSeries}
+            onClick={() => onToggleSeries(entity.key)}
           >
             <svg aria-hidden="true" width="18" height="5" viewBox="0 0 18 5">
               <line
@@ -390,14 +488,17 @@ function TelemetryLegend({
                 strokeLinecap="round"
               />
             </svg>
-            <span className="truncate">{entity.label}</span>
-            <span className="chart-legend-value text-foreground">
-              {formatted}
+            <span data-legend-label>{entity.label}</span>
+            <span
+              data-legend-value
+              className="chart-legend-value text-foreground"
+            >
+              {compactChartValue(available ? value : null, unit)}
             </span>
-          </li>
+          </button>
         );
       })}
-    </ul>
+    </div>
   );
 }
 
@@ -414,7 +515,7 @@ function TelemetryPanel({
 }: {
   definition: TelemetryDefinition;
   ownerName: string;
-  entities: readonly WorkloadTelemetryEntity[];
+  entities: readonly PlotEntity[];
   sourceRows: ChartRow[];
   chartWindowMs: number;
   loading: boolean;
@@ -422,6 +523,16 @@ function TelemetryPanel({
   retry: () => void;
   tooltipsEnabled: boolean;
 }) {
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  const [pinnedKey, setPinnedKey] = useState<string | null>(null);
+  const activeKey =
+    [hoveredKey, pinnedKey].find((key) =>
+      entities.some((entity) => entity.key === key),
+    ) ?? null;
+  const legend = useChartLegendStrip(
+    `${ownerName} ${definition.title}`,
+    entities.map((entity) => entity.key).join(','),
+  );
   const valueKeys = useMemo(
     () =>
       entities.map((_, index) => workloadHistoryKeys(index)[definition.metric]),
@@ -431,33 +542,37 @@ function TelemetryPanel({
     () => buildTrendRows(sourceRows, valueKeys, chartWindowMs),
     [chartWindowMs, sourceRows, valueKeys],
   );
+  const selection = useChartSelection(
+    trendRows,
+    trendTimeDomain(trendRows.at(-1)?.time ?? 0, chartWindowMs),
+    `${ownerName}:${definition.metric}:${entities.map((entity) => entity.key).join(',')}`,
+  );
   const hasValues = trendRows.some((row) =>
     valueKeys.some((key) => typeof row[key] === 'number'),
   );
 
   return (
     <section
-      className="workload-telemetry-panel min-w-0 border border-border/70 bg-card/55 p-3"
+      className="workload-telemetry-panel compact-chart-panel min-w-0 border border-border/70 bg-card/55"
       aria-labelledby={`workload-${definition.metric}-heading`}
       data-workload-metric={definition.metric}
     >
-      <h5
-        id={`workload-${definition.metric}-heading`}
-        className="flex items-center gap-2 text-[15px] font-semibold"
-      >
-        <MetricIcon metric={definition.icon} className="size-4 text-primary" />
-        {definition.title}
-      </h5>
-      <TelemetryLegend
-        ownerName={ownerName}
-        title={definition.title}
-        entities={entities}
-        metric={definition.metric}
-        unit={definition.unit}
-        rows={sourceRows}
-      />
+      <div className="host-chart-heading">
+        <h5
+          id={`workload-${definition.metric}-heading`}
+          className="flex items-center gap-2 text-[15px] font-semibold"
+        >
+          <MetricIcon
+            metric={definition.icon}
+            className="size-4 text-primary"
+          />
+          {definition.title}
+        </h5>
+        <div className="chart-heading-actions">{legend.controls}</div>
+      </div>
       <figure
-        className="workload-telemetry-chart chart-plot-frame mt-2 h-[200px] min-w-0 lg:h-[216px]"
+        {...selection.plotProps}
+        className="workload-telemetry-chart chart-plot-frame compact-chart-plot"
         aria-label={`${ownerName} resource ${definition.title.toLowerCase()} trend`}
         aria-busy={loading}
       >
@@ -487,10 +602,37 @@ function TelemetryPanel({
             metric={definition.metric}
             unit={definition.unit}
             chartWindowMs={chartWindowMs}
-            interactive={tooltipsEnabled}
+            interactive={tooltipsEnabled && !selection.selectedRow}
+            selectedTime={selection.selectedTime}
+            activeKey={activeKey}
           />
         )}
       </figure>
+      <TelemetryLegend
+        ownerName={ownerName}
+        title={definition.title}
+        entities={entities}
+        metric={definition.metric}
+        unit={definition.unit}
+        rows={sourceRows}
+        selectedRow={selection.selectedRow}
+        strip={legend.props}
+        activeKey={activeKey}
+        pinnedKey={pinnedKey}
+        onFocusSeries={setHoveredKey}
+        onBlurSeries={() => setHoveredKey(null)}
+        onToggleSeries={(key) => setPinnedKey(pinnedKey === key ? null : key)}
+      />
+      <ChartSelectionReadout
+        selection={selection}
+        label={`${ownerName} ${definition.title}`}
+        summary={entities
+          .map(
+            (entity, index) =>
+              `${entity.label}: ${selection.selectedRow?.[valueKeys[index]] == null ? 'Unavailable' : valueFormatter(definition.unit, Number(selection.selectedRow[valueKeys[index]]))}`,
+          )
+          .join(', ')}
+      />
     </section>
   );
 }
@@ -500,11 +642,19 @@ export default function WorkloadTelemetryChart({
   ownerName,
   sampledAt,
   entities,
+  ownerTelemetry,
+  connection = 'live',
   loadHistory,
   chartWindowMs,
   retentionMs,
   onChartWindowChange,
 }: Props) {
+  const ownerHistory = useOwnerHistory(
+    ownerTelemetry,
+    loadHistory,
+    chartWindowMs,
+    retentionMs,
+  );
   const [retryGeneration, setRetryGeneration] = useState(0);
   const historyRefresh = useHistoryRefreshGeneration(chartWindowMs);
   const includeLiveSamples = chartWindowMs <= rawHistoryWindowMilliseconds;
@@ -530,6 +680,13 @@ export default function WorkloadTelemetryChart({
         ),
       ),
     [entities],
+  );
+  const plotSignature = JSON.stringify(
+    entities.map(({ source: _source, ...identity }) => identity),
+  );
+  const plotEntities = useMemo(
+    () => JSON.parse(plotSignature) as PlotEntity[],
+    [plotSignature],
   );
   const historyEntities = useMemo(
     () => JSON.parse(signature) as WorkloadHistoryEntity[],
@@ -617,32 +774,37 @@ export default function WorkloadTelemetryChart({
       setHistory((current) => {
         const cached = completedHistoryCache.get(queryKey);
         if (cached) {
-          const rows = mergeWorkloadRows(cached, currentRow, chartWindowMs);
+          const rows =
+            cached === baseRows
+              ? visibleRows
+              : mergeWorkloadRows(cached, currentRow, chartWindowMs);
           cacheCompletedHistory(queryKey, rows);
-          return current.queryKey === queryKey ? { ...current, rows } : current;
+          return current.queryKey === queryKey && current.rows !== rows
+            ? { ...current, rows }
+            : current;
         }
         if (current.scopeSignature !== signature) return current;
-        const rows = mergeWorkloadRows(current.rows, currentRow, chartWindowMs);
+        const rows =
+          current.rows === baseRows
+            ? visibleRows
+            : mergeWorkloadRows(current.rows, currentRow, chartWindowMs);
         if (current.queryKey === queryKey && !current.loading && !current.error)
           cacheCompletedHistory(queryKey, rows);
-        return { ...current, rows };
+        return current.rows === rows ? current : { ...current, rows };
       });
     });
     return () => {
       active = false;
     };
-  }, [chartWindowMs, currentRow, includeLiveSamples, queryKey, signature]);
-
-  if (entities.length === 0) {
-    return (
-      <section
-        className="workload-telemetry border border-dashed border-border/80 bg-background/45 px-4 py-5 text-center text-[13px] text-muted-foreground"
-        aria-label="Telemetry"
-      >
-        No GPU telemetry.
-      </section>
-    );
-  }
+  }, [
+    baseRows,
+    chartWindowMs,
+    currentRow,
+    includeLiveSamples,
+    queryKey,
+    signature,
+    visibleRows,
+  ]);
 
   return (
     <section
@@ -669,20 +831,43 @@ export default function WorkloadTelemetryChart({
       </div>
 
       <div className="workload-telemetry-grid mt-3 grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-2">
-        {telemetryDefinitions.map((definition) => (
-          <TelemetryPanel
-            key={definition.metric}
-            definition={definition}
-            ownerName={ownerName}
-            entities={entities}
-            sourceRows={visibleRows}
-            chartWindowMs={chartWindowMs}
-            loading={historyLoading}
-            error={historyError}
-            retry={() => setRetryGeneration((value) => value + 1)}
-            tooltipsEnabled={tooltipsEnabled}
-          />
-        ))}
+        <OwnerTelemetryPanel
+          kind="cpu"
+          owner={ownerTelemetry}
+          ownerName={ownerName}
+          history={ownerHistory}
+          connection={connection}
+        />
+        <OwnerTelemetryPanel
+          kind="ram"
+          owner={ownerTelemetry}
+          ownerName={ownerName}
+          history={ownerHistory}
+          connection={connection}
+        />
+        {entities.length > 0
+          ? telemetryDefinitions.map((definition) => (
+              <TelemetryPanel
+                key={`${ownerKey}:${definition.metric}`}
+                definition={definition}
+                ownerName={ownerName}
+                entities={plotEntities}
+                sourceRows={visibleRows}
+                chartWindowMs={chartWindowMs}
+                loading={historyLoading}
+                error={historyError}
+                retry={() => setRetryGeneration((value) => value + 1)}
+                tooltipsEnabled={tooltipsEnabled}
+              />
+            ))
+          : null}
+        <OwnerTelemetryPanel
+          kind="io"
+          owner={ownerTelemetry}
+          ownerName={ownerName}
+          history={ownerHistory}
+          connection={connection}
+        />
       </div>
 
       {historyError && visibleRows.length > 0 ? (

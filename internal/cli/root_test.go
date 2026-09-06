@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/intellisys-stevens/leviathan/internal/health"
 	"github.com/intellisys-stevens/leviathan/internal/model"
 )
 
@@ -81,6 +82,9 @@ func TestTunnelHintUsesBoundPort(t *testing.T) {
 }
 
 func TestServeShutsDownWithActiveSSEClient(t *testing.T) {
+	healthDirectory := filepath.Join(t.TempDir(), "must-not-exist")
+	t.Setenv("LEVIATHAN_HEALTH_ENABLED", "true")
+	t.Setenv("LEVIATHAN_HEALTH_DIR", healthDirectory)
 	probe, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -110,6 +114,22 @@ func TestServeShutsDownWithActiveSSEClient(t *testing.T) {
 		t.Fatalf("connect to SSE endpoint: %v", err)
 	}
 	defer response.Body.Close()
+	statusResponse, err := client.Get("http://" + address + "/api/v1/status")
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	var status health.Report
+	decodeErr := json.NewDecoder(statusResponse.Body).Decode(&status)
+	_ = statusResponse.Body.Close()
+	if decodeErr != nil || statusResponse.StatusCode != http.StatusOK || status.Persistence.Enabled || len(status.Days) != health.RetentionDays {
+		cancel()
+		t.Fatalf("fixture status: code=%d persistence=%+v days=%d err=%v", statusResponse.StatusCode, status.Persistence, len(status.Days), decodeErr)
+	}
+	if _, err := os.Stat(healthDirectory); !os.IsNotExist(err) {
+		cancel()
+		t.Fatalf("fixture wrote persistent history: %v", err)
+	}
 
 	cancel()
 	select {

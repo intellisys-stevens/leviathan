@@ -11,6 +11,12 @@ import { systemCapability, systemFixture } from './test/system-fixture';
 
 const attribution: Attribution = {
   provider: 'coder-kubernetes',
+  resolution: {
+    status: 'complete',
+    unresolvedAssignments: 0,
+    reasonCodes: [],
+    workloads: [],
+  },
   status: 'available',
   workloads: [
     {
@@ -136,6 +142,12 @@ describe('workspace attribution joins', () => {
       ],
       attribution: {
         provider: 'kubernetes_dra',
+        resolution: {
+          status: 'complete',
+          unresolvedAssignments: 0,
+          reasonCodes: [],
+          workloads: [],
+        },
         status: 'available',
         workloads: [
           {

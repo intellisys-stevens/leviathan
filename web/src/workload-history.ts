@@ -197,14 +197,17 @@ export function workloadRowsFromHistory(
 ): ChartRow[] {
   const rows = new Map<number, ChartRow>();
   for (const response of responses) {
+    const requested = new Set(response.series.map(({ key }) => key));
     for (const point of response.points) {
       const time = Date.parse(point.sampledAt);
       if (!Number.isFinite(time)) continue;
       const row: ChartRow = rows.get(time) ?? { time };
       for (const [index, entity] of entities.entries()) {
         const keys = workloadHistoryKeys(index);
-        const values = point.values[keys.descriptor];
-        if (!values) continue;
+        // Other request batches have independent timestamp sets. A missing
+        // descriptor in its own response, however, is an explicit outage.
+        if (!requested.has(keys.descriptor)) continue;
+        const values = point.values[keys.descriptor] ?? {};
         row[keys.activity] = percentageMetric(values, entity.activityMetric);
         row[keys.memory] = memoryPercentage(values);
         row[keys.memoryActivity] = percentageMetric(
@@ -223,54 +226,104 @@ export function currentWorkloadRow(
   sampledAt: string,
   entities: readonly WorkloadTelemetryEntity[],
 ): ChartRow | null {
-  const time = Date.parse(sampledAt);
-  if (!Number.isFinite(time)) return null;
-  const row: ChartRow = { time };
+  const publicationTime = Date.parse(sampledAt);
+  if (!Number.isFinite(publicationTime) || entities.length === 0) return null;
+  const row: ChartRow = { time: publicationTime };
+  const observedTimes: number[] = [];
+  const setObserved = (
+    key: string,
+    value: number | null,
+    observedAt?: string,
+  ) => {
+    const time = Date.parse(observedAt ?? '');
+    row[key] = value != null && Number.isFinite(time) ? value : null;
+    if (row[key] != null) observedTimes.push(time);
+  };
   for (const [index, entity] of entities.entries()) {
     const keys = workloadHistoryKeys(index);
     const activity = entity.source.metrics[entity.activityMetric];
-    row[keys.activity] =
-      activity?.status === 'available' && activity.value != null
+    setObserved(
+      keys.activity,
+      activity?.status === 'available' &&
+        activity.value != null &&
+        Number.isFinite(activity.value)
         ? clampRenderedPercent(activity.value)
-        : null;
+        : null,
+      activity?.sampledAt,
+    );
     const memory = entity.source.memory;
-    row[keys.memory] =
+    setObserved(
+      keys.memory,
       memory.status === 'available' &&
-      memory.usedBytes != null &&
-      memory.totalBytes != null &&
-      memory.totalBytes > 0
+        memory.usedBytes != null &&
+        Number.isFinite(memory.usedBytes) &&
+        memory.totalBytes != null &&
+        Number.isFinite(memory.totalBytes) &&
+        memory.totalBytes > 0
         ? clampRenderedPercent(
             (Number(memory.usedBytes) / Number(memory.totalBytes)) * 100,
           )
-        : null;
+        : null,
+      memory.sampledAt,
+    );
     const memoryActivity = entity.source.metrics[entity.memoryActivityMetric];
-    row[keys.memoryActivity] =
-      memoryActivity?.status === 'available' && memoryActivity.value != null
+    setObserved(
+      keys.memoryActivity,
+      memoryActivity?.status === 'available' &&
+        memoryActivity.value != null &&
+        Number.isFinite(memoryActivity.value)
         ? clampRenderedPercent(memoryActivity.value)
-        : null;
+        : null,
+      memoryActivity?.sampledAt,
+    );
     const rx = entity.source.metrics.pcie_rx_bytes_per_second;
     const tx = entity.source.metrics.pcie_tx_bytes_per_second;
-    row[keys.pcieTotal] =
+    setObserved(
+      keys.pcieTotal,
       rx?.status === 'available' &&
-      rx.value != null &&
-      tx?.status === 'available' &&
-      tx.value != null
+        rx.value != null &&
+        Number.isFinite(rx.value) &&
+        tx?.status === 'available' &&
+        tx.value != null &&
+        Number.isFinite(tx.value) &&
+        Date.parse(rx.sampledAt) === Date.parse(tx.sampledAt)
         ? Math.max(0, rx.value) + Math.max(0, tx.value)
-        : null;
+        : null,
+      rx?.sampledAt,
+    );
   }
+  // A host or cgroup publication can retain every GPU sample unchanged.
+  // Anchor this aligned row to actual GPU/GI provenance, preserving available
+  // values for independently sampled entities rather than creating null gaps
+  // just because another entity has a newer timestamp. Only an entirely
+  // unavailable observation uses publication time, so it cannot overwrite the
+  // last measured point at the stale source timestamp.
+  if (observedTimes.length > 0) row.time = Math.max(...observedTimes);
   return row;
 }
 
 export function mergeWorkloadRows(
-  existing: readonly ChartRow[],
+  existing: ChartRow[],
   incoming: ChartRow,
   windowMilliseconds: number,
 ): ChartRow[] {
-  const cutoff = incoming.time - windowMilliseconds;
-  const retained = existing.filter(({ time }) => time >= cutoff);
+  const cutoff =
+    Math.max(incoming.time, existing.at(-1)?.time ?? incoming.time) -
+    windowMilliseconds;
+  const filtered = existing.filter(({ time }) => time >= cutoff);
+  const retained = filtered.length === existing.length ? existing : filtered;
+  if (incoming.time < cutoff) return retained;
   const last = retained.at(-1);
   if (!last || last.time < incoming.time) return [...retained, incoming];
-  if (last.time === incoming.time) return [...retained.slice(0, -1), incoming];
+  if (last.time === incoming.time) {
+    const keys = Object.keys(incoming);
+    if (
+      keys.length === Object.keys(last).length &&
+      keys.every((key) => Object.is(last[key], incoming[key]))
+    )
+      return retained;
+    return [...retained.slice(0, -1), incoming];
+  }
   const rows = new Map(retained.map((row) => [row.time, row]));
   rows.set(incoming.time, incoming);
   return [...rows.values()].sort((left, right) => left.time - right.time);

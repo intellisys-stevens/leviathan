@@ -50,6 +50,52 @@ sudo systemctl enable --now "leviathan@${USER}.service"
 This is the recommended default. Process discovery remains limited to workloads
 that the selected Unix user can inspect.
 
+### Persistent health history
+
+The packaged unit creates a private `/var/lib/leviathan-<user>/health-v1`
+directory through systemd's `StateDirectory`. This writable state directory
+preserves the existing home and filesystem protections, including root mode.
+It retains ninety UTC dates of minute health observations; chart metrics remain
+in memory. For direct shell runs, the default is
+`$XDG_STATE_HOME/leviathan/health-v1` or `~/.local/state/leviathan/health-v1`.
+Override it with `LEVIATHAN_HEALTH_DIR` or `--health-dir`; disable local saving
+with `LEVIATHAN_HEALTH_ENABLED=false` or `--health-history=false`.
+
+The Status page keeps host uptime, monitor runtime, and healthy observations
+separate. Its Yggdrasil connection state comes from validated upload receipts,
+not snapshot timestamps or an external availability probe. An acknowledgement
+is fresh for `max(3 × uplink interval, 30 seconds)` (45 seconds by default).
+A retryable failure with a fresh acknowledgement is degraded; a first failed
+attempt, non-retryable rejection, or expired acknowledgement is unavailable.
+An unconfigured uploader or one awaiting its first attempt displays **No data**.
+Freshness is recomputed on reads and minute observations with monotonic elapsed
+time; receipt times, sanitized failure context, and retry times are optional
+local API fields. Upload credentials, URLs, response bodies, and payloads are
+not exposed or journaled.
+
+Existing `YYYY-MM-DD.ndjson` records keep their original version-one schema.
+Yggdrasil observations use version-one `uplink-YYYY-MM-DD.ndjson` sidecars in
+the same private directory. Both retain ninety UTC dates, preserve unknown
+gaps, validate private regular files, and share the existing lifetime
+`writer.lock` ownership. The sidecar has a separate writer and bounded queue:
+disk failures or a full queue disable sidecar saving until restart while live
+observations and legacy history continue. Status reports this persistence
+failure. Shutdown drains queued records before releasing ownership. Fixture
+runs and disabled history remain memory-only.
+
+Restart reloads valid sidecar records, ignores damaged complete rows, and
+recovers a truncated final write without inventing observations. Duplicate
+minutes and backward-clock repeats cannot overwrite saved samples. A newer
+unknown sidecar version is preserved and disables only sidecar saving. Builds
+predating link history ignore the `uplink-` filenames, so a rollback can continue writing the
+unchanged legacy journal. They will not collect Yggdrasil history during the
+rollback; those minutes remain unknown when the newer build returns.
+Thirty-day builds can prune older legacy dates, and sidecar-aware thirty-day
+builds can also prune older Yggdrasil dates. Preserve a complete health-directory
+backup before rollback if all ninety days must remain available. Extending the
+window cannot recover dates already removed by a previous build; those gaps
+remain unknown.
+
 ## 🛡️ Hardened host-wide root mode
 
 Host-wide process discovery requires deliberate privilege expansion. Install the
@@ -94,6 +140,7 @@ Confirm the service, API, and browser asset after installation:
 systemctl is-active "leviathan@${USER}.service"
 curl -fsS http://127.0.0.1:1397/healthz
 curl -fsS http://127.0.0.1:1397/api/v1/version
+curl -fsS http://127.0.0.1:1397/api/v1/status
 curl -fsSI http://127.0.0.1:1397/leviathan-mark.svg
 ```
 
@@ -114,5 +161,10 @@ managed executable link.
 
 Keep the previous binary until the replacement passes health, telemetry, and UI
 checks. Restore it atomically and restart the same service instance if validation
-fails. Configuration and in-memory history use no persistent migration, so a
-binary rollback does not require data conversion.
+fails. Health journals are versioned; older binaries preserve unknown formats
+but apply their own retention to recognized files. Keep a health-directory
+backup when rolling back from ninety to thirty days. Metric history still
+needs no data conversion. If the older binary predates
+health history, remove any newly added `[health]` TOML block before restarting:
+the configuration parser rejects unknown fields. The packaged environment
+overrides do not require editing the TOML configuration for rollback.

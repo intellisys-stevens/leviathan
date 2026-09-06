@@ -16,6 +16,19 @@ ascii = false
 # Optional scheduler attribution from the Kubernetes bridge. Empty disables
 # attribution and makes no Kubernetes or local socket requests.
 # attribution_socket = "/run/leviathan/attribution.sock"
+# Optional read-only NVIDIA DRA v0.4.1 dynamic MIG checkpoint; requires the socket.
+# attribution_checkpoint_path = "/var/lib/kubelet/plugins/gpu.nvidia.com/checkpoint.json"
+# workload_telemetry = true # requires the bridge workloadInventory opt-in; cgroup v2, every 2s
+
+# Local telemetry health samples. Only `serve` saves them; fixtures stay in
+# memory. Metric chart history above remains independent and in memory.
+[health]
+enabled = true
+# directory = "/var/lib/leviathan-user/health-v1"
+# Defaults to $XDG_STATE_HOME/leviathan/health-v1 or ~/.local/state/leviathan/health-v1.
+# Overrides: LEVIATHAN_HEALTH_ENABLED / --health-history and
+# LEVIATHAN_HEALTH_DIR / --health-dir. Remove this block before downgrading to
+# an older binary whose strict configuration parser predates health history.
 
 # Optional latest-only telemetry uplink owned by `leviathan serve`. These
 # controls are intentionally TOML-only. The bearer value itself must exist only

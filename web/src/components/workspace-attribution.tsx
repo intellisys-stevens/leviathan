@@ -3,13 +3,12 @@ import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
 import { Boxes, ChevronDown, UserRound } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
-  assignmentSummary,
   attributionProviderLabel,
   attributedWorkloads,
   workloadLabel,
   type AttributionTarget,
 } from '../attribution';
-import type { Attribution, Snapshot } from '../types';
+import type { Attribution } from '../types';
 
 function observedLabel(observedAt: string | undefined): string | null {
   if (!observedAt) return null;
@@ -37,7 +36,9 @@ export function WorkspaceBadges({
         variant="outline"
         className="rounded border-border font-mono text-[13px] text-muted-foreground"
       >
-        Unassigned
+        {attribution.resolution?.status === 'complete'
+          ? 'Unassigned'
+          : 'Assignment unknown'}
       </Badge>
     ) : null;
   }
@@ -48,7 +49,7 @@ export function WorkspaceBadges({
         <Badge
           key={workload.ref}
           variant="outline"
-          title={`${workload.platform} ${workload.kind} · ${state}`}
+          title={`${workloadLabel(workload)} · ${state}`}
           className="max-w-52 rounded border-border bg-muted/45 font-mono text-[13px] text-foreground"
         >
           <span className="truncate">{workloadLabel(workload)}</span>
@@ -66,158 +67,72 @@ export function WorkspaceBadges({
   );
 }
 
-function assignmentLabel(
-  assignment: Attribution['assignments'][number],
-  snapshot?: Snapshot,
-): string {
-  if (snapshot) {
-    for (const gpu of snapshot.gpus) {
-      if (
-        assignment.entityType === 'physical_gpu' &&
-        gpu.uuid === assignment.entityUuid
-      )
-        return `GPU ${gpu.index} · Full GPU`;
-      if (assignment.entityType !== 'compute_instance') continue;
-      for (const gi of gpu.gpuInstances) {
-        const ci = gi.computeInstances.find(
-          (candidate) => candidate.uuid === assignment.entityUuid,
-        );
-        if (ci) return `GPU ${gpu.index} · GI ${gi.id} · CI ${ci.id}`;
-      }
-    }
-  }
-  return assignment.entityType === 'physical_gpu'
-    ? 'Physical GPU'
-    : 'Compute instance';
-}
-
-function groupedAssignments(attribution: Attribution) {
-  const assignmentsByWorkload = new Map<string, Attribution['assignments']>();
-  for (const assignment of attribution.assignments) {
-    const assignments = assignmentsByWorkload.get(assignment.workloadRef);
-    if (assignments) assignments.push(assignment);
-    else assignmentsByWorkload.set(assignment.workloadRef, [assignment]);
-  }
-  return attribution.workloads
-    .flatMap((workload) => {
-      const assignments = assignmentsByWorkload.get(workload.ref);
-      return assignments?.length ? [{ workload, assignments }] : [];
-    })
-    .toSorted((left, right) =>
-      workloadLabel(left.workload).localeCompare(workloadLabel(right.workload)),
-    );
-}
-
 function AttributionSummaryComponent({
   attribution,
-  snapshot,
 }: {
   attribution?: Attribution;
-  snapshot?: Snapshot;
 }) {
-  if (!attribution) {
-    return (
-      <div
-        className="attribution-summary mt-2 inline-flex max-w-full items-center gap-2.5 rounded-md border border-border bg-muted/35 px-3 py-2 text-left text-muted-foreground"
-        aria-label="Workspace attribution unavailable"
-      >
-        <Boxes className="size-4 shrink-0" aria-hidden="true" />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate font-sans text-[15px] font-semibold text-foreground">
-            Workspace attribution
-          </span>
-          <span className="mt-0.5 block truncate text-[13px]">
-            Not configured
-          </span>
-        </span>
-      </div>
-    );
-  }
-  const summary = assignmentSummary(attribution);
-  const available = attribution.status === 'available';
-  const observed = observedLabel(attribution.observedAt);
-  const provider = attributionProviderLabel(attribution.provider);
-  const groups = groupedAssignments(attribution);
-  const statusSummary = (
-    <>
-      <Boxes className="size-4 shrink-0" aria-hidden="true" />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate font-sans text-[15px] font-semibold text-foreground">
-          {provider}
-        </span>
-        <span className="mt-0.5 block truncate text-[13px] text-muted-foreground">
-          {attribution.status === 'unavailable'
-            ? 'Attribution unavailable'
-            : `${summary.workloads} ${summary.workloads === 1 ? 'workspace' : 'workspaces'} · ${summary.resources} ${summary.resources === 1 ? 'device' : 'devices'}${attribution.status === 'stale' ? ' · stale' : ''}`}
-        </span>
-      </span>
-    </>
-  );
-  const accessibleSummary = `${provider} attribution: ${summary.workloads} ${summary.workloads === 1 ? 'workspace' : 'workspaces'}, ${summary.resources} ${summary.resources === 1 ? 'device' : 'devices'}, ${attribution.status}`;
-  if (attribution.status === 'unavailable' || groups.length === 0) {
-    return (
-      <div
-        className={`attribution-summary mt-2 inline-flex max-w-full items-center gap-2.5 rounded-md border px-3 py-2 text-left ${
-          available
-            ? 'border-primary/20 bg-primary/[0.055] text-primary'
-            : 'border-amber-500/30 bg-amber-500/[0.06] text-amber-700 dark:text-amber-300'
-        }`}
-        aria-label={accessibleSummary}
-        title={observed ? `Observed ${observed}` : undefined}
-      >
-        {statusSummary}
-      </div>
-    );
-  }
+  const observed = observedLabel(attribution?.observedAt);
+  const state = !attribution
+    ? 'Not configured'
+    : attribution.status === 'available'
+      ? attribution.resolution?.status === 'complete'
+        ? 'Connected'
+        : 'Incomplete'
+      : attribution.status === 'stale'
+        ? 'Stale'
+        : 'Unavailable';
+  const healthy =
+    attribution?.status === 'available' &&
+    attribution.resolution?.status === 'complete';
   return (
     <PopoverPrimitive.Root>
       <PopoverPrimitive.Trigger
-        className={`attribution-summary group mt-2 flex max-w-full items-center gap-2.5 rounded-md border px-3 py-2 text-left outline-none transition-[color,background-color,border-color] duration-[var(--duration-feedback)] focus-visible:ring-2 focus-visible:ring-ring ${
-          available
-            ? 'border-primary/20 bg-primary/[0.055] text-primary hover:border-primary/35 hover:bg-primary/[0.075]'
-            : 'border-amber-500/30 bg-amber-500/[0.06] text-amber-700 hover:border-amber-500/45 hover:bg-amber-500/[0.09] dark:text-amber-300'
-        }`}
-        aria-label={accessibleSummary}
-        title={observed ? `Observed ${observed}` : undefined}
+        className="assignment-status"
+        data-state={
+          healthy ? 'connected' : attribution ? 'warning' : 'disabled'
+        }
+        aria-label={`Assignment integration: ${state}`}
       >
-        {statusSummary}
-        <ChevronDown
-          className="motion-chevron size-3.5 shrink-0 group-data-[popup-open]:rotate-180"
-          aria-hidden="true"
-        />
+        <span>
+          <Boxes className="size-4 shrink-0" aria-hidden="true" />
+          <span>Assignments</span>
+        </span>
+        <span>
+          <span className="assignment-status-dot" aria-hidden="true" />
+          <span>{state}</span>
+          <ChevronDown
+            className="motion-chevron size-3.5 shrink-0 group-data-[popup-open]:rotate-180"
+            aria-hidden="true"
+          />
+        </span>
       </PopoverPrimitive.Trigger>
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Positioner
           side="bottom"
-          align="start"
-          sideOffset={7}
-          className="z-40"
+          align="end"
+          sideOffset={8}
+          className="z-50"
         >
-          <PopoverPrimitive.Popup className="motion-popover w-[min(30rem,calc(100vw-2rem))] origin-[var(--transform-origin)] rounded-md border border-border bg-popover text-popover-foreground shadow-xl outline-none data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0">
-            <PopoverPrimitive.Title className="sr-only">
-              Workspace assignments
+          <PopoverPrimitive.Popup className="motion-popover w-[min(23rem,calc(100vw-2rem))] rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-xl outline-none">
+            <PopoverPrimitive.Title className="text-sm font-semibold">
+              {attribution
+                ? attributionProviderLabel(attribution.provider)
+                : 'Workspace attribution'}
             </PopoverPrimitive.Title>
-            <ul className="max-h-64 divide-y divide-border/70 overflow-y-auto">
-              {groups.map(({ workload, assignments }) => (
-                <li key={workload.ref} className="p-3">
-                  <p className="truncate text-sm font-semibold">
-                    {workloadLabel(workload)}
-                  </p>
-                  <div className="mt-1.5 flex flex-wrap gap-1">
-                    {assignments.map((assignment) => (
-                      <Badge
-                        key={`${assignment.entityType}:${assignment.entityUuid}`}
-                        variant="outline"
-                        className="rounded border-border bg-muted/45 font-mono text-[13px] text-muted-foreground"
-                        title={`Scheduler state: ${assignment.state}`}
-                      >
-                        {assignmentLabel(assignment, snapshot)}
-                      </Badge>
-                    ))}
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <PopoverPrimitive.Description className="mt-2 text-sm text-muted-foreground">
+              {attribution
+                ? attribution.resolution?.status === 'complete'
+                  ? 'Assignments describe scheduler intent. Resource activity is shown separately.'
+                  : `${attribution.resolution?.unresolvedAssignments || 'Some'} allocation${attribution.resolution?.unresolvedAssignments === 1 ? '' : 's'} pending verification. Unmatched resources have unknown assignment status.`
+                : 'No workspace assignment provider is configured.'}
+            </PopoverPrimitive.Description>
+            {observed ? (
+              <p className="mt-3 text-xs text-muted-foreground">
+                Last observed{' '}
+                <time dateTime={attribution?.observedAt}>{observed}</time>
+              </p>
+            ) : null}
           </PopoverPrimitive.Popup>
         </PopoverPrimitive.Positioner>
       </PopoverPrimitive.Portal>
@@ -247,7 +162,7 @@ export function AttributionDetails({
         <UserRound className="size-3.5" /> Workspace attribution
       </h3>
       <div className="border border-border bg-card">
-        <div className="flex items-center justify-between gap-3 border-b border-border/70 px-3 py-2 font-mono text-[13px] text-muted-foreground">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-3 py-2 font-mono text-[13px] text-muted-foreground">
           <span>
             <span className="block">{provider}</span>
             {observed ? (
@@ -259,21 +174,22 @@ export function AttributionDetails({
               </time>
             ) : null}
           </span>
-          <span>scheduler assignments</span>
         </div>
         {attributed.length === 0 ? (
           <p className="p-3 text-[13px] text-muted-foreground">
-            No workspace assignment reported for this resource.
+            {attribution.resolution?.status === 'complete'
+              ? 'No workspace assignment reported for this resource.'
+              : 'Assignment unknown. Allocation verification is incomplete.'}
           </p>
         ) : (
           <ul className="divide-y divide-border/70">
             {attributed.map(({ workload, state }) => (
               <li
                 key={workload.ref}
-                className="flex items-start justify-between gap-3 p-3"
+                className="flex flex-wrap items-start justify-between gap-3 p-3"
               >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">
+                <div className="min-w-0 flex-1 basis-40">
+                  <p className="break-words text-sm font-medium">
                     {workloadLabel(workload)}
                   </p>
                   <p className="mt-0.5 font-mono text-[13px] text-muted-foreground">

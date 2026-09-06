@@ -3,8 +3,10 @@ package kubernetesbridge
 import (
 	"context"
 	"encoding/json"
+	resourcev1 "k8s.io/api/resource/v1"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -112,5 +114,41 @@ func unixHTTPClient(socket string) *http.Client {
 		Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return dialer.DialContext(ctx, "unix", socket)
 		}},
+	}
+}
+
+func TestServerV2KeepsDynamicBindingsPrivateAndV1Unchanged(t *testing.T) {
+	c, slices := dynamicInventoryFixture()
+	modern := BuildInventoryV2([]*resourcev1.ResourceClaim{c}, slices, "node", "gpu.nvidia.com")
+	w, a, scopes, stats := BuildInventory([]*resourcev1.ResourceClaim{c}, slices, "node", "gpu.nvidia.com")
+	state := NewState("test", "node", time.Now())
+	state.UpdateInventories(w, a, scopes, stats, modern, time.Now())
+	handler := NewServer(state).Handler()
+	for _, version := range []string{"v1", "v2"} {
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, httptest.NewRequest("GET", "/"+version+"/allocations", nil))
+		if rr.Code != 200 || rr.Header().Get("Cache-Control") != "no-store" {
+			t.Fatal(rr.Code)
+		}
+		var payload map[string]json.RawMessage
+		if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+			t.Fatal(err)
+		}
+		if version == "v1" {
+			if payload["bindings"] != nil || payload["resolution"] != nil {
+				t.Fatal("v1 shape changed")
+			}
+		} else {
+			var d attribution.DocumentV2
+			if err := json.Unmarshal(rr.Body.Bytes(), &d); err != nil {
+				t.Fatal(err)
+			}
+			if err := d.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			if len(d.Bindings) != 2 || len(d.Assignments) != 1 || d.Resolution.Status != "complete" {
+				t.Fatal(d)
+			}
+		}
 	}
 }

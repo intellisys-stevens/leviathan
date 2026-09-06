@@ -7,6 +7,9 @@ After=nvidia-persistenced.service
 [Service]
 Type=simple
 User=%i
+StateDirectory=leviathan-%i
+StateDirectoryMode=0700
+Environment=LEVIATHAN_HEALTH_DIR=/var/lib/leviathan-%i/health-v1
 EnvironmentFile=-/etc/leviathan/leviathan.env
 ExecStart=/usr/local/bin/leviathan --listen 127.0.0.1:1397 serve
 Restart=on-failure

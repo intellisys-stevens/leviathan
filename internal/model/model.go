@@ -23,6 +23,7 @@ const (
 	SourceProc      MetricSource = "proc"
 	SourceProcFS    MetricSource = "procfs"
 	SourceStatFS    MetricSource = "statfs"
+	SourceCgroupFS  MetricSource = "cgroupfs"
 	SourceSynthetic MetricSource = "synthetic"
 )
 
@@ -33,6 +34,7 @@ const (
 	ScopePhysicalGPU     MetricScope = "physical_gpu"
 	ScopeGPUInstance     MetricScope = "gpu_instance"
 	ScopeComputeInstance MetricScope = "compute_instance"
+	ScopeWorkloadOwner   MetricScope = "workload_owner"
 )
 
 // Metric is an explicitly scoped measurement. A nil Value is never interpreted as zero.
@@ -128,11 +130,57 @@ const (
 const AttributionProviderKubernetesDRA = "kubernetes_dra"
 
 type Attribution struct {
-	Provider    string                `json:"provider"`
-	Status      AttributionStatus     `json:"status"`
-	ObservedAt  *time.Time            `json:"observedAt,omitempty"`
-	Workloads   []WorkloadAttribution `json:"workloads"`
-	Assignments []ResourceAssignment  `json:"assignments"`
+	Provider    string                 `json:"provider"`
+	Status      AttributionStatus      `json:"status"`
+	ObservedAt  *time.Time             `json:"observedAt,omitempty"`
+	Workloads   []WorkloadAttribution  `json:"workloads"`
+	Assignments []ResourceAssignment   `json:"assignments"`
+	Resolution  *AttributionResolution `json:"resolution,omitempty"`
+}
+
+// AttributionResolution describes identity coverage independently of freshness.
+// These local-only summaries never contain Kubernetes or checkpoint identities.
+type AttributionResolution struct {
+	Status                string                         `json:"status"`
+	UnresolvedAssignments int                            `json:"unresolvedAssignments"`
+	ReasonCodes           []string                       `json:"reasonCodes"`
+	Workloads             []WorkloadAssignmentResolution `json:"workloads"`
+}
+
+type WorkloadAssignmentResolution struct {
+	WorkloadRef           string   `json:"workloadRef"`
+	UnresolvedAssignments int      `json:"unresolvedAssignments"`
+	ReasonCodes           []string `json:"reasonCodes"`
+}
+
+// WorkloadTelemetry is an independent, local-only cgroup observation. Owner
+// references are opaque, and Pod identities never cross the public API.
+type WorkloadTelemetryStatus string
+
+const (
+	WorkloadTelemetryAvailable   WorkloadTelemetryStatus = "available"
+	WorkloadTelemetryPartial     WorkloadTelemetryStatus = "partial"
+	WorkloadTelemetryStale       WorkloadTelemetryStatus = "stale"
+	WorkloadTelemetryUnavailable WorkloadTelemetryStatus = "unavailable"
+)
+
+type WorkloadOwnerTelemetry struct {
+	Ref        string                  `json:"ref"`
+	Name       string                  `json:"name"`
+	Platform   WorkloadPlatform        `json:"platform"`
+	Workspaces []WorkloadAttribution   `json:"workspaces"`
+	SampledAt  time.Time               `json:"sampledAt"`
+	Status     WorkloadTelemetryStatus `json:"status"`
+	Message    string                  `json:"message,omitempty"`
+	Metrics    MetricSet               `json:"metrics"`
+}
+
+type WorkloadTelemetry struct {
+	SampledAt  time.Time                `json:"sampledAt"`
+	ObservedAt *time.Time               `json:"observedAt,omitempty"`
+	Status     WorkloadTelemetryStatus  `json:"status"`
+	Message    string                   `json:"message,omitempty"`
+	Owners     []WorkloadOwnerTelemetry `json:"owners"`
 }
 
 type ComputeInstance struct {
@@ -270,6 +318,7 @@ type System struct {
 	CPU       CPU          `json:"cpu"`
 	Memory    SystemMemory `json:"memory"`
 	Storage   Storage      `json:"storage"`
+	Uptime    *Metric      `json:"uptime,omitempty"`
 	SampledAt time.Time    `json:"sampledAt"`
 	Status    MetricStatus `json:"status"`
 	Message   string       `json:"message,omitempty"`
@@ -294,16 +343,17 @@ type BuildInfo struct {
 }
 
 type Snapshot struct {
-	SchemaVersion string       `json:"schemaVersion"`
-	Sequence      uint64       `json:"sequence"`
-	SampledAt     time.Time    `json:"sampledAt"`
-	Host          Host         `json:"host"`
-	System        System       `json:"system"`
-	GPUs          []GPU        `json:"gpus"`
-	Processes     []Process    `json:"processes"`
-	Attribution   *Attribution `json:"attribution,omitempty"`
-	Capabilities  Capabilities `json:"capabilities"`
-	Diagnostics   []Diagnostic `json:"diagnostics"`
+	SchemaVersion     string             `json:"schemaVersion"`
+	Sequence          uint64             `json:"sequence"`
+	SampledAt         time.Time          `json:"sampledAt"`
+	Host              Host               `json:"host"`
+	System            System             `json:"system"`
+	GPUs              []GPU              `json:"gpus"`
+	Processes         []Process          `json:"processes"`
+	Attribution       *Attribution       `json:"attribution,omitempty"`
+	WorkloadTelemetry *WorkloadTelemetry `json:"workloadTelemetry,omitempty"`
+	Capabilities      Capabilities       `json:"capabilities"`
+	Diagnostics       []Diagnostic       `json:"diagnostics"`
 }
 
 func Float(value float64) *float64 { return &value }

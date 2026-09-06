@@ -9,6 +9,12 @@ import {
 
 const attribution: Attribution = {
   provider: 'kubernetes_dra',
+  resolution: {
+    status: 'complete',
+    unresolvedAssignments: 0,
+    reasonCodes: [],
+    workloads: [],
+  },
   status: 'available',
   workloads: [
     {
@@ -47,8 +53,8 @@ describe('workspace attribution presentation', () => {
     render(<AttributionSummary />);
 
     expect(
-      screen.getByLabelText('Workspace attribution unavailable'),
-    ).toHaveTextContent('Workspace attributionNot configured');
+      screen.getByLabelText('Assignment integration: Not configured'),
+    ).toHaveTextContent('AssignmentsNot configured');
   });
 
   it('treats allocated and reserved DRA states as neutral assignments', () => {
@@ -71,29 +77,20 @@ describe('workspace attribution presentation', () => {
     expect(view.container).not.toHaveTextContent('opaque-reserved');
   });
 
-  it('groups assigned devices by workspace without exposing opaque refs', async () => {
+  it('discloses integration provenance without repeating workspace lists', async () => {
     const view = render(<AttributionSummary attribution={attribution} />);
-
     const trigger = screen.getByRole('button', {
-      name: /Kubernetes DRA attribution: 2 workspaces, 1 device, available/,
+      name: 'Assignment integration: Connected',
     });
-    expect(trigger).not.toHaveClass('flowing-surface');
-    expect(
-      trigger.querySelector(':scope > [data-slot="perimeter-light"]'),
-    ).toBeNull();
-    expect(trigger).toHaveTextContent(/Kubernetes DRA.*2 workspaces.*1 device/);
+    expect(trigger).toHaveTextContent('AssignmentsConnected');
+    expect(screen.queryByText('Kubernetes DRA')).toBeNull();
     fireEvent.click(trigger);
-    expect(await screen.findByText('alice / active')).toBeInTheDocument();
-    expect(screen.getByText('bob / queued')).toBeInTheDocument();
+    expect(await screen.findByText('Kubernetes DRA')).toBeInTheDocument();
     expect(
-      screen.queryByText(
-        'Scheduler assignments; these do not imply active GPU use.',
-      ),
-    ).toBeNull();
-    expect(screen.getAllByText('Physical GPU')).toHaveLength(2);
-    expect(view.container).not.toHaveTextContent('GPU-a');
+      screen.getByText(/Assignments describe scheduler intent/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('alice / active')).toBeNull();
     expect(view.container).not.toHaveTextContent('opaque-allocated');
-    expect(view.container).not.toHaveTextContent('opaque-reserved');
   });
 
   it('confines stale and unavailable attribution to the summary', () => {
@@ -111,10 +108,8 @@ describe('workspace attribution presentation', () => {
     );
 
     expect(
-      screen.getByLabelText(
-        'Kubernetes DRA attribution: 2 workspaces, 1 device, stale',
-      ),
-    ).toHaveTextContent('stale');
+      screen.getByLabelText('Assignment integration: Stale'),
+    ).toHaveTextContent('Stale');
     expect(screen.queryByText('scheduler assignments')).toBeNull();
 
     view.rerender(
@@ -125,10 +120,47 @@ describe('workspace attribution presentation', () => {
       </>,
     );
     expect(
-      screen.getByLabelText(
-        'Kubernetes DRA attribution: 2 workspaces, 1 device, unavailable',
-      ),
-    ).toHaveTextContent('unavailable');
+      screen.getByLabelText('Assignment integration: Unavailable'),
+    ).toHaveTextContent('Unavailable');
     expect(screen.queryByText('alice / active')).toBeNull();
   });
+});
+
+it('shows unknown assignment and verification details for an incomplete inventory', () => {
+  const current: Attribution = {
+    ...attribution,
+    resolution: {
+      status: 'incomplete',
+      unresolvedAssignments: 2,
+      reasonCodes: ['preparation_pending'],
+      workloads: [
+        {
+          workloadRef: 'opaque-allocated',
+          unresolvedAssignments: 2,
+          reasonCodes: ['preparation_pending'],
+        },
+      ],
+    },
+  };
+  const targets = [
+    { entityType: 'compute_instance' as const, entityUuid: 'MIG-pending' },
+  ];
+  render(
+    <>
+      <WorkspaceBadges attribution={current} targets={targets} showUnassigned />
+      <AttributionDetails attribution={current} targets={targets} />
+      <AttributionSummary attribution={current} />
+    </>,
+  );
+  expect(screen.getByText('Assignment unknown')).toBeInTheDocument();
+  expect(screen.queryByText('Unassigned')).toBeNull();
+  expect(
+    screen.getByText(/Allocation verification is incomplete/),
+  ).toBeInTheDocument();
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Assignment integration: Incomplete' }),
+  );
+  expect(
+    screen.getByText(/2 allocations pending verification/),
+  ).toBeInTheDocument();
 });

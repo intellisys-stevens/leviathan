@@ -11,7 +11,8 @@ command -v "$helm_command" >/dev/null 2>&1 || {
 }
 "$helm_command" lint "$chart" --kube-version 1.34.0 >/dev/null
 rendered=$(mktemp)
-trap 'rm -f -- "$rendered"' EXIT
+workload_rendered=$(mktemp)
+trap 'rm -f -- "$rendered" "$workload_rendered"' EXIT
 "$helm_command" template synthetic "$chart" --namespace monitoring --kube-version 1.34.0 \
   --set-json 'workspaceNamespaces=["workspace-one","workspace-two"]' >"$rendered"
 
@@ -73,10 +74,34 @@ if "$helm_command" template synthetic "$chart" --namespace monitoring --kube-ver
   printf 'bridge chart accepted an empty workspaceNamespaces list\n' >&2
   exit 1
 fi
+
+# Pod inventory is an explicit namespace-scoped opt-in. The default rendering
+# above continues to reject every Pod permission and every unrelated resource.
+"$helm_command" template synthetic "$chart" --namespace monitoring --kube-version 1.34.0 \
+  --set-json 'workspaceNamespaces=["workspace-one","workspace-two"]' \
+  --set workloadInventory.enabled=true >"$workload_rendered"
+[[ $(grep -Ec -- '--workload-inventory' "$workload_rendered") -eq 1 ]]
+[[ $(grep -Ec 'resources: \["pods"\]' "$workload_rendered") -eq 2 ]]
+if grep -E '^[[:space:]]*resources:[[:space:]]*\[' "$workload_rendered" | grep -Ev '^[[:space:]]+resources: \["(resourceslices|resourceclaims|pods)"\]$'; then
+  printf 'workload opt-in grants resources outside the metadata inventory\n' >&2
+  exit 1
+fi
+if grep -E '^[[:space:]]*verbs:[[:space:]]*\[' "$workload_rendered" | grep -Ev '^[[:space:]]+verbs: \["get", "list", "watch"\]$'; then
+  printf 'workload opt-in grants non-read verbs\n' >&2
+  exit 1
+fi
+if ! awk '/^kind:/ {kind=$2} /resources: \["pods"\]/ {if(kind!="Role") exit 1}' "$workload_rendered"; then
+  printf 'workload Pod permissions must remain namespace-scoped\n' >&2
+  exit 1
+fi
+if grep -Eni '(pods/(exec|log|attach)|secrets|privileged:[[:space:]]*true|host(Network|PID|IPC):[[:space:]]*true)' "$workload_rendered"; then
+  printf 'workload inventory expands beyond metadata read permissions\n' >&2
+  exit 1
+fi
 if "$helm_command" template synthetic "$chart" --namespace monitoring --kube-version 1.34.0 \
   --set-string 'socketPath=/run/containerd/containerd.sock' >/dev/null 2>&1; then
   printf 'bridge chart accepted a container-runtime socket path\n' >&2
   exit 1
 fi
 
-printf 'verified Helm chart: least-privilege RBAC and hardened DaemonSet\n'
+printf 'verified Helm chart: least-privilege default and optional Pod metadata RBAC\n'

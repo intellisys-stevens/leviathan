@@ -1,14 +1,48 @@
 # Approved host updates
 
-The default installer includes both Leviathan and `leviathan-updater`. Without
-Yggdrasil setup information it installs the binaries in `~/.local/bin`; the
-updater remains unconfigured. Use `--without-updater` to install only Leviathan.
+The 0.4.0 source implements the combined installer and managed setup described
+here. The published 0.3.2 installer installs only Leviathan and has no signed
+managed-update manifests or standalone updater assets. Use a completed official
+release with all verified assets before enabling the managed path; merging the
+implementation or passing its tests does not provision a control plane.
+
+Once published in a compatible release, the combined installer includes both
+Leviathan and `leviathan-updater`. Without Yggdrasil setup information it installs
+the binaries in `~/.local/bin`; the updater remains unconfigured. That installer
+also accepts `--without-updater` for standalone installations. These options do
+not apply to the 0.3.2 installer.
 
 An enrolled updater polls Yggdrasil over outbound HTTPS every 15 seconds with
 jitter and backoff. Later updates require an explicit request for one host and
 one compatible stable release. They change only Leviathan, preserve its local
 configuration and compatible persistent state, and retain the previous release
 for rollback. The updater itself is not replaced by a dashboard update.
+
+## Prerequisites
+
+Before generating a command for a new host, the central administrator must:
+
+1. Add the host to authoritative inventory through the configured Jetstream
+   project discovery or a physical-host `static_host` entry. Setup selects an
+   existing exact machine identity; it does not register arbitrary unknown hosts.
+2. Configure the disabled-by-default update control plane, its separate HTTPS
+   origin and listener, passkey authentication, accounting, platform plugins and
+   node PKI. Update state and node PKI must share the identity database. Follow
+   [Yggdrasil's central configuration](https://github.com/intellisys-stevens/yggdrasil/blob/main/docs/agent-updates-backend.md#central-configuration).
+3. Pin the approved release public key and import a verified, installer-capable
+   stable release using the
+   [catalog importer](https://github.com/intellisys-stevens/yggdrasil/blob/main/docs/leviathan-release-catalog.md).
+   For each architecture to enroll, the catalog needs verified installer, static
+   updater, archive and signed-manifest metadata. Keep the private signing key
+   in protected release CI.
+4. Enable the approved canary and complete the rollout checks before enrolling
+   production hosts. Server configuration, release publication and host
+   enrollment are separate readiness gates.
+
+The target needs Linux AMD64 or ARM64, glibc 2.34 or newer, systemd, and root or
+sudo access. Bootstrap needs GitHub release downloads and the configured
+Yggdrasil HTTPS origin. Normal generated setup needs neither Python nor `gh`;
+the advanced compatibility paths below retain their separate dependencies.
 
 ## Install Leviathan and the updater together
 
@@ -64,6 +98,48 @@ The polling service retains filesystem and capability restrictions; the
 separate boot recovery service has no network access. Initial bootstrap needs
 access to GitHub release assets; normal updates and artifact downloads use
 only the configured Yggdrasil origin.
+
+## Check each connection
+
+Fresh setup generates a loopback-only monitor configuration and restricts that
+service's network access to localhost. It creates an updater identity, not an
+uplink token or viewer identity. Existing supported installations retain their
+configuration and credentials.
+
+| Connection | What establishes readiness | Additional setup on a fresh host |
+| --- | --- | --- |
+| Local monitoring | Setup verifies the exact running executable and advancing local telemetry. | Created by the generated setup command. |
+| Updater control | Setup succeeds and Yggdrasil receives current authenticated updater liveness. | Created by the generated command after central prerequisites are met. |
+| Telemetry uplink | Yggdrasil receives fresh observations for the exact machine. | Provision a separate machine token, enable `[uplink]`, and allow the narrow monitoring-service egress described in the [uplink guide](uplink-v1.md). |
+| Remote viewer | An authorized viewer connection reaches the intended machine dashboard. | Configure the separate viewer gateway, credentials and access policy through [Yggdrasil deployment](https://github.com/intellisys-stevens/yggdrasil/blob/main/docs/deploy-jetson.md). |
+
+Updater liveness does not prove telemetry ingestion or viewer access. Each
+credential keeps its own purpose; never reuse updater credentials for either.
+
+## Automation scope
+
+After the administrator creates a host-scoped command, setup automatically
+detects architecture, verifies artifacts, generates local configuration and
+identity, enrolls, starts services, checks health, and records resumable progress.
+After an authorized version request, the updater handles verification,
+installation, health checks, recovery and rollback. Updater certificate renewal
+preserves its machine identity and updater-only purpose.
+
+| Operation | Current behavior |
+| --- | --- |
+| Discover and import new releases | An operator runs the verified catalog importer; there is no automatic GitHub release feed. |
+| Choose a later version | An authorized user requests one compatible stable release for one host. Polling does not select or install `latest`. |
+| Replace the updater itself | A Leviathan update preserves the updater executable; updater replacement requires a separate operator procedure. |
+| Configure telemetry and viewing | Separate provisioning remains necessary for a fresh host. Managed setup does not automate their credentials or network policy. |
+
+Further automation should reduce repeated setup after a scoped administrator
+opt-in. Automatic catalog ingestion must retain signature, provenance and
+compatibility checks. Unattended version selection needs a durable per-host
+approved channel policy, canaries, bounded rollout concurrency, pause and
+revocation controls, and audited rollback. Telemetry and viewer setup must retain
+separate credentials and network scopes. These are remaining capabilities, not
+existing settings: inventory discovery or updater polling alone must never
+authorize a root-level installation or bypass current session/passkey checks.
 
 ## Advanced compatibility paths
 

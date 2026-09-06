@@ -200,22 +200,141 @@ and `unavailable` with HTTP 503 only when no telemetry domain has a valid
 snapshot.
 
 The React client owns one `EventSource` and keeps the last complete snapshot
-during reconnects. Its GPU perspective organizes host-wide topology and
-telemetry by device. Its People perspective groups scheduler assignments by
-Coder user and workspace without treating reserved or allocated resources as
-evidence of active use. Charts and processes remain host-wide; a process may
-show its joined workspace but never claims a particular GPU, GI, or CI.
+during reconnects. Its four hash-addressed views have separate responsibilities:
 
-The overview loads one aligned history batch per panel and refetches whenever
-the exact panel, topology, or selected range changes in either direction. Raw
-windows merge newer SSE samples by timestamp; compact 4h/12h windows retain the
-last complete plot and refresh only on the next aggregate boundary. Stale
-responses are ignored. The shared grid keeps series comparable while preserving
-real gaps. Single-entity detail views continue to use the legacy history query.
-The browser-local window can be 5, 15, or 30 minutes and 1, 4, or 12 hours,
-subject to configured retention. Deterministic epoch-aligned display buckets
-keep closed curve geometry stable. The overview chart bundle and GI/CI detail
-drawer are lazy-loaded.
+| View | Responsibility |
+| --- | --- |
+| Overview | CPU, RAM, unassigned GPU units, and mounted-storage capacity; all activity charts |
+| Resources | An interactive motherboard with CPU/RAM/filesystem facts, followed by physical GPU → GI → CI inspection |
+| Workloads | Per-owner CPU, RAM, GPU, and storage I/O telemetry, workspace assignments, and integration status |
+| Status | Yggdrasil connection, host/GPU telemetry observations, host uptime, monitor runtime, and diagnostic details |
+
+Capacity cards use logical processor counts and measured RAM/storage usage. GPU
+availability counts one existing unit per full GPU or observed MIG compute
+instance. Allocated and reserved assignments consume units; unresolved or stale
+observations leave unassigned capacity unknown. Resources always displays every
+GPU and its complete observed topology; the Overview tile opens this full list.
+Capacity counts describe observed workspace assignment coverage, not scheduler
+admission eligibility.
+
+GPU resource cards contain a fanless procedural Three.js board with an exposed
+chip. Every observed compute instance becomes one selectable region; four
+instances form a 2×2 layout. Other counts use balanced equal-area rows without
+inventing slots. The layout does not encode physical silicon or computing power.
+Full GPUs have one undivided chip; empty MIG configurations stay explicitly empty.
+Hover and keyboard focus expose assignment state and shared GI memory/SM
+telemetry; click, tap, or Enter opens the existing details. Shared GI readings
+are not split among CIs. Native controls remain available without hover.
+Assignment badges share their theme-aware hue with chip regions: green for
+assigned, grey for unassigned, amber for reserved, and neutral for unknown.
+Fresh measured SM activity controls brightness on a fixed 0–100% scale. CIs use
+their GI's shared SM reading; non-MIG GPUs use physical GPU SM activity. Retained
+snapshots, unavailable or estimated readings never animate as measured activity.
+Opening the event stream alone does not establish freshness: a newer SSE
+snapshot must reach the display first. Interruptions and malformed events
+invalidate pending freshness. A silent stream expires after the greater of five
+seconds or three sampling/display intervals; duplicate snapshots and settings
+events cannot extend that deadline.
+
+An internal hardware-scene adapter supplies motherboard and GPU model creation,
+pick targets, named camera frames, appearance updates, and disposal. The
+motherboard has stable CPU, memory, and storage targets; it does not infer DIMM
+inventory or filesystem-to-drive placement. Its CPU and RAM glow uses available
+live host utilization only, with intensity `0.15 + 0.65 × utilization / 100`.
+Estimated and retained measurements remain readable with explicit status but
+use neutral illumination. Storage selection is static. Selection outlines stay
+independent of utilization, and updates do not rebuild model geometry.
+
+One lazy shared renderer draws visible scenes using independent cameras and
+scissor rectangles. Its HTML shell renders immediately and loading status stays
+outside the control layout, so inspection targets do not move as graphics load.
+The viewport-sized canvas lives in a clipped, absolute page layer outside
+transformed view containers. Its existing pixels scroll with the cards between
+frames; the canvas origin and scene clipping update together on redraw, avoiding
+scroll lag. GPU initial view and Reset focus on the chip; the Focus chip toggle
+also exposes the complete board. Full-board framing
+fits cached component bounds with a small margin so the bracket and PCIe contacts
+remain visible. The motherboard initially frames its complete board; Focus
+selected frames the selected category, and Reset restores the whole board.
+CPU, RAM, and Storage facts stay visible together. Category selection and each
+scene's camera survive Resources navigation, and capacity links focus the
+corresponding native heading button. Loading and graphics fallback retain the
+same panel footprint and HTML inspection controls.
+Scroll, resize, and view transitions invalidate its geometry. GPU identity retains camera
+state across navigation. Topology generations replace model regions;
+ordinary polling refreshes metrics and region appearance without rebuilding
+geometry. Positive live activity adds sparse procedural particles close to each
+region. Ambient draws are capped at 30 fps and run only for visible active views;
+hidden tabs, stale data, zero activity, and reduced motion stop the shimmer.
+Interactions still redraw immediately. Decorative effects are excluded from
+raycasting and physical board framing. Hover/focus changes an outline, not the
+activity brightness. There is no continuous rotation.
+OrbitControls constrain elevation above the PCB, disable
+panning, and allow full azimuth rotation. Phones require Interact before drag or
+pinch; Done restores page scrolling. Native zoom, focus-chip, and reset controls
+provide gesture alternatives. Selection requires the same region before/after a
+short single-pointer press; drag, cancellation, and multi-touch do not select.
+
+Materials and lighting adapt to both themes, with a dim NVIDIA-green perimeter
+rim and soft halo that remain independent of chip and assignment state. Neutral
+overhead and side lighting illuminate the chip, packages, and mounting bracket
+while preserving dark recesses. Reduced
+motion applies highlighting immediately and disables inertia. Graphics failure
+or forced colors displays a static exposed-board diagram and retains the same
+HTML actions. All geometry, labels, and libraries are bundled locally under the
+existing CSP. Snow remains on the stationary card edge, using a page-load seed
+and stable surface identity. GPU processes and attribution remain in the API and
+CLI; the dashboard has no Processes panel. Legacy `#diagnostics` and `#operations` resolve to
+Status and `#processes` to Workloads.
+
+CPU, RAM, storage space, and disk read/write history share one aligned `@host`
+request. GPU chart panels use aligned batches for their selected entities.
+Host raw windows merge newer measurements by their own sample timestamps;
+GPU-only publications do not create CPU/RAM history points. Compact 4h/12h
+windows refresh on the next aggregate boundary. Range changes retain complete
+history while loading, expose a scoped retry on failure, and ignore superseded
+responses. Missing values remain gaps. Percentage axes use 0–100%; storage I/O
+uses bytes per second and separate read/write series.
+
+Single-entity detail views continue to use the legacy history query. The
+browser-local window can be 5, 15, or 30 minutes and 1, 4, or 12 hours, subject
+to configured retention. Deterministic epoch-aligned display buckets keep
+closed curve geometry stable. Host/GPU chart bundles and the GI/CI detail drawer
+are lazy-loaded by view. All Overview panels appear immediately in two columns
+at desktop widths and one on phones. Their headings and plots align, with a
+single-row legend beneath each plot. Dense GPU legends scroll horizontally;
+arrow controls and keyboard navigation keep every series accessible without
+changing panel height. Enlarged text and diagnostic feedback may grow naturally.
+Tap a plot to select a timestamp, or use
+Left/Right and Home/End on its keyboard focus target. The cursor and equal-width
+legend cells show selected values; Escape or Live restores current values.
+Selection reuses loaded history, preserves gaps, and requires no extra request.
+
+## Local health observations
+
+The read-only `/api/v1/status` report is separate from `/healthz` and metric
+history. A local recorder keeps one telemetry-state observation per minute,
+retaining ninety UTC dates. System and GPU telemetry are evaluated with their
+own observation times. Yggdrasil connection observations use validated upload
+receipts and independent monotonic freshness. Workspace diagnostics stay in
+Workloads. Restart gaps and unobserved minutes remain unknown; underlying
+unsupported and unknown states display as No data.
+
+The dashboard computes healthy observations as operational observations divided
+by operational, degraded, and unavailable observations. Coverage reports the
+share of expected minutes with operational, degraded, or unavailable observations.
+Unknown and unsupported samples are excluded. These are observation statistics, not externally measured
+service availability or an SLA. Linux host uptime and the current monitor's
+runtime are displayed separately. Monitor runtime comes from the process
+monotonic clock, so wall-clock corrections do not change its elapsed duration.
+Older status responses without this optional duration display an unavailable
+runtime instead of deriving it from wall-clock timestamps.
+
+Metric curves remain in memory with their existing bounded retention. The
+private local health journal can survive monitor restarts; a saving failure is
+reported independently and leaves current telemetry available. See
+[host monitoring](host-monitoring.md#health) and
+[deployment](deployment.md) for operating details.
 
 ## Shutdown
 

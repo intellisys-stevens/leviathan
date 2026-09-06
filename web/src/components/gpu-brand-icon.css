@@ -1,0 +1,18 @@
+.gpu-brand-icon[data-gpu-brand] {
+  flex: none;
+  color: var(--foreground);
+}
+
+.gpu-brand-icon[data-gpu-brand='nvidia'] {
+  color: #426800;
+}
+
+.dark .gpu-brand-icon[data-gpu-brand='nvidia'] {
+  color: #76b900;
+}
+
+@media (forced-colors: active) {
+  .gpu-brand-icon[data-gpu-brand] {
+    color: CanvasText !important;
+  }
+}

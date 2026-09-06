@@ -116,6 +116,15 @@ func New(base provider.Provider, options Options) *Provider {
 	}
 }
 
+func (p *Provider) RefreshTopology() {
+	if base, ok := p.base.(provider.TopologyRefresher); ok {
+		base.RefreshTopology()
+	}
+	p.mu.Lock()
+	p.refreshedAt = time.Time{}
+	p.mu.Unlock()
+}
+
 func (p *Provider) Name() string { return p.base.Name() + "+dcgm" }
 
 func (p *Provider) Open(ctx context.Context) error {

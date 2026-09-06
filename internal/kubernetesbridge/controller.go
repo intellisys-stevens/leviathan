@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	resourcev1 "k8s.io/api/resource/v1"
@@ -32,9 +33,11 @@ type ControllerOptions struct {
 }
 
 type Controller struct {
-	client  kubernetes.Interface
-	state   *State
-	options ControllerOptions
+	sourceMu     sync.Mutex
+	sourceFailed bool
+	client       kubernetes.Interface
+	state        *State
+	options      ControllerOptions
 }
 
 func NewController(client kubernetes.Interface, state *State, options ControllerOptions) (*Controller, error) {
@@ -80,9 +83,47 @@ func DefaultControllerOptions(nodeName string, namespaces []string) ControllerOp
 	}
 }
 
+// Recreate informer caches after a source failure. A successful API probe alone
+// cannot prove that an interrupted watch has caught up with current allocations.
 func (c *Controller) Run(ctx context.Context) error {
+	for {
+		err := c.runSession(ctx)
+		if ctx.Err() != nil {
+			return nil
+		}
+		c.state.MarkUnavailable()
+		if err != nil {
+			c.options.Logger.Warn("Kubernetes attribution cache is reconnecting")
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+func (c *Controller) runSession(parent context.Context) error {
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
+	c.sourceMu.Lock()
+	c.sourceFailed = false
+	c.sourceMu.Unlock()
+	failed := make(chan struct{}, 1)
+	fail := func() {
+		c.sourceMu.Lock()
+		defer c.sourceMu.Unlock()
+		if ctx.Err() != nil {
+			return
+		}
+		c.sourceFailed = true
+		c.state.MarkUnavailable()
+		signal(failed)
+	}
+	watchedClient := allocationClient{Interface: c.client, failed: fail}
+
 	nodeSelector := fields.OneTermEqualSelector("spec.nodeName", c.options.NodeName).String()
-	sliceFactory := informers.NewSharedInformerFactoryWithOptions(c.client, c.options.ResyncInterval,
+	sliceFactory := informers.NewSharedInformerFactoryWithOptions(watchedClient, c.options.ResyncInterval,
 		informers.WithTweakListOptions(func(options *metav1.ListOptions) {
 			options.FieldSelector = nodeSelector
 		}))
@@ -92,7 +133,7 @@ func (c *Controller) Run(ctx context.Context) error {
 	claimFactories := make([]informers.SharedInformerFactory, 0, len(c.options.Namespaces))
 	claimInformers := make([]cache.SharedIndexInformer, 0, len(c.options.Namespaces))
 	for _, namespace := range c.options.Namespaces {
-		factory := informers.NewSharedInformerFactoryWithOptions(c.client, c.options.ResyncInterval,
+		factory := informers.NewSharedInformerFactoryWithOptions(watchedClient, c.options.ResyncInterval,
 			informers.WithNamespace(namespace),
 			informers.WithTweakListOptions(func(options *metav1.ListOptions) {
 				options.LabelSelector = claimSelector
@@ -101,6 +142,13 @@ func (c *Controller) Run(ctx context.Context) error {
 		claimInformers = append(claimInformers, factory.Resource().V1().ResourceClaims().Informer())
 	}
 
+	for _, informer := range append([]cache.SharedIndexInformer{sliceInformer}, claimInformers...) {
+		if err := informer.SetWatchErrorHandlerWithContext(func(_ context.Context, _ *cache.Reflector, _ error) {
+			fail()
+		}); err != nil {
+			return errors.New("configure attribution watch failure handler")
+		}
+	}
 	updates := make(chan struct{}, 1)
 	handler := cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(any) { signal(updates) },
@@ -142,6 +190,8 @@ func (c *Controller) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-failed:
+			return errors.New("attribution watch failed")
 		case <-updates:
 			c.reconcile(sliceInformer, claimInformers, c.options.Now())
 		case <-ticker.C:
@@ -149,6 +199,7 @@ func (c *Controller) Run(ctx context.Context) error {
 				c.reconcile(sliceInformer, claimInformers, c.options.Now())
 			} else {
 				c.state.MarkUnavailable()
+				return errors.New("attribution probe failed")
 			}
 		}
 	}
@@ -170,11 +221,17 @@ func (c *Controller) reconcile(sliceInformer cache.SharedIndexInformer, claimInf
 		}
 	}
 	workloads, assignments, processScopes, stats := BuildInventory(claims, slices, c.options.NodeName, c.options.Driver)
-	c.state.Update(workloads, assignments, processScopes, stats, observedAt)
+	modern := BuildInventoryV2(claims, slices, c.options.NodeName, c.options.Driver)
+	c.sourceMu.Lock()
+	defer c.sourceMu.Unlock()
+	if c.sourceFailed {
+		return
+	}
+	c.state.UpdateInventories(workloads, assignments, processScopes, stats, modern, observedAt)
 	c.options.Logger.Info("attribution inventory updated",
-		"workloads", len(workloads), "assignments", len(assignments), "processScopes", len(processScopes), "pendingClaims", stats.PendingClaims,
+		"workloads", len(modern.Workloads), "assignments", len(modern.Assignments), "dynamicBindings", len(modern.Bindings), "completeness", modern.Resolution.Status, "processScopes", len(modern.ProcessScopes), "pendingClaims", stats.PendingClaims,
 		"ambiguousProcessScopes", stats.AmbiguousProcessScopes, "invalidConsumers", stats.InvalidConsumers,
-		"unresolved", stats.UnresolvedDevices, "invalidClaims", stats.InvalidClaims, "incompletePools", stats.IncompletePools)
+		"unresolved", modern.Resolution.UnresolvedAssignments, "invalidClaims", stats.InvalidClaims, "incompletePools", stats.IncompletePools)
 }
 
 func (c *Controller) probe(parent context.Context, nodeSelector, claimSelector string) bool {

@@ -211,6 +211,126 @@ describe('overview history', () => {
     expect(data.availableSeries).toBe(0);
   });
 
+  it.each([
+    'utilization',
+    'memory_percent',
+    'memory_activity',
+    'pcie_total',
+  ] as const)(
+    'preserves live %s samples when physical GPUs and MIG memory refresh at different times',
+    (metric) => {
+      const initial = fixture();
+      const entities = buildOverviewEntities(initial);
+      const points: Record<string, OverviewPoint[]> = {};
+      for (let index = 0; index < 8; index += 1) {
+        const snapshot = structuredClone(initial);
+        snapshot.sampledAt = new Date(
+          Date.parse(sampledAt) + index * 500,
+        ).toISOString();
+        snapshot.gpus[0].memory.sampledAt = snapshot.sampledAt;
+        const gi = snapshot.gpus[0].gpuInstances[0];
+        gi.memory.sampledAt = new Date(
+          Date.parse(sampledAt) + Math.floor(index / 4) * 2000,
+        ).toISOString();
+        gi.metrics.pcie_rx_bytes_per_second = {
+          ...gi.metrics.sm_activity,
+          value: 0,
+        };
+        gi.metrics.pcie_tx_bytes_per_second = {
+          ...gi.metrics.sm_activity,
+          value: 0,
+        };
+        for (const entity of entities) {
+          points[entity.key] = mergeOverviewPoints(
+            points[entity.key] ?? [],
+            [pointFromSnapshot(snapshot, entity)!],
+            snapshot.sampledAt,
+          );
+        }
+      }
+      for (const window of [5, 30]) {
+        const actual = chartRows(entities, points, metric, window * 60_000);
+        for (const [index, entity] of entities.entries()) {
+          const expected = chartRows([entity], points, metric, window * 60_000);
+          expect(
+            actual.rows
+              .filter((row) => Object.hasOwn(row, `series_${index}`))
+              .map((row) => row[`series_${index}`]),
+          ).toEqual(expected.rows.map((row) => row.series_0));
+        }
+      }
+    },
+  );
+
+  it('retains independent GPU sample times across host publications and history loads', async () => {
+    const initial = fixture();
+    initial.sampledAt = '2026-08-29T12:00:05Z';
+    const entities = buildOverviewEntities(initial);
+    const descriptors = entities.map((entity) => ({
+      key: entity.key,
+      entity: entity.uuid,
+      metrics: ['gpu_activity', 'sm_activity'],
+    }));
+    const response = deferred<AlignedHistory>();
+    const loadHistory = vi.fn().mockReturnValue(response.promise);
+    const hook = renderHook(
+      ({ snapshot }) =>
+        useOverviewHistory(
+          snapshot,
+          'utilization-chart',
+          entities,
+          descriptors,
+          loadHistory,
+          30 * 60 * 1000,
+          60 * 60 * 1000,
+        ),
+      { initialProps: { snapshot: initial } },
+    );
+    const hostUpdate = structuredClone(initial);
+    hostUpdate.sequence += 1;
+    hostUpdate.sampledAt = '2026-08-29T12:00:06Z';
+    hostUpdate.system = systemFixture(hostUpdate.sampledAt);
+    hook.rerender({ snapshot: hostUpdate });
+    for (const entity of entities) {
+      expect(hook.result.current.points[entity.key]).toHaveLength(1);
+      expect(hook.result.current.points[entity.key][0].sampledAt).toBe(
+        sampledAt,
+      );
+    }
+
+    await act(async () => {
+      response.resolve({ window: '30m0s', series: descriptors, points: [] });
+      await response.promise;
+    });
+    for (const entity of entities) {
+      expect(hook.result.current.points[entity.key]).toHaveLength(1);
+      expect(hook.result.current.points[entity.key][0].sampledAt).toBe(
+        sampledAt,
+      );
+    }
+
+    const failed = structuredClone(hostUpdate);
+    failed.sequence += 1;
+    failed.sampledAt = '2026-08-29T12:00:07Z';
+    for (const source of [failed.gpus[0], ...failed.gpus[0].gpuInstances]) {
+      source.memory.status = 'stale';
+      for (const metric of Object.values(source.metrics)) {
+        metric.status = 'stale';
+      }
+    }
+    hook.rerender({ snapshot: failed });
+    for (const entity of entities) {
+      const points = hook.result.current.points[entity.key];
+      expect(points).toHaveLength(2);
+      expect(points[0].sampledAt).toBe(sampledAt);
+      expect(Object.keys(points[0].values).length).toBeGreaterThan(0);
+      expect(points[1]).toMatchObject({
+        sampledAt: failed.sampledAt,
+        values: {},
+      });
+    }
+  });
+
   it('uses an exact PCIe total and retains its directional components', () => {
     const gpu = buildOverviewEntities(fixture())[0];
     const first: OverviewPoint = {
@@ -322,6 +442,8 @@ describe('overview history', () => {
     const live = structuredClone(initial);
     live.sequence = 2;
     live.sampledAt = '2026-08-29T12:00:01Z';
+    live.gpus[0].gpuInstances[0].memory.sampledAt = live.sampledAt;
+    live.gpus[0].gpuInstances[0].metrics.sm_activity.sampledAt = live.sampledAt;
     live.gpus[0].gpuInstances[0].metrics.sm_activity.value = 88;
     hook.rerender({ snapshot: live, windowMilliseconds: 30 * 60 * 1000 });
     hook.rerender({ snapshot: live, windowMilliseconds: 5 * 60 * 1000 });
@@ -422,6 +544,57 @@ describe('overview history', () => {
         (point) => point.values.sm_activity,
       ),
     ).toEqual([20]);
+  });
+
+  it('does not append raw GPU samples to retained aggregates when a shorter range fails', async () => {
+    const initial = fixture();
+    const entities = [buildOverviewEntities(initial)[1]];
+    const entity = entities[0];
+    const descriptors = [
+      { key: entity.key, entity: entity.uuid, metrics: ['sm_activity'] },
+    ];
+    const loadHistory = vi
+      .fn()
+      .mockResolvedValueOnce({
+        window: '4h0m0s',
+        series: descriptors,
+        points: [
+          {
+            sampledAt: '2026-08-29T11:59:30Z',
+            values: { [entity.key]: { sm_activity: 20 } },
+          },
+        ],
+      })
+      .mockRejectedValueOnce(new Error('offline'));
+    const hook = renderHook(
+      ({ snapshot, windowMs }) =>
+        useOverviewHistory(
+          snapshot,
+          'utilization-chart',
+          entities,
+          descriptors,
+          loadHistory,
+          windowMs,
+          12 * 60 * 60 * 1000,
+        ),
+      { initialProps: { snapshot: initial, windowMs: 4 * 60 * 60 * 1000 } },
+    );
+    await waitFor(() => expect(hook.result.current.loading).toBe(false));
+    const aggregates = hook.result.current.points[entity.key];
+    hook.rerender({ snapshot: initial, windowMs: 30 * 60 * 1000 });
+    await waitFor(() =>
+      expect(hook.result.current.error).toBe('History request failed.'),
+    );
+    const live = structuredClone(initial);
+    live.sampledAt = '2026-08-29T12:00:01Z';
+    live.gpus[0].gpuInstances[0].memory.sampledAt = live.sampledAt;
+    live.gpus[0].gpuInstances[0].metrics.sm_activity.sampledAt = live.sampledAt;
+    live.gpus[0].gpuInstances[0].metrics.sm_activity.value = 88;
+    hook.rerender({ snapshot: live, windowMs: 30 * 60 * 1000 });
+    expect(hook.result.current.loadedWindowMilliseconds).toBe(
+      4 * 60 * 60 * 1000,
+    );
+    expect(hook.result.current.points[entity.key]).toEqual(aggregates);
   });
 
   it('records only the current resolved window and preserves loaded points on failure', async () => {

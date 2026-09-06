@@ -1,0 +1,17 @@
+.snow-cap[data-slot='snow-cap'] .snow-cap-shadow {
+  opacity: 0.36;
+}
+
+.snow-cap[data-slot='snow-cap'] .snow-cap-highlight {
+  stroke-width: 0.8;
+}
+
+@media (max-width: 767px) {
+  .snow-capped[data-snow-cap] > .snow-cap[data-slot='snow-cap'] {
+    height: 0.6875rem;
+  }
+
+  .snow-cap[data-slot='snow-cap'] .snow-cap-highlight {
+    opacity: 0.7;
+  }
+}

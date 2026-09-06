@@ -7,6 +7,7 @@ import {
   OverviewCharts,
   SeriesTooltip,
   summarizeSeries,
+  latestSeriesValue,
 } from './overview-charts';
 
 const payload = [
@@ -162,6 +163,20 @@ describe('overview chart tooltip', () => {
       minimum: 10,
       maximum: 50,
     });
+    expect(latestSeriesValue(rows, 'value')).toBe(20);
+    expect(
+      latestSeriesValue([...rows, { time: 10_000, value: null }], 'value'),
+    ).toBe(20);
+    expect(
+      latestSeriesValue(
+        [
+          { time: 1, value: 0 },
+          { time: 2, value: null },
+        ],
+        'value',
+      ),
+    ).toBe(0);
+    expect(latestSeriesValue([{ time: 1, value: null }], 'value')).toBeNull();
   });
 });
 

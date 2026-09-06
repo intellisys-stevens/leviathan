@@ -50,7 +50,12 @@ func New(base provider.Provider, scanner InventoryScanner, options ...Options) *
 	}
 }
 
-func (p *Provider) Name() string                   { return p.base.Name() }
+func (p *Provider) Name() string { return p.base.Name() }
+func (p *Provider) RefreshTopology() {
+	if base, ok := p.base.(provider.TopologyRefresher); ok {
+		base.RefreshTopology()
+	}
+}
 func (p *Provider) Open(ctx context.Context) error { return p.base.Open(ctx) }
 
 func (p *Provider) Capabilities() model.Capabilities {

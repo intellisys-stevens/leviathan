@@ -45,7 +45,11 @@ func Provider(cfg config.Config) (provider.Provider, error) {
 	if err != nil {
 		return nil, err
 	}
-	return attribution.NewProvider(source, client), nil
+	wrapped := attribution.NewProvider(source, client)
+	if cfg.Provider != "fake" && cfg.Fixture == "" {
+		wrapped.WithCheckpoint(cfg.AttributionCheckpointPath)
+	}
+	return wrapped, nil
 }
 
 func effectiveInterval(configured, sampling time.Duration) time.Duration {
