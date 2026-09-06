@@ -1,293 +1,330 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Cpu, Database, MemoryStick } from 'lucide-react';
-import { durationQuery } from '../chart-window';
-import { formatBytes, formatBytesPerSecond, formatPercent } from '../lib';
-import type { HistorySeries, Snapshot } from '../types';
+import { useId } from 'react';
+import { ArrowUpRight, Cpu, Database, Gauge, MemoryStick } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
+import { formatBytes, formatPercent } from '../lib';
+import {
+  buildGPUAllocationView,
+  type GPUAllocationView,
+} from '../gpu-allocation';
+import type { Filesystem, Metric, Snapshot } from '../types';
+import './host-overview.css';
 
-type HostPoint = {
-  sampledAt: string;
-  cpu?: number;
-  memory?: number;
-  storage?: number;
-};
+export type ResourceCategory = 'cpu' | 'memory' | 'storage' | 'gpu';
 
-function usable(status: string): boolean {
+export function usable(status: string): boolean {
   return status === 'available' || status === 'estimated';
 }
 
-function ratio(
-  used: number | null | undefined,
-  total: number | null | undefined,
-) {
-  if (used == null || total == null || total <= 0) return undefined;
-  return Math.max(0, Math.min(100, (used / total) * 100));
-}
-
-function MiniTrend({ values, label }: { values: number[]; label: string }) {
-  if (values.length < 2) {
-    return (
-      <div className="mt-3 h-9 rounded bg-muted/25 px-2 py-2 text-center text-[11px] text-muted-foreground">
-        Collecting trend…
-      </div>
-    );
-  }
-  const bounded = values.slice(-80);
-  const minimum = Math.min(...bounded);
-  const maximum = Math.max(...bounded);
-  const span = Math.max(1, maximum - minimum);
-  const points = bounded
-    .map((value, index) => {
-      const x = (index / Math.max(1, bounded.length - 1)) * 100;
-      const y = 30 - ((value - minimum) / span) * 26;
-      return `${x.toFixed(2)},${y.toFixed(2)}`;
-    })
-    .join(' ');
+export function combinedStatus(...statuses: string[]): string {
   return (
-    <figure
-      className="mt-3"
-      aria-label={`${label} recent trend from ${minimum.toFixed(1)} to ${maximum.toFixed(1)} percent`}
-    >
-      <svg
-        viewBox="0 0 100 32"
-        preserveAspectRatio="none"
-        className="h-9 w-full overflow-visible text-primary"
-        aria-hidden="true"
-      >
-        <polyline
-          points={points}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          vectorEffect="non-scaling-stroke"
-        />
-      </svg>
-    </figure>
+    statuses.find((status) => !usable(status)) ??
+    (statuses.includes('estimated') ? 'estimated' : 'available')
   );
 }
 
-export function SystemOverview({
+export function hostMetricValue(metric: Metric): number | null {
+  return usable(metric.status) &&
+    metric.value != null &&
+    Number.isFinite(metric.value)
+    ? metric.value
+    : null;
+}
+
+export function capacityPercent(
+  used: number | null,
+  total: number | null,
+): number | null {
+  if (
+    used == null ||
+    total == null ||
+    !Number.isFinite(used) ||
+    !Number.isFinite(total) ||
+    used < 0 ||
+    total <= 0
+  )
+    return null;
+  return Math.min(100, Math.max(0, (used / total) * 100));
+}
+
+export function busiestFilesystem(
+  filesystems: Filesystem[],
+): Filesystem | null {
+  return (
+    filesystems
+      .filter(
+        (filesystem) =>
+          usable(filesystem.status) &&
+          capacityPercent(filesystem.usedBytes, filesystem.totalBytes) != null,
+      )
+      .toSorted(
+        (left, right) =>
+          (capacityPercent(right.usedBytes, right.totalBytes) ?? 0) -
+          (capacityPercent(left.usedBytes, left.totalBytes) ?? 0),
+      )[0] ?? null
+  );
+}
+
+export function gpuCapacity(snapshot: Snapshot) {
+  const provider = snapshot.capabilities.nvml;
+  const providerAvailable = provider.available && usable(provider.status);
+  const physical = [
+    ...new Map(snapshot.gpus.map((gpu) => [gpu.uuid, gpu])).values(),
+  ];
+  const readable = physical.filter(
+    (gpu) =>
+      providerAvailable &&
+      usable(gpu.memory.status) &&
+      gpu.memory.totalBytes != null &&
+      gpu.memory.usedBytes != null,
+  );
+  const complete = providerAvailable && readable.length === physical.length;
+  const memoryStatus = combinedStatus(
+    provider.status,
+    ...physical.map((gpu) => gpu.memory.status),
+  );
+  const status = !providerAvailable
+    ? usable(provider.status)
+      ? 'unavailable'
+      : provider.status
+    : complete
+      ? memoryStatus
+      : readable.length > 0
+        ? 'partial'
+        : usable(memoryStatus)
+          ? 'unavailable'
+          : memoryStatus;
+  return {
+    count: physical.length,
+    complete,
+    reported: readable.length,
+    status,
+    used: readable.length
+      ? readable.reduce((sum, gpu) => sum + gpu.memory.usedBytes!, 0)
+      : null,
+    total: readable.length
+      ? readable.reduce((sum, gpu) => sum + gpu.memory.totalBytes!, 0)
+      : null,
+  };
+}
+
+export function statusLabel(status: string) {
+  if (status === 'available') return null;
+  if (status === 'estimated') return 'Estimated';
+  if (status === 'stale') return 'Stale';
+  if (status === 'unsupported') return 'No data';
+  if (status === 'partial') return 'Partial';
+  return 'Unavailable';
+}
+
+export function CapacityOverview({
   snapshot,
-  chartWindowMs,
+  onNavigate,
+  stale = false,
 }: {
   snapshot: Snapshot;
-  chartWindowMs: number;
+  onNavigate: (resource: ResourceCategory) => void;
+  stale?: boolean;
 }) {
-  const system = snapshot.system;
-  const cpuValue = usable(system.cpu.utilization.status)
-    ? system.cpu.utilization.value
+  const allocationDescriptionId = useId();
+  const { cpu, memory, storage } = snapshot.system;
+  const cpuStatus = cpu.utilization.status;
+  const ramStatus = combinedStatus(memory.status, memory.utilization.status);
+  const cpuValue = hostMetricValue(cpu.utilization);
+  const ramPercent = usable(memory.status)
+    ? hostMetricValue(memory.utilization)
     : null;
-  const memoryValue = usable(system.memory.utilization.status)
-    ? (system.memory.utilization.value ?? undefined)
-    : undefined;
-  const storageValue = ratio(
-    system.storage.usedBytes,
-    system.storage.totalBytes,
-  );
-  const [points, setPoints] = useState<HostPoint[]>([]);
-  useEffect(() => {
-    let active = true;
-    const refresh = async () => {
-      const query = new URLSearchParams({
-        entity: '@host',
-        metrics:
-          'cpu_utilization,memory_utilization,storage_used_bytes,storage_total_bytes',
-        window: durationQuery(chartWindowMs),
-        maxPoints: '720',
-      });
-      try {
-        const response = await fetch(`/api/v1/history?${query}`, {
-          cache: 'no-store',
-        });
-        if (!response.ok) return;
-        const series = (await response.json()) as HistorySeries;
-        if (!active) return;
-        setPoints(
-          series.points.map((point) => ({
-            sampledAt: point.sampledAt,
-            cpu: point.values.cpu_utilization,
-            memory: point.values.memory_utilization,
-            storage: ratio(
-              point.values.storage_used_bytes,
-              point.values.storage_total_bytes,
-            ),
-          })),
-        );
-      } catch {
-        // Current values remain available when retained history cannot load.
-      }
-    };
-    void refresh();
-    const timer = window.setInterval(refresh, 15_000);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [chartWindowMs]);
-  const visiblePoints = useMemo(() => {
-    const current: HostPoint = {
-      sampledAt: snapshot.sampledAt,
-      cpu: cpuValue ?? undefined,
-      memory: memoryValue,
-      storage: storageValue,
-    };
-    return [
-      ...points.filter(({ sampledAt }) => sampledAt !== current.sampledAt),
-      current,
-    ];
-  }, [cpuValue, memoryValue, points, snapshot.sampledAt, storageValue]);
-
+  const storageComplete =
+    usable(storage.status) &&
+    storage.filesystems.every((filesystem) => usable(filesystem.status));
+  const storagePercent = storageComplete
+    ? capacityPercent(storage.usedBytes, storage.totalBytes)
+    : null;
+  const busiest = busiestFilesystem(storage.filesystems);
+  const allocation = buildGPUAllocationView(snapshot, { stale });
+  const fullCount = allocation.units.filter(
+    ({ entityType }) => entityType === 'physical_gpu',
+  ).length;
+  const migCount = allocation.total - fullCount;
+  const allocationDescription =
+    allocation.status === 'available'
+      ? `Observed workspace assignments: ${allocation.assigned} assigned, ${allocation.reserved} reserved, ${allocation.unassigned} unassigned. ${allocation.total} allocation units: ${fullCount} full GPUs and ${migCount} MIG compute instances.`
+      : allocation.reason;
   const cards = [
     {
       key: 'cpu' as const,
       label: 'CPU',
       icon: Cpu,
-      value: cpuValue == null ? '—' : formatPercent(cpuValue),
-      detail: `${system.cpu.logicalProcessors || '—'} logical · load ${system.cpu.load1.value?.toFixed(2) ?? '—'} / ${system.cpu.load5.value?.toFixed(2) ?? '—'} / ${system.cpu.load15.value?.toFixed(2) ?? '—'}`,
+      value: cpu.logicalProcessors > 0 ? String(cpu.logicalProcessors) : '—',
+      unit: 'logical processors',
+      detail:
+        cpuValue == null
+          ? 'Utilization unavailable'
+          : `${formatPercent(cpuValue)} utilized`,
+      percent: cpuValue,
+      state: statusLabel(cpuStatus),
     },
     {
       key: 'memory' as const,
       label: 'RAM',
       icon: MemoryStick,
+      value: formatBytes(memory.totalBytes),
+      unit: 'total memory',
+      detail: usable(memory.status)
+        ? `${formatBytes(memory.usedBytes)} used`
+        : 'Usage unavailable',
+      percent: ramPercent,
+      state: statusLabel(ramStatus),
+    },
+    {
+      key: 'gpu' as const,
+      label: 'GPU',
+      icon: Gauge,
       value:
-        system.memory.usedBytes == null
-          ? '—'
-          : `${formatBytes(system.memory.usedBytes)} / ${formatBytes(system.memory.totalBytes)}`,
-      detail: `${memoryValue == null ? '—' : formatPercent(memoryValue)} used${system.memory.status === 'estimated' ? ' · available memory estimated' : ''}`,
+        allocation.unassigned == null ? '—' : String(allocation.unassigned),
+      unit: 'unassigned resources',
+      detail:
+        allocation.status !== 'available'
+          ? allocation.reason
+          : allocation.total === 0
+            ? 'No configured resources'
+            : `${allocation.assigned + allocation.reserved} of ${allocation.total} in use${allocation.reserved > 0 ? ` · ${allocation.reserved} reserved` : ''}`,
+      percent: null,
+      state:
+        allocation.status === 'available'
+          ? null
+          : allocation.status === 'incomplete'
+            ? 'Incomplete'
+            : 'Unknown',
     },
     {
       key: 'storage' as const,
       label: 'Storage',
       icon: Database,
-      value:
-        system.storage.usedBytes == null
-          ? '—'
-          : `${formatBytes(system.storage.usedBytes)} / ${formatBytes(system.storage.totalBytes)}`,
-      detail: `R ${formatBytesPerSecond(system.storage.readBytesPerSecond.value)} · W ${formatBytesPerSecond(system.storage.writeBytesPerSecond.value)}`,
+      value: formatBytes(storage.totalBytes),
+      unit: storageComplete ? 'mounted capacity' : 'reported capacity',
+      detail:
+        usable(storage.status) && storage.usedBytes != null
+          ? `${formatBytes(storage.usedBytes)} used${!storageComplete ? ' · partial' : ''}`
+          : 'Usage unavailable',
+      percent: storagePercent,
+      state: !usable(storage.status)
+        ? statusLabel(storage.status)
+        : !storageComplete && storage.totalBytes != null
+          ? 'Partial'
+          : statusLabel(
+              combinedStatus(
+                storage.status,
+                ...storage.filesystems.map((filesystem) => filesystem.status),
+              ),
+            ),
     },
   ];
-
   return (
-    <section aria-labelledby="machine-telemetry-heading">
-      <div className="section-heading-row">
-        <div>
-          <h2 id="machine-telemetry-heading" className="section-title">
-            Machine
-          </h2>
-          <p className="mt-1 text-[13px] text-muted-foreground">
-            {system.cpu.model || `${snapshot.host.os} / ${snapshot.host.arch}`}
-          </p>
-        </div>
-        <span className="font-mono text-xs text-muted-foreground">
-          {system.status}
-        </span>
-      </div>
-      <div className="mt-3 grid gap-4 md:grid-cols-3">
-        {cards.map(({ key, label, icon: Icon, value, detail }) => (
-          <article key={key} className="frost-panel p-4">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="inline-flex items-center gap-2 text-sm font-semibold">
-                <Icon className="size-4 text-primary" aria-hidden="true" />
+    <section className="host-capacity-grid" aria-label="Host capacity">
+      {cards.map(
+        ({ key, label, icon: Icon, value, unit, detail, percent, state }) => (
+          <button
+            key={key}
+            type="button"
+            className="host-capacity-card frost-panel"
+            onClick={() => onNavigate(key)}
+            aria-label={`Inspect ${label} resources`}
+            aria-describedby={
+              key === 'gpu' ? allocationDescriptionId : undefined
+            }
+          >
+            <span className="host-capacity-label">
+              <span>
+                <Icon aria-hidden="true" />
                 {label}
-              </h3>
-              <span className="font-mono text-lg font-semibold text-primary">
-                {value}
               </span>
-            </div>
-            <p
-              className="mt-2 truncate text-xs text-muted-foreground"
-              title={detail}
+              <ArrowUpRight aria-hidden="true" />
+            </span>
+            <span className="host-capacity-value">{value}</span>
+            <span className="host-capacity-unit">
+              {unit}
+              {state ? <span className="host-data-state">{state}</span> : null}
+            </span>
+            <span
+              className="host-capacity-detail"
+              id={
+                key === 'gpu' && allocation.status !== 'available'
+                  ? allocationDescriptionId
+                  : undefined
+              }
             >
               {detail}
-            </p>
-            <MiniTrend
-              values={visiblePoints.flatMap((point) =>
-                point[key] == null ? [] : [point[key] as number],
-              )}
-              label={label}
-            />
-          </article>
-        ))}
-      </div>
+              {key === 'storage' && busiest ? (
+                <span className="host-capacity-highest">
+                  Highest: {busiest.mountPoint} ·{' '}
+                  {formatPercent(
+                    capacityPercent(busiest.usedBytes, busiest.totalBytes)!,
+                    0,
+                  )}
+                </span>
+              ) : null}
+            </span>
+            {key === 'gpu' ? (
+              <GPUAllocationBar view={allocation} />
+            ) : (
+              <Progress value={percent} aria-label={`${label} utilization`} />
+            )}
+            {key === 'gpu' && allocation.status === 'available' ? (
+              <span id={allocationDescriptionId} className="sr-only">
+                {allocationDescription}
+              </span>
+            ) : null}
+          </button>
+        ),
+      )}
     </section>
   );
 }
 
-/* oxlint-disable jsx-a11y/no-noninteractive-tabindex -- The horizontally scrollable table must accept keyboard focus. */
-export function FilesystemTable({ snapshot }: { snapshot: Snapshot }) {
-  const filesystems = snapshot.system.storage.filesystems;
+function GPUAllocationBar({ view }: { view: GPUAllocationView }) {
+  const known = view.status === 'available';
+  const categories = [
+    { key: 'assigned', label: 'Assigned', count: view.assigned },
+    { key: 'reserved', label: 'Reserved', count: view.reserved },
+    { key: 'unassigned', label: 'Unassigned', count: view.unassigned ?? 0 },
+  ];
   return (
-    <section aria-labelledby="filesystem-heading">
-      <div className="mb-3 flex items-end justify-between gap-3">
-        <div>
-          <h2 id="filesystem-heading" className="section-title">
-            Filesystems
-          </h2>
-          <p className="mt-1 text-[13px] text-muted-foreground">
-            Persistent local filesystems in Leviathan&apos;s mount namespace
-          </p>
-        </div>
-        <span className="font-mono text-xs text-muted-foreground">
-          {filesystems.length} mounted
+    <span className="gpu-allocation-capacity">
+      {known ? (
+        <meter
+          className="sr-only"
+          min={0}
+          max={Math.max(1, view.total)}
+          value={view.assigned + view.reserved}
+          aria-label="GPU assignments"
+          aria-valuetext={
+            view.total === 0
+              ? 'No configured resources'
+              : categories
+                  .map(({ label, count }) => `${count} ${label.toLowerCase()}`)
+                  .join(', ')
+          }
+        />
+      ) : (
+        <span className="sr-only">
+          GPU assignments:{' '}
+          {view.status === 'incomplete' ? 'Incomplete' : 'Unknown'}
         </span>
-      </div>
-      <section
-        className="frost-panel overflow-x-auto outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        aria-label="Filesystem capacity table"
-        tabIndex={0}
+      )}
+      <span
+        aria-hidden="true"
+        className="gpu-allocation-bar"
+        data-known={known}
       >
-        {filesystems.length === 0 ? (
-          <p className="p-6 text-sm text-muted-foreground">
-            No persistent local filesystem capacity is available.
-          </p>
-        ) : (
-          <table className="w-full min-w-[640px] text-left text-sm">
-            <thead className="border-b border-border/80 text-xs text-muted-foreground">
-              <tr>
-                <th className="px-4 py-3 font-medium">Mount</th>
-                <th className="px-4 py-3 font-medium">Type</th>
-                <th className="px-4 py-3 font-medium">Used</th>
-                <th className="px-4 py-3 font-medium">Available</th>
-                <th className="px-4 py-3 font-medium">Utilization</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/60">
-              {filesystems.map((filesystem) => {
-                const percent = ratio(
-                  filesystem.usedBytes,
-                  filesystem.totalBytes,
-                );
-                return (
-                  <tr key={filesystem.id}>
-                    <td
-                      className="max-w-64 truncate px-4 py-3 font-mono"
-                      title={filesystem.mountPoint}
-                    >
-                      {filesystem.mountPoint}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {filesystem.fsType}
-                    </td>
-                    <td className="px-4 py-3 font-mono">
-                      {formatBytes(filesystem.usedBytes)}
-                    </td>
-                    <td className="px-4 py-3 font-mono">
-                      {formatBytes(filesystem.availableBytes)}
-                    </td>
-                    <td className="px-4 py-3 font-mono">
-                      {percent == null ? '—' : formatPercent(percent)}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {filesystem.status}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </section>
-    </section>
+        {known && view.total > 0 ? (
+          <span
+            data-state="occupied"
+            style={{
+              width: `${((view.assigned + view.reserved) / view.total) * 100}%`,
+            }}
+          />
+        ) : null}
+      </span>
+    </span>
   );
 }
-/* oxlint-enable jsx-a11y/no-noninteractive-tabindex */

@@ -128,9 +128,16 @@ export function pointFromSnapshot(
     values.memory_used_bytes = source.memory.usedBytes;
     values.memory_total_bytes = source.memory.totalBytes;
   }
+  // Host collection can publish a newer snapshot while retaining the previous
+  // GPU sample. Failed GPU polls retain that old source timestamp as well, so
+  // record their empty gap at publication time without replacing the good point.
+  const sampledAt =
+    Object.keys(values).length > 0
+      ? source.memory.sampledAt
+      : snapshot.sampledAt;
   return {
-    sampledAt: snapshot.sampledAt,
-    time: new Date(snapshot.sampledAt).getTime(),
+    sampledAt,
+    time: new Date(sampledAt).getTime(),
     values,
   };
 }
@@ -278,7 +285,12 @@ class OverviewHistoryStore {
       this.publish(initialHistoryState(snapshot, entities));
       return;
     }
-    if (!includeLiveSamples) return;
+    if (
+      !includeLiveSamples ||
+      (this.state.loadedWindowMilliseconds != null &&
+        this.state.loadedWindowMilliseconds > rawHistoryWindowMilliseconds)
+    )
+      return;
     const points = { ...this.state.points };
     for (const entity of this.state.entities) {
       const point = pointFromSnapshot(snapshot, entity);
@@ -335,7 +347,15 @@ class OverviewHistoryStore {
       return;
     }
     const requestToken = ++this.requestToken;
-    const requestStartedAt = new Date(this.state.latestSampledAt).getTime();
+    const liveSampleStarts = new Map(
+      entities.map((entity) => {
+        const point = pointFromSnapshot(snapshot, entity);
+        return [
+          entity.key,
+          point ? pointTime(point) : new Date(snapshot.sampledAt).getTime(),
+        ];
+      }),
+    );
     this.clearTransition();
     this.publish({
       ...this.state,
@@ -376,7 +396,8 @@ class OverviewHistoryStore {
         for (const entity of entities) {
           const live = includeLiveSamples
             ? (this.state.points[entity.key] ?? []).filter(
-                (point) => pointTime(point) >= requestStartedAt,
+                (point) =>
+                  pointTime(point) >= (liveSampleStarts.get(entity.key) ?? 0),
               )
             : [];
           points[entity.key] = mergeOverviewPoints(
@@ -398,7 +419,11 @@ class OverviewHistoryStore {
           ...this.state,
           entities,
           points,
-          latestSampledAt: snapshot.sampledAt,
+          latestSampledAt:
+            Date.parse(snapshot.sampledAt) >
+            Date.parse(this.state.latestSampledAt)
+              ? snapshot.sampledAt
+              : this.state.latestSampledAt,
           outgoingPoints,
           outgoingWindowMilliseconds,
           loading: false,

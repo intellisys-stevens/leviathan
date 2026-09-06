@@ -12,21 +12,25 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/intellisys-stevens/leviathan/internal/health"
 	"github.com/intellisys-stevens/leviathan/internal/history"
 	"github.com/intellisys-stevens/leviathan/internal/model"
 	"github.com/intellisys-stevens/leviathan/internal/provider"
 	systemtelemetry "github.com/intellisys-stevens/leviathan/internal/system"
+	"github.com/intellisys-stevens/leviathan/internal/workload"
 )
 
 type Engine struct {
 	provider        provider.Provider
 	system          systemtelemetry.Sampler
+	workload        workload.Sampler
 	history         *history.Buffer
 	window          time.Duration
 	profileInterval time.Duration
 	processInterval time.Duration
 
 	current          atomic.Pointer[model.Snapshot]
+	healthCurrent    atomic.Pointer[health.Observation]
 	seq              atomic.Uint64
 	interval         atomic.Int64
 	reschedule       chan struct{}
@@ -49,6 +53,7 @@ type Options struct {
 	ProfileInterval  time.Duration
 	ProcessInterval  time.Duration
 	SystemSampler    systemtelemetry.Sampler
+	WorkloadSampler  workload.Sampler
 }
 
 type generationState struct {
@@ -63,6 +68,7 @@ type telemetryDomain uint8
 const (
 	domainSystem telemetryDomain = iota
 	domainGPU
+	domainWorkload
 )
 
 func New(source provider.Provider, interval, window time.Duration) *Engine {
@@ -84,6 +90,7 @@ func NewWithOptions(source provider.Provider, options Options) *Engine {
 	engine := &Engine{
 		provider:         source,
 		system:           options.SystemSampler,
+		workload:         options.WorkloadSampler,
 		history:          history.New(options.HistoryWindow, options.SamplingInterval),
 		window:           options.HistoryWindow,
 		profileInterval:  options.ProfileInterval,
@@ -104,6 +111,11 @@ func (e *Engine) Start(parent context.Context) error {
 	var systemErr error
 	if e.system != nil {
 		systemErr = e.pollSystem(ctx, at)
+	}
+	if e.workload != nil {
+		if _, ready := e.Current(); !ready {
+			_ = e.pollWorkload(ctx, time.Now())
+		}
 	}
 	// Once host telemetry has produced a usable snapshot, do not let provider
 	// initialization or the first GPU sample hold up startup. The GPU worker
@@ -161,7 +173,62 @@ func (e *Engine) run(ctx context.Context, gpuOpened, gpuImmediate bool) {
 			e.systemLoop(ctx)
 		}()
 	}
+	if e.workload != nil {
+		workers.Add(1)
+		go func() { defer workers.Done(); e.workloadLoop(ctx) }()
+	}
 	workers.Wait()
+}
+
+func (e *Engine) workloadLoop(ctx context.Context) {
+	defer e.workload.Close()
+	if current, ok := e.Current(); !ok || current.WorkloadTelemetry == nil {
+		_ = e.pollWorkload(ctx, time.Now())
+	}
+	ticker := time.NewTicker(workload.SamplingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Retain the monotonic clock for cgroup deltas. Use the actual
+			// sampling start rather than a timer tick queued during slow I/O.
+			_ = e.pollWorkload(ctx, time.Now())
+		}
+	}
+}
+
+func (e *Engine) pollWorkload(ctx context.Context, at time.Time) error {
+	telemetry, err := e.workload.Sample(ctx, at)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	e.assembleMu.Lock()
+	defer e.assembleMu.Unlock()
+	snapshot, ok := e.Current()
+	if !ok {
+		hostname, _ := os.Hostname()
+		snapshot = model.Snapshot{Host: model.Host{Hostname: hostname, OS: runtime.GOOS, Arch: runtime.GOARCH}, GPUs: []model.GPU{}, Processes: []model.Process{}, Diagnostics: []model.Diagnostic{}, Capabilities: e.provider.Capabilities()}
+	}
+	if err != nil {
+		telemetry = model.WorkloadTelemetry{SampledAt: at, Status: model.WorkloadTelemetryUnavailable, Message: "Workspace resource sampling is unavailable", Owners: []model.WorkloadOwnerTelemetry{}}
+		if snapshot.WorkloadTelemetry != nil {
+			telemetry.Owners = append([]model.WorkloadOwnerTelemetry{}, snapshot.WorkloadTelemetry.Owners...)
+			telemetry.ObservedAt = snapshot.WorkloadTelemetry.ObservedAt
+			for i := range telemetry.Owners {
+				owner := &telemetry.Owners[i]
+				owner.SampledAt = at
+				owner.Status = model.WorkloadTelemetryStale
+				owner.Message = telemetry.Message
+				owner.Metrics = staleMetrics(owner.Metrics, telemetry.Message)
+			}
+		}
+	}
+	snapshot.SampledAt = telemetry.SampledAt
+	snapshot.WorkloadTelemetry = &telemetry
+	e.storeSnapshot(snapshot, false, domainWorkload)
+	return err
 }
 
 func (e *Engine) gpuLoop(ctx context.Context, opened, immediate bool) {
@@ -303,7 +370,10 @@ func (e *Engine) poll(ctx context.Context, at time.Time) error {
 	}
 	e.assembleMu.Lock()
 	defer e.assembleMu.Unlock()
-	if current, ok := e.Current(); ok && !current.System.SampledAt.IsZero() {
+	if current, ok := e.Current(); ok {
+		snapshot.WorkloadTelemetry = current.WorkloadTelemetry
+	}
+	if current, ok := e.Current(); e.system != nil && ok && !current.System.SampledAt.IsZero() {
 		snapshot.System = current.System
 		snapshot.Capabilities.System = current.Capabilities.System
 		snapshot.Diagnostics = append(snapshot.Diagnostics, systemDiagnostics(current.Diagnostics)...)
@@ -345,12 +415,18 @@ func (e *Engine) pollSystem(ctx context.Context, at time.Time) error {
 }
 
 func (e *Engine) storeSnapshot(snapshot model.Snapshot, topologyChanged bool, domain telemetryDomain) {
+	snapshot.Attribution = retainedAttribution(snapshot.Attribution, snapshot.SampledAt, false)
+	if domain != domainWorkload {
+		snapshot.WorkloadTelemetry = retainedWorkloadTelemetry(snapshot.WorkloadTelemetry, snapshot.SampledAt)
+	}
 	snapshot.Sequence = e.seq.Add(1)
 	snapshot.SchemaVersion = "v1"
 	if topologyChanged {
 		e.applyGenerations(&snapshot)
 	}
-	if domain == domainSystem {
+	if domain == domainWorkload {
+		e.history.AddWorkload(snapshot)
+	} else if domain == domainSystem {
 		e.history.AddSystem(snapshot)
 	} else if e.system == nil {
 		// Fixture and compatibility providers may still supply both domains in
@@ -362,7 +438,44 @@ func (e *Engine) storeSnapshot(snapshot model.Snapshot, topologyChanged bool, do
 	}
 	immutable := snapshot
 	e.current.Store(&immutable)
+	observation := e.HealthObservation()
+	if domain == domainSystem || (domain == domainGPU && e.system == nil) {
+		observation.System = health.ProviderComponent("system", "Host telemetry", snapshot.Capabilities.System, snapshot.System.SampledAt)
+	}
+	if domain == domainGPU {
+		observation.GPU = health.GPUComponent(snapshot)
+		e.mu.Lock()
+		attributionEvaluated := e.gpuErr == nil
+		e.mu.Unlock()
+		if attributionEvaluated && snapshot.Attribution != nil {
+			state := health.Unknown
+			switch snapshot.Attribution.Status {
+			case model.AttributionAvailable:
+				state = health.Operational
+			case model.AttributionStale:
+				state = health.Degraded
+			case model.AttributionUnavailable:
+				state = health.Unavailable
+			}
+			at := snapshot.SampledAt.UTC()
+			observation.Attribution = &health.Component{ID: "attribution", Label: "Workspace attribution", State: state, ObservedAt: &at}
+		} else if attributionEvaluated {
+			observation.Attribution = nil
+		}
+	}
+	e.healthCurrent.Store(&observation)
 	e.publish(snapshot)
+}
+
+// HealthObservation retains independent source timestamps and never advances
+// GPU freshness when only the system worker publishes (or vice versa).
+func (e *Engine) HealthObservation() health.Observation {
+	var observation health.Observation
+	if current := e.healthCurrent.Load(); current != nil {
+		observation = *current
+	}
+	observation.Interval = e.SamplingInterval()
+	return observation
 }
 
 func (e *Engine) recordPollError(at time.Time, err error) {
@@ -396,6 +509,7 @@ func (e *Engine) recordGPUUnavailable(at time.Time, err error) {
 		return
 	}
 	current.SampledAt = at
+	current.Attribution = retainedAttribution(current.Attribution, at, true)
 	capabilities := e.provider.Capabilities()
 	capabilities.System = current.Capabilities.System
 	if capabilities.NVML.Status == "" || capabilities.NVML.Status == model.StatusError {
@@ -463,6 +577,7 @@ func nonSystemDiagnostics(diagnostics []model.Diagnostic) []model.Diagnostic {
 func staleSnapshot(snapshot model.Snapshot, at time.Time, detail string) model.Snapshot {
 	stale := snapshot
 	stale.SampledAt = at
+	stale.Attribution = retainedAttribution(snapshot.Attribution, at, true)
 	diagnostics := make([]model.Diagnostic, 0, len(snapshot.Diagnostics)+1)
 	for _, diagnostic := range snapshot.Diagnostics {
 		if diagnostic.Code != "collector_sample" {
@@ -500,8 +615,60 @@ func staleSnapshot(snapshot model.Snapshot, at time.Time, detail string) model.S
 	return stale
 }
 
+// GPU failures can prevent the attribution wrapper from publishing its latest
+// private inventory. Owner/host publications must not keep those old public
+// assignments apparently fresh. Copy only the envelope; published slices stay
+// immutable and are discarded once the handoff's existing expiry elapses.
+func retainedAttribution(value *model.Attribution, at time.Time, failed bool) *model.Attribution {
+	if value == nil {
+		return nil
+	}
+	stale, expired := failed, false
+	if value.ObservedAt != nil {
+		age := at.Sub(*value.ObservedAt)
+		stale = stale || age > 15*time.Second || age < -time.Minute
+		expired = age > 60*time.Second || age < -time.Minute
+	}
+	if !stale && !expired {
+		return value
+	}
+	copy := *value
+	if expired || copy.Status == model.AttributionUnavailable {
+		copy.Status = model.AttributionUnavailable
+		copy.Workloads = []model.WorkloadAttribution{}
+		copy.Assignments = []model.ResourceAssignment{}
+	} else {
+		copy.Status = model.AttributionStale
+	}
+	return &copy
+}
+
+func retainedWorkloadTelemetry(value *model.WorkloadTelemetry, at time.Time) *model.WorkloadTelemetry {
+	if value == nil || value.SampledAt.IsZero() || at.Sub(value.SampledAt) <= 3*workload.SamplingInterval {
+		return value
+	}
+	if value.Status == model.WorkloadTelemetryStale || value.Status == model.WorkloadTelemetryUnavailable {
+		return value
+	}
+	copy := *value
+	copy.Status = model.WorkloadTelemetryStale
+	copy.Message = "Workspace resource readings are stale"
+	copy.Owners = append([]model.WorkloadOwnerTelemetry{}, value.Owners...)
+	for i := range copy.Owners {
+		owner := &copy.Owners[i]
+		owner.Status = model.WorkloadTelemetryStale
+		owner.Message = copy.Message
+		owner.Metrics = staleMetrics(owner.Metrics, copy.Message)
+	}
+	return &copy
+}
+
 func staleSystem(system model.System, at time.Time, detail string) model.System {
 	stale := system
+	if system.Uptime != nil {
+		uptime := staleHostMetric(*system.Uptime, at, detail)
+		stale.Uptime = &uptime
+	}
 	stale.SampledAt, stale.Status, stale.Message = at, model.StatusStale, detail
 	stale.CPU.SampledAt, stale.CPU.Status, stale.CPU.Message = at, model.StatusStale, detail
 	stale.CPU.Utilization = staleHostMetric(stale.CPU.Utilization, at, detail)

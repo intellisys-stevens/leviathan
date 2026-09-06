@@ -19,6 +19,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/intellisys-stevens/leviathan/internal/kubernetesbridge"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 )
@@ -46,6 +47,7 @@ func execute(arguments []string) error {
 	nodeName := flags.String("node-name", os.Getenv("NODE_NAME"), "Kubernetes node name")
 	namespaceList := flags.String("namespaces", os.Getenv("WATCH_NAMESPACES"), "comma-separated Coder workspace namespaces")
 	driver := flags.String("driver", "gpu.nvidia.com", "DRA driver name")
+	workloadInventory := flags.Bool("workload-inventory", false, "enable metadata-only Coder Pod inventory")
 	if err := flags.Parse(arguments); err != nil || flags.NArg() != 0 {
 		return errors.New("invalid bridge arguments")
 	}
@@ -72,20 +74,67 @@ func execute(arguments []string) error {
 	if err != nil {
 		return errors.New("invalid Kubernetes attribution configuration")
 	}
+	server := kubernetesbridge.NewServer(state)
+	var workloadController *kubernetesbridge.WorkloadController
+	if *workloadInventory {
+		metadataClient, metadataErr := metadata.NewForConfig(kubernetesbridge.MetadataOnlyConfig(config))
+		if metadataErr != nil {
+			return errors.New("Kubernetes metadata client initialization failed")
+		}
+		workloadState := kubernetesbridge.NewWorkloadState(time.Now().UTC())
+		workloadController, err = kubernetesbridge.NewWorkloadController(metadataClient, workloadState, options)
+		if err != nil {
+			return err
+		}
+		server.WithWorkloads(workloadState)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	results := make(chan error, 2)
-	go func() { results <- controller.Run(ctx) }()
+	workers := 2
+	if workloadController != nil {
+		workers++
+	}
+	results := make(chan error, workers)
 	go func() {
-		results <- kubernetesbridge.ServeUnix(ctx, *socketPath, kubernetesbridge.NewServer(state).Handler())
+		// DRA failures must not terminate the independent metadata inventory.
+		for {
+			attempt, cancelAttempt := context.WithCancel(ctx)
+			err := controller.Run(attempt)
+			cancelAttempt()
+			if ctx.Err() != nil {
+				results <- nil
+				return
+			}
+			if err == nil {
+				results <- nil
+				return
+			}
+			state.MarkUnavailable()
+			timer := time.NewTimer(5 * time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				results <- nil
+				return
+			case <-timer.C:
+			}
+		}
+	}()
+	if workloadController != nil {
+		go func() { results <- workloadController.Run(ctx) }()
+	}
+	go func() {
+		results <- kubernetesbridge.ServeUnix(ctx, *socketPath, server.Handler())
 	}()
 	first := <-results
 	cancel()
-	second := <-results
-	if first != nil || second != nil {
+	for i := 1; i < workers; i++ {
+		first = errors.Join(first, <-results)
+	}
+	if first != nil {
 		return errors.New("bridge runtime stopped unexpectedly")
 	}
 	return nil

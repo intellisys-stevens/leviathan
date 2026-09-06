@@ -4,7 +4,6 @@ import {
   Suspense,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -13,10 +12,9 @@ import {
   AlertTriangle,
   ArrowRight,
   Boxes,
-  Database,
+  Activity,
   LayoutDashboard,
   RefreshCw,
-  Server,
   Users,
   XIcon,
   type LucideIcon,
@@ -35,11 +33,13 @@ import { DiagnosticsPanel } from './components/diagnostics-panel';
 import { AmbientSnow } from './components/ambient-snow';
 import { ChartWindowControl } from './components/chart-window-control';
 import { GPUCard } from './components/gpu-card';
+import { buildGPUAllocationView } from './gpu-allocation';
 import { PerimeterLight } from './components/perimeter-light';
 import { PeopleView } from './components/people-view';
-import { ProcessTable } from './components/process-table';
 import { StatusHeader } from './components/status-header';
-import { FilesystemTable, SystemOverview } from './components/system-overview';
+import { CapacityOverview } from './components/system-overview';
+import { MotherboardResources } from './components/motherboard-resources';
+import { HealthStatusPanel } from './components/health-status-panel';
 import { AttributionSummary } from './components/workspace-attribution';
 import {
   readBrowserSetting,
@@ -54,27 +54,44 @@ import {
   storedChartWindow,
   storedDetailChartWindow,
 } from './chart-window';
-import {
-  displayCadenceStorageKey,
-  normalizeDisplayCadence,
-  storedDisplayCadence,
-} from './display-cadence';
+import { displayCadenceMs } from './display-cadence';
 import type { BuildInfo, Selection, SelectionKey, Snapshot } from './types';
 import { useMediaQuery } from './use-media-query';
 import { useLeviathan } from './use-leviathan';
 
 const DetailSheet = lazy(() => import('./components/detail-sheet'));
+const HostCharts = lazy(() =>
+  import('./components/host-charts').then((module) => ({
+    default: module.HostCharts,
+  })),
+);
 const OverviewCharts = lazy(() => import('./components/overview-charts'));
+const GPUActivityChart = lazy(() =>
+  import('./components/overview-charts').then((module) => ({
+    default: module.GPUActivityChart,
+  })),
+);
 const themeKey = 'leviathan.theme.v1';
 const legacyDashboardViewKey = 'leviathan.dashboardView.v1';
 
-export type WorkbenchView =
-  | 'overview'
-  | 'resources'
-  | 'workloads'
-  | 'operations';
+function isWorkspaceDiagnostic(
+  diagnostic: Snapshot['diagnostics'][number],
+): boolean {
+  return (
+    /attribution|workspace|workload/i.test(diagnostic.component) ||
+    /^(attribution|workspace|workload)_/.test(diagnostic.code)
+  );
+}
 
-type OperationsFocus = 'processes' | 'diagnostics';
+export type WorkbenchView = 'overview' | 'resources' | 'workloads' | 'status';
+
+type OperationsFocus =
+  | 'processes'
+  | 'status'
+  | 'cpu'
+  | 'memory'
+  | 'storage'
+  | 'gpu';
 
 type ViewDefinition = {
   id: WorkbenchView;
@@ -99,9 +116,9 @@ export const workbenchViews: readonly ViewDefinition[] = [
     icon: Users,
   },
   {
-    id: 'operations',
-    label: 'Operations',
-    icon: Database,
+    id: 'status',
+    label: 'Status',
+    icon: Activity,
   },
 ] as const;
 
@@ -109,9 +126,9 @@ const validViews = new Set<WorkbenchView>(workbenchViews.map(({ id }) => id));
 
 export function parseWorkbenchHash(hash: string): WorkbenchView | null {
   const candidate = hash.startsWith('#') ? hash.slice(1) : hash;
-  if (candidate === 'processes' || candidate === 'diagnostics') {
-    return 'operations';
-  }
+  if (candidate === 'operations' || candidate === 'diagnostics')
+    return 'status';
+  if (candidate === 'processes') return 'workloads';
   return validViews.has(candidate as WorkbenchView)
     ? (candidate as WorkbenchView)
     : null;
@@ -119,9 +136,7 @@ export function parseWorkbenchHash(hash: string): WorkbenchView | null {
 
 export function operationsFocusForHash(hash: string): OperationsFocus | null {
   const candidate = hash.startsWith('#') ? hash.slice(1) : hash;
-  return candidate === 'processes' || candidate === 'diagnostics'
-    ? candidate
-    : null;
+  return candidate === 'processes' ? candidate : null;
 }
 
 export function resolveInitialWorkbenchView(
@@ -183,45 +198,6 @@ function selectedEntity(
     }
   }
   return null;
-}
-
-function summaryFor(snapshot: Snapshot | null) {
-  if (!snapshot)
-    return {
-      gpu: 0,
-      gi: 0,
-      processes: 0,
-      assignedUsers: null,
-      assignedWorkspaces: null,
-    };
-  let gi = 0;
-  for (const gpu of snapshot.gpus) {
-    gi += gpu.gpuInstances.length;
-  }
-  let assignedUsers: number | null = null;
-  let assignedWorkspaces: number | null = null;
-  const attribution = snapshot.attribution;
-  if (attribution?.status === 'available') {
-    const assignedRefs = new Set(
-      attribution.assignments.map(({ workloadRef }) => workloadRef),
-    );
-    const assigned = attribution.workloads.filter(({ ref }) =>
-      assignedRefs.has(ref),
-    );
-    assignedUsers = new Set(assigned.map(({ ownerName }) => ownerName)).size;
-    assignedWorkspaces = new Set(assigned.map(({ ref }) => ref)).size;
-  }
-  return {
-    gpu: snapshot.gpus.length,
-    gi,
-    processes: snapshot.processes.length,
-    assignedUsers,
-    assignedWorkspaces,
-  };
-}
-
-function countLabel(value: number, singular: string, plural = `${singular}s`) {
-  return `${value} ${value === 1 ? singular : plural}`;
 }
 
 type BrowserViewTransition = {
@@ -349,14 +325,14 @@ const WorkbenchNavigation = memo(function WorkbenchNavigation({
               <PerimeterLight />
               <span className="relative inline-flex" aria-hidden="true">
                 <Icon className={mobile ? 'size-5' : 'size-4'} />
-                {mobile && id === 'operations' && diagnosticCount > 0 ? (
+                {mobile && id === 'status' && diagnosticCount > 0 ? (
                   <span className="diagnostic-count mobile-diagnostic-count absolute -right-3 -top-2">
                     {diagnosticCount}
                   </span>
                 ) : null}
               </span>
               <span>{label}</span>
-              {!mobile && id === 'operations' && diagnosticCount > 0 ? (
+              {!mobile && id === 'status' && diagnosticCount > 0 ? (
                 <span
                   className="diagnostic-count"
                   aria-label={`${diagnosticCount} active`}
@@ -364,7 +340,7 @@ const WorkbenchNavigation = memo(function WorkbenchNavigation({
                   {diagnosticCount}
                 </span>
               ) : null}
-              {mobile && id === 'operations' && diagnosticCount > 0 ? (
+              {mobile && id === 'status' && diagnosticCount > 0 ? (
                 <span className="sr-only">
                   , {diagnosticCount} active diagnostics
                 </span>
@@ -379,19 +355,27 @@ const WorkbenchNavigation = memo(function WorkbenchNavigation({
 
 function GPUGrid({
   snapshot,
+  theme,
   onSelect,
+  stale,
 }: {
   snapshot: Snapshot;
+  theme: 'dark' | 'light';
   onSelect: (selection: Selection) => void;
+  stale: boolean;
 }) {
+  const allocation = buildGPUAllocationView(snapshot, { stale });
+  const allocationStates = new Map(
+    allocation.units.map((unit) => [unit.entityUuid, unit.state]),
+  );
   return (
-    <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
+    <div className="gpu-resource-grid grid grid-cols-1 items-stretch gap-3 lg:grid-cols-2">
       {snapshot.gpus.length === 0 ? (
-        <div className="frost-panel border border-dashed border-border bg-card p-10 text-center xl:col-span-2">
-          <p className="text-[15px] font-medium">No NVIDIA GPUs detected</p>
-          <p className="mt-1 text-[13px] text-muted-foreground">
-            Run <span className="font-mono">leviathan doctor</span> to inspect
-            driver and library visibility.
+        <div className="frost-panel border border-dashed border-border bg-card p-6 text-center lg:col-span-2">
+          <p className="text-[15px] font-medium">
+            {snapshot.capabilities.nvml.available
+              ? 'No NVIDIA GPUs detected'
+              : 'GPU discovery unavailable'}
           </p>
         </div>
       ) : (
@@ -399,8 +383,12 @@ function GPUGrid({
           <GPUCard
             key={gpu.uuid}
             gpu={gpu}
+            hostKey={snapshot.host.hostname}
+            theme={theme}
             attribution={snapshot.attribution}
             onSelect={onSelect}
+            allocationStates={allocationStates}
+            live={!stale}
           />
         ))
       )}
@@ -457,9 +445,6 @@ export function DetailSheetFallback({
 }
 
 export function App() {
-  const [displayCadenceMs, setDisplayCadenceMs] = useState(() =>
-    storedDisplayCadence(),
-  );
   const leviathan = useLeviathan(displayCadenceMs);
   const {
     snapshot,
@@ -476,14 +461,6 @@ export function App() {
   const settingsError = leviathan.settingsError ?? null;
   const retrySnapshot = leviathan.retrySnapshot ?? (() => undefined);
   const retrySettings = leviathan.retrySettings ?? (() => undefined);
-  useEffect(() => {
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key !== displayCadenceStorageKey) return;
-      setDisplayCadenceMs(normalizeDisplayCadence(event.newValue));
-    };
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
-  }, []);
   const [initialHash] = useState(() => window.location.hash);
   const pendingOperationsFocusRef = useRef<OperationsFocus | null>(
     operationsFocusForHash(initialHash),
@@ -495,13 +472,15 @@ export function App() {
   const viewHeadingRef = useRef<HTMLHeadingElement>(null);
   const activeTransitionRef = useRef<BrowserViewTransition | null>(null);
   const [selectedKey, setSelectedKey] = useState<SelectionKey | null>(null);
+  const [selectedHostResource, setSelectedHostResource] = useState<
+    'cpu' | 'memory' | 'storage'
+  >('cpu');
   const [detailOpen, setDetailOpen] = useState(false);
   const detailMountedRef = useRef(false);
   const pendingDestinationFocusRef = useRef<{
     focus: boolean;
     operationsFocus?: OperationsFocus | null;
   } | null>(null);
-  const [processQuery, setProcessQuery] = useState('');
   const [selectedPersonKey, setSelectedPersonKey] = useState<string | null>(
     null,
   );
@@ -519,9 +498,11 @@ export function App() {
       window.requestAnimationFrame(() => {
         if (operationsFocus) {
           const heading = document.getElementById(
-            operationsFocus === 'diagnostics'
+            operationsFocus === 'status'
               ? 'diagnostics-heading'
-              : 'process-heading',
+              : operationsFocus === 'processes'
+                ? 'workbench-view-heading'
+                : `resource-${operationsFocus}`,
           );
           if (!heading) {
             pendingOperationsFocusRef.current = operationsFocus;
@@ -546,6 +527,13 @@ export function App() {
       focus = true,
       operationsFocus?: OperationsFocus | null,
     ) => {
+      if (
+        operationsFocus === 'cpu' ||
+        operationsFocus === 'memory' ||
+        operationsFocus === 'storage'
+      ) {
+        setSelectedHostResource(operationsFocus);
+      }
       const deferDestinationFocus = detailMountedRef.current;
       if (deferDestinationFocus) {
         pendingDestinationFocusRef.current = { focus, operationsFocus };
@@ -610,7 +598,7 @@ export function App() {
       const operationsFocus = operationsFocusForHash(window.location.hash);
       const parsed = parseWorkbenchHash(window.location.hash);
       const next = parsed ?? 'overview';
-      if (!parsed || operationsFocus) {
+      if (window.location.hash !== `#${next}`) {
         window.history.replaceState(window.history.state, '', `#${next}`);
       }
       changeView(next, true, operationsFocus);
@@ -634,7 +622,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!snapshot || activeView !== 'operations') return;
+    if (!snapshot || activeView === 'overview') return;
     const focus = pendingOperationsFocusRef.current;
     if (!focus) return;
     pendingOperationsFocusRef.current = null;
@@ -672,7 +660,14 @@ export function App() {
       detailMountedRef.current = false;
       setSelectedKey(null);
       const pending = pendingDestinationFocusRef.current;
-      if (!pending) return;
+      if (!pending) {
+        // A topology replacement can remove the dialog's original trigger.
+        // Let the dialog restore it first, then provide a useful fallback.
+        window.requestAnimationFrame(() => {
+          if (document.activeElement === document.body) focusDestination(true);
+        });
+        return;
+      }
       pendingDestinationFocusRef.current = null;
       focusDestination(pending.focus, pending.operationsFocus);
     },
@@ -696,27 +691,28 @@ export function App() {
     writeBrowserSetting(chartWindowStorageKey, String(milliseconds));
   }, []);
 
+  const toggleTheme = useCallback(() => {
+    setTheme((value) => (value === 'dark' ? 'light' : 'dark'));
+  }, []);
+
   const selectDetailChartWindow = useCallback((milliseconds: number) => {
     setRequestedDetailChartWindowMs(milliseconds);
     writeBrowserSetting(detailChartWindowStorageKey, String(milliseconds));
   }, []);
 
-  const selectDisplayCadence = useCallback((milliseconds: number) => {
-    const next = normalizeDisplayCadence(milliseconds);
-    setDisplayCadenceMs(next);
-    writeBrowserSetting(displayCadenceStorageKey, String(next));
-  }, []);
-
-  const summary = useMemo(() => summaryFor(snapshot), [snapshot]);
   const selection = snapshot ? selectedEntity(snapshot, selectedKey) : null;
   useEffect(() => {
     if (!selectedKey || selection) return;
     const frame = window.requestAnimationFrame(() => {
+      const restoreFocus = detailMountedRef.current;
       detailMountedRef.current = false;
       setDetailOpen(false);
       setSelectedKey(null);
       const pending = pendingDestinationFocusRef.current;
-      if (!pending) return;
+      if (!pending) {
+        if (restoreFocus) focusDestination(true);
+        return;
+      }
       pendingDestinationFocusRef.current = null;
       focusDestination(pending.focus, pending.operationsFocus);
     });
@@ -724,54 +720,19 @@ export function App() {
   }, [focusDestination, selectedKey, selection]);
   const activeDefinition =
     workbenchViews.find(({ id }) => id === activeView) ?? workbenchViews[0];
-  const activeDiagnostics =
-    snapshot?.diagnostics.filter(({ severity }) => severity !== 'info') ?? [];
+  const workspaceDiagnostics =
+    snapshot?.diagnostics.filter(isWorkspaceDiagnostic) ?? [];
+  const statusDiagnostics =
+    snapshot?.diagnostics.filter((item) => !isWorkspaceDiagnostic(item)) ?? [];
+  const activeDiagnostics = statusDiagnostics.filter(
+    ({ severity, status }) => severity !== 'info' && status !== 'unsupported',
+  );
   const degraded = activeDiagnostics.length > 0;
   const globalIssue =
     snapshotError ||
     streamError ||
     connection !== 'live' ||
     activeDiagnostics.length > 0;
-
-  const summaryItems: Array<{
-    value: string;
-    label: string;
-    mobileLabel: string;
-    ariaLabel: string;
-    icon: LucideIcon;
-    target: WorkbenchView;
-  }> = [
-    {
-      value: `${countLabel(summary.gpu, 'GPU')} · ${countLabel(summary.gi, 'instance')}`,
-      label: 'Resources',
-      mobileLabel: 'Resources',
-      ariaLabel: `Resources: ${countLabel(summary.gpu, 'physical GPU')} and ${countLabel(summary.gi, 'GPU instance')}`,
-      icon: Server,
-      target: 'resources',
-    },
-    {
-      value:
-        summary.assignedUsers == null || summary.assignedWorkspaces == null
-          ? '—'
-          : `${countLabel(summary.assignedUsers, 'user')} · ${countLabel(summary.assignedWorkspaces, 'workspace')}`,
-      label: 'Assigned workloads',
-      mobileLabel: 'Workloads',
-      ariaLabel:
-        summary.assignedUsers == null || summary.assignedWorkspaces == null
-          ? 'Assigned workloads: unavailable'
-          : `Assigned workloads: ${countLabel(summary.assignedUsers, 'user')} and ${countLabel(summary.assignedWorkspaces, 'workspace')}`,
-      icon: Users,
-      target: 'workloads',
-    },
-    {
-      value: String(summary.processes),
-      label: 'GPU processes',
-      mobileLabel: 'Processes',
-      ariaLabel: `GPU processes: ${summary.processes}`,
-      icon: Database,
-      target: 'operations',
-    },
-  ];
 
   return (
     <div className="app-shell min-h-screen text-foreground">
@@ -783,12 +744,8 @@ export function App() {
         settings={settings}
         settingsError={settingsError}
         theme={theme}
-        displayCadenceMs={displayCadenceMs}
-        onDisplayCadenceChange={selectDisplayCadence}
         onRetrySettings={retrySettings}
-        onToggleTheme={() =>
-          setTheme((value) => (value === 'dark' ? 'light' : 'dark'))
-        }
+        onToggleTheme={toggleTheme}
       />
 
       <WorkbenchNavigation
@@ -812,7 +769,9 @@ export function App() {
                     ? `${snapshotError} The last complete snapshot remains visible.`
                     : snapshotError
                   : connection !== 'live'
-                    ? `Live stream ${connection}. The last complete snapshot remains visible.${streamError ? ` ${streamError}` : ''}`
+                    ? snapshot
+                      ? `Live stream ${connection}. Showing the last snapshot from ${new Date(snapshot.sampledAt).toLocaleTimeString()}.${streamError ? ` ${streamError}` : ''}`
+                      : 'Connecting to this host…'
                     : streamError
                       ? streamError
                       : `${activeDiagnostics.length} active provider ${activeDiagnostics.length === 1 ? 'diagnostic' : 'diagnostics'}.`}
@@ -828,9 +787,9 @@ export function App() {
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => navigateTo('operations', 'diagnostics')}
+                  onClick={() => navigateTo('status')}
                 >
-                  Diagnostics <ArrowRight aria-hidden="true" />
+                  Status <ArrowRight aria-hidden="true" />
                 </Button>
               ) : null}
             </div>
@@ -838,10 +797,17 @@ export function App() {
         ) : null}
 
         {!snapshot ? (
-          <WorkbenchLoading
-            view={activeDefinition}
-            headingRef={viewHeadingRef}
-          />
+          activeView === 'status' ? (
+            <div className="space-y-6">
+              <ViewIntro view={activeDefinition} headingRef={viewHeadingRef} />
+              <HealthStatusPanel snapshot={null} />
+            </div>
+          ) : (
+            <WorkbenchLoading
+              view={activeDefinition}
+              headingRef={viewHeadingRef}
+            />
+          )
         ) : (
           <div
             className="workbench-view"
@@ -851,66 +817,18 @@ export function App() {
             <ViewIntro view={activeDefinition} headingRef={viewHeadingRef} />
 
             {activeView === 'overview' ? (
-              <div className="mt-6 space-y-5">
-                <section
-                  className="overview-summary frost-panel"
-                  aria-label="Host summary"
-                >
-                  <div className="overview-attribution-cell">
-                    <AttributionSummary
-                      attribution={snapshot.attribution}
-                      snapshot={snapshot}
-                    />
-                  </div>
-                  <div className="overview-kpi-grid" aria-label="Host totals">
-                    {summaryItems.map(
-                      ({
-                        value,
-                        label,
-                        mobileLabel,
-                        ariaLabel,
-                        icon: Icon,
-                        target,
-                      }) => (
-                        <button
-                          key={label}
-                          type="button"
-                          className="summary-link flowing-surface group rounded-lg text-center outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                          aria-label={ariaLabel}
-                          onClick={() => navigateTo(target)}
-                        >
-                          <PerimeterLight />
-                          <span className="flex items-center justify-center gap-1.5 font-mono text-lg font-semibold text-primary">
-                            <Icon
-                              className="summary-icon size-4"
-                              aria-hidden="true"
-                            />{' '}
-                            {value}
-                          </span>
-                          <span
-                            className="mt-1 block text-[13px] font-medium text-muted-foreground"
-                            aria-hidden="true"
-                          >
-                            <span className="desktop-only-label">{label}</span>
-                            <span className="mobile-only-label">
-                              {mobileLabel}
-                            </span>
-                          </span>
-                        </button>
-                      ),
-                    )}
-                  </div>
-                </section>
-
-                <SystemOverview
+              <div className="mt-6 space-y-6">
+                <CapacityOverview
                   snapshot={snapshot}
-                  chartWindowMs={chartWindowMs}
+                  stale={connection !== 'live'}
+                  onNavigate={(resource) => {
+                    navigateTo('resources', resource);
+                  }}
                 />
-
                 <section aria-labelledby="host-telemetry-heading">
-                  <div className="section-heading-row">
+                  <div className="section-heading-row mb-4">
                     <h2 id="host-telemetry-heading" className="section-title">
-                      GPU telemetry
+                      Activity
                     </h2>
                     <ChartWindowControl
                       chartWindowMs={chartWindowMs}
@@ -918,95 +836,115 @@ export function App() {
                       onChartWindowChange={selectChartWindow}
                     />
                   </div>
-                  {snapshot.gpus.length === 0 ? (
-                    <div className="mt-4 border border-dashed border-border bg-card p-10 text-center">
-                      <p className="text-[15px] font-medium">
-                        GPU telemetry unavailable
-                      </p>
-                      <p className="mt-1 text-[13px] text-muted-foreground">
-                        System telemetry remains available above; no GPU
-                        entities are available for GPU history.
-                      </p>
-                    </div>
-                  ) : (
+                  <div className="overview-chart-grid grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-2">
                     <Suspense
                       fallback={
-                        <section
-                          className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2"
-                          aria-label="Loading GPU history charts"
-                        >
-                          {[
-                            'utilization',
-                            'memory',
-                            'temperature',
-                            'memory-activity',
-                            'pcie',
-                          ].map((name) => (
-                            <Skeleton key={name} className="h-[320px] w-full" />
-                          ))}
-                        </section>
+                        <>
+                          <Skeleton className="h-72 w-full" />
+                          <Skeleton className="h-72 w-full" />
+                        </>
                       }
                     >
-                      <OverviewCharts
+                      <HostCharts
                         snapshot={snapshot}
                         connection={connection}
-                        loadHistory={alignedHistory}
                         chartWindowMs={chartWindowMs}
                         retentionMs={retentionMs}
-                      />
+                        loadHistory={alignedHistory}
+                      >
+                        {snapshot.gpus.length > 0 ? (
+                          <>
+                            <GPUActivityChart
+                              snapshot={snapshot}
+                              connection={connection}
+                              loadHistory={alignedHistory}
+                              chartWindowMs={chartWindowMs}
+                              retentionMs={retentionMs}
+                            />
+                            <OverviewCharts
+                              snapshot={snapshot}
+                              connection={connection}
+                              loadHistory={alignedHistory}
+                              chartWindowMs={chartWindowMs}
+                              retentionMs={retentionMs}
+                            />
+                          </>
+                        ) : null}
+                      </HostCharts>
                     </Suspense>
-                  )}
+                  </div>
                 </section>
               </div>
             ) : null}
 
             {activeView === 'resources' ? (
               <div className="mt-6 space-y-6">
-                <FilesystemTable snapshot={snapshot} />
-                <section aria-labelledby="gpu-topology-heading">
-                  <h2 id="gpu-topology-heading" className="section-title mb-3">
-                    GPU topology
+                <MotherboardResources
+                  snapshot={snapshot}
+                  theme={theme}
+                  live={connection === 'live'}
+                  selected={selectedHostResource}
+                  onSelect={setSelectedHostResource}
+                />
+                <section aria-labelledby="resource-gpu">
+                  <h2
+                    id="resource-gpu"
+                    tabIndex={-1}
+                    className="section-title mb-3 scroll-mt-36 outline-none"
+                  >
+                    GPUs
                   </h2>
-                  <GPUGrid snapshot={snapshot} onSelect={openSelection} />
+                  <GPUGrid
+                    theme={theme}
+                    snapshot={snapshot}
+                    onSelect={openSelection}
+                    stale={connection !== 'live'}
+                  />
                 </section>
               </div>
             ) : null}
 
             {activeView === 'workloads' ? (
-              <section
-                className="mt-6 space-y-4"
-                aria-labelledby="assigned-workloads-heading"
-              >
-                <h2 id="assigned-workloads-heading" className="section-title">
-                  Assigned workspaces
-                </h2>
-                <AttributionSummary
-                  attribution={snapshot.attribution}
-                  snapshot={snapshot}
-                />
-                <PeopleView
-                  snapshot={snapshot}
-                  onSelect={openSelection}
-                  selectedPersonKey={selectedPersonKey}
-                  onSelectedPersonChange={setSelectedPersonKey}
-                  loadHistory={alignedHistory}
-                  chartWindowMs={chartWindowMs}
-                  retentionMs={retentionMs}
-                  onChartWindowChange={selectChartWindow}
-                />
-              </section>
+              <div className="mt-6 space-y-6">
+                <section
+                  className="space-y-4"
+                  aria-labelledby="assigned-workloads-heading"
+                >
+                  <div className="section-heading-row flex-wrap">
+                    <h2
+                      id="assigned-workloads-heading"
+                      className="section-title"
+                    >
+                      Workspaces
+                    </h2>
+                    <AttributionSummary attribution={snapshot.attribution} />
+                  </div>
+                  {workspaceDiagnostics.length > 0 ? (
+                    <DiagnosticsPanel
+                      diagnostics={workspaceDiagnostics}
+                      title="Workspace diagnostics"
+                      headingId="workspace-diagnostics"
+                    />
+                  ) : null}
+                  <PeopleView
+                    snapshot={snapshot}
+                    connection={connection}
+                    onSelect={openSelection}
+                    selectedPersonKey={selectedPersonKey}
+                    onSelectedPersonChange={setSelectedPersonKey}
+                    loadHistory={alignedHistory}
+                    chartWindowMs={chartWindowMs}
+                    retentionMs={retentionMs}
+                    onChartWindowChange={selectChartWindow}
+                  />
+                </section>
+              </div>
             ) : null}
 
-            {activeView === 'operations' ? (
+            {activeView === 'status' ? (
               <div className="mt-6 space-y-5">
-                <ProcessTable
-                  processes={snapshot.processes}
-                  procCapability={snapshot.capabilities.proc}
-                  attribution={snapshot.attribution}
-                  query={processQuery}
-                  onQueryChange={setProcessQuery}
-                />
-                <DiagnosticsPanel diagnostics={snapshot.diagnostics} />
+                <HealthStatusPanel snapshot={snapshot} />
+                <DiagnosticsPanel diagnostics={statusDiagnostics} />
               </div>
             ) : null}
           </div>

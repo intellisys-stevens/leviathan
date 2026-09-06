@@ -53,10 +53,18 @@ export const metricIcons: Record<MetricVisualKey, LucideIcon> = {
 
 export function MetricIcon({
   metric,
+  className,
   ...props
 }: Omit<ComponentProps<LucideIcon>, 'aria-label'> & {
   metric: MetricVisualKey;
 }) {
   const Icon = metricIcons[metric];
-  return <Icon aria-hidden="true" data-metric-icon={metric} {...props} />;
+  return (
+    <Icon
+      aria-hidden="true"
+      data-metric-icon={metric}
+      {...props}
+      className={`${metric === 'gpu_activity' ? 'text-primary ' : ''}${className ?? ''}`}
+    />
+  );
 }

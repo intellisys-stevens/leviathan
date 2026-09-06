@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/api/v1/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return local telemetry health observations for ninety UTC dates.
+         * @description Minute samples describe observed telemetry health, not external service availability. Unknown periods are never counted as healthy.
+         */
+        get: operations["getHealthStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/snapshot": {
         parameters: {
             query?: never;
@@ -146,11 +166,66 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /** @enum {string} */
+        HealthState: "operational" | "degraded" | "unavailable" | "unsupported" | "unknown";
+        HealthComponent: {
+            /** @enum {string} */
+            id: "system" | "gpu" | "attribution" | "uplink";
+            label: string;
+            state: components["schemas"]["HealthState"];
+            /** Format: date-time */
+            observedAt?: string;
+            message?: string;
+            /** Format: date-time */
+            lastAcknowledgedAt?: string;
+            /** Format: date-time */
+            retryAt?: string;
+        };
+        /** @description Healthy observations are operational divided by operational plus degraded plus unavailable. Coverage is operational plus degraded plus unavailable observations, divided by expected samples; unsupported and unknown are not measured observations. Zero denominators have no percentage. */
+        HealthCounts: {
+            operational: number;
+            degraded: number;
+            unavailable: number;
+            unsupported: number;
+            unknown: number;
+        };
+        HealthDay: {
+            date: string;
+            /** @description Begun UTC minute slots, excluding future slots today. */
+            expectedSamples: number;
+            components: {
+                [key: string]: components["schemas"]["HealthCounts"];
+            };
+        };
+        HealthPersistence: {
+            enabled: boolean;
+            saving: boolean;
+            message?: string;
+        };
+        HealthStatus: {
+            /** Format: date-time */
+            sampledAt: string;
+            /** Format: date-time */
+            monitorStartedAt: string;
+            /**
+             * Format: double
+             * @description Elapsed monitor runtime measured with the process monotonic clock, independent of wall-clock corrections. Omitted when unavailable.
+             */
+            monitorUptimeSeconds?: number;
+            /**
+             * @description Current servers retain 90 UTC dates. The value 30 remains valid for older servers.
+             * @enum {integer}
+             */
+            retentionDays: 30 | 90;
+            persistence: components["schemas"]["HealthPersistence"];
+            components: components["schemas"]["HealthComponent"][];
+            days: components["schemas"]["HealthDay"][];
+        };
+        /** @enum {string} */
         MetricStatus: "available" | "unsupported" | "permission_denied" | "estimated" | "stale" | "error";
         /** @enum {string} */
-        MetricSource: "nvml" | "nvml_gpm" | "dcgm" | "proc" | "procfs" | "statfs" | "synthetic";
+        MetricSource: "nvml" | "nvml_gpm" | "dcgm" | "proc" | "procfs" | "statfs" | "cgroupfs" | "synthetic";
         /** @enum {string} */
-        MetricScope: "host" | "physical_gpu" | "gpu_instance" | "compute_instance";
+        MetricScope: "host" | "physical_gpu" | "gpu_instance" | "compute_instance" | "workload_owner";
         Metric: {
             value: number | null;
             unit: string;
@@ -211,6 +286,31 @@ export interface components {
             name: string;
             ownerName: string;
         };
+        /** @enum {string} */
+        WorkloadTelemetryStatus: "available" | "partial" | "stale" | "unavailable";
+        /** @description Absolute cgroup v2 usage aggregated once per observed Pod and then by stable Coder owner identity. Missing members invalidate only the affected aggregate metrics. */
+        WorkloadOwnerTelemetry: {
+            ref: string;
+            name: string;
+            platform: components["schemas"]["WorkloadPlatform"];
+            workspaces: components["schemas"]["WorkloadAttribution"][];
+            /** Format: date-time */
+            sampledAt: string;
+            status: components["schemas"]["WorkloadTelemetryStatus"];
+            message?: string;
+            /** @description cpu_cores is CPU-time increase divided by elapsed time (logical-CPU equivalents). memory_used_bytes is memory.current, including charged cache. storage_read_bps and storage_write_bps are deduplicated kernel-accounted physical backing-device byte rates. Partial aggregates use null, never inferred zero. */
+            metrics: components["schemas"]["MetricSet"];
+        };
+        /** @description Optional host-local workspace owner telemetry, collected independently of GPU collection. Not included in the locked Yggdrasil upload contract. */
+        WorkloadTelemetry: {
+            /** Format: date-time */
+            sampledAt: string;
+            /** Format: date-time */
+            observedAt?: string;
+            status: components["schemas"]["WorkloadTelemetryStatus"];
+            message?: string;
+            owners: components["schemas"]["WorkloadOwnerTelemetry"][];
+        };
         /** @description A scheduler assignment; it does not prove active device use by a process. */
         ResourceAssignment: {
             workloadRef: string;
@@ -220,8 +320,22 @@ export interface components {
         };
         /** @enum {string} */
         AttributionStatus: "available" | "stale" | "unavailable";
+        WorkloadAssignmentResolution: {
+            workloadRef: string;
+            unresolvedAssignments: number;
+            reasonCodes: string[];
+        };
+        /** @description Local assignment completeness, independent of source freshness. Missing metadata cannot establish unassigned capacity. No private driver or Kubernetes identities are exposed. */
+        AttributionResolution: {
+            /** @enum {string} */
+            status: "complete" | "incomplete" | "unknown";
+            unresolvedAssignments: number;
+            reasonCodes: string[];
+            workloads: components["schemas"]["WorkloadAssignmentResolution"][];
+        };
         Attribution: {
             provider: string;
+            resolution?: components["schemas"]["AttributionResolution"];
             status: components["schemas"]["AttributionStatus"];
             /** Format: date-time */
             observedAt?: string;
@@ -393,6 +507,8 @@ export interface components {
             cpu: components["schemas"]["CPU"];
             memory: components["schemas"]["SystemMemory"];
             storage: components["schemas"]["Storage"];
+            /** @description Optional kernel uptime in seconds since boot, including suspend time; independent of the monitor process and service availability. */
+            uptime?: components["schemas"]["Metric"];
             /** Format: date-time */
             sampledAt: string;
             status: components["schemas"]["MetricStatus"];
@@ -411,6 +527,7 @@ export interface components {
             /** @description GPU-connected processes detected through open NVIDIA UVM device handles in the current PID namespace. Leviathan itself is excluded. */
             processes: components["schemas"]["Process"][];
             attribution?: components["schemas"]["Attribution"];
+            workloadTelemetry?: components["schemas"]["WorkloadTelemetry"];
             capabilities: components["schemas"]["Capabilities"];
             diagnostics: components["schemas"]["Diagnostic"][];
         };
@@ -499,6 +616,27 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getHealthStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current component states, persistence status, and daily observation counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthStatus"];
+                };
+            };
+            503: components["responses"]["Unavailable"];
+        };
+    };
     getSnapshot: {
         parameters: {
             query?: never;

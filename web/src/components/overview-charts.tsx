@@ -1,14 +1,19 @@
+import {
+  ChartRenderBoundary,
+  useChartVisibility,
+} from './chart-render-boundary';
+import { TimeAxisTick, StackedRateAxisTick } from './chart-axis-ticks';
 import { memo, useMemo, useRef, useState } from 'react';
 import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   buildTrendRows,
@@ -36,10 +41,22 @@ import type { ConnectionState } from '../use-leviathan';
 import { useChartTooltips } from '../use-chart-tooltips';
 import { useTrendCeiling } from '../use-trend-ceiling';
 import {
+  formatAxisByteRate,
+  formatAxisTime,
+  useChartAxisGeometry,
+} from '../use-chart-axis-geometry';
+import {
   ChartTooltipPortal,
   chartTooltipPortalWrapperStyle,
 } from './chart-tooltip-portal';
 import { MetricIcon, type MetricVisualKey } from './metric-icon';
+import {
+  ChartSelectionReadout,
+  compactChartValue,
+  useChartSelection,
+} from './chart-interaction';
+import './host-overview.css';
+import { useChartLegendStrip } from './chart-legend-strip';
 
 const colors = [
   'var(--chart-1)',
@@ -150,6 +167,21 @@ export function summarizeSeries(
     minimum: values.length > 0 ? Math.min(...values) : null,
     maximum: values.length > 0 ? Math.max(...values) : null,
   };
+}
+
+export function latestSeriesValue(
+  rows: readonly ChartRow[],
+  valueKey: string,
+): number | null {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const summary = trendValueSummary(rows[index], valueKey);
+    if (summary.count > 0) return summary.latest;
+  }
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const value = rows[index][valueKey];
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+  }
+  return null;
 }
 
 export function SeriesTooltip({
@@ -323,42 +355,48 @@ function ChartLegend({
   entities,
   valueKeys,
   rows,
+  selectedRow,
   unit,
   activeKey,
   pinnedKey,
   onEnter,
   onLeave,
   onToggle,
+  strip,
 }: {
   entities: OverviewEntity[];
   valueKeys: string[];
   rows: ChartRow[];
+  selectedRow: ChartRow | null;
   unit: ChartUnit;
   activeKey: string | null;
   pinnedKey: string | null;
   onEnter: (key: string) => void;
   onLeave: () => void;
   onToggle: (key: string) => void;
+  strip: ReturnType<typeof useChartLegendStrip>['props'];
 }) {
-  const mobileLabel = (entity: OverviewEntity) =>
-    entity.label.replace(/^GPU (\d+) · GI (\d+)$/, 'G$1 · GI$2');
-
   return (
     <div
-      className="mobile-chart-legend flex min-h-5 flex-wrap gap-x-3 gap-y-1"
+      {...strip}
+      className="mobile-chart-legend compact-chart-legend chart-legend-strip"
       data-series-count={entities.length}
+      data-legend-unit={unit}
     >
       {entities.map((entity, index) => {
-        const current = summarizeSeries(rows, valueKeys[index]).current;
-        const currentLabel =
-          current == null ? '—' : chartValueLabel(current, unit);
+        const selected = selectedRow?.[valueKeys[index]];
+        const current = selectedRow
+          ? typeof selected === 'number'
+            ? selected
+            : null
+          : latestSeriesValue(rows, valueKeys[index]);
         const accessibleCurrent =
-          current == null ? 'Unavailable' : currentLabel;
+          current == null ? 'Unavailable' : chartValueLabel(current, unit);
         return (
           <button
             type="button"
             key={entity.key}
-            className={`mobile-chart-legend-item inline-flex min-h-8 items-center gap-1.5 rounded-sm px-1.5 py-1 font-mono text-[13px] outline-none transition-[color,background-color,opacity] duration-[var(--duration-feedback)] ease-[var(--ease-out)] focus-visible:ring-2 focus-visible:ring-ring ${
+            className={`mobile-chart-legend-item transition-[color,background-color,opacity] duration-[var(--duration-feedback)] ease-[var(--ease-out)] ${
               activeKey === entity.key
                 ? 'bg-accent text-foreground'
                 : activeKey
@@ -386,20 +424,12 @@ function ChartLegend({
                 strokeLinecap="round"
               />
             </svg>
-            {mobileLabel(entity) === entity.label ? (
-              <span className="truncate">{entity.label}</span>
-            ) : (
-              <>
-                <span className="mobile-only-label truncate">
-                  {mobileLabel(entity)}
-                </span>
-                <span className="desktop-only-label truncate">
-                  {entity.label}
-                </span>
-              </>
-            )}
-            <span className="chart-legend-value ml-auto shrink-0 text-foreground">
-              {currentLabel}
+            <span data-legend-label>{entity.label}</span>
+            <span
+              data-legend-value
+              className="chart-legend-value text-foreground"
+            >
+              {compactChartValue(current, unit)}
             </span>
           </button>
         );
@@ -408,7 +438,7 @@ function ChartLegend({
   );
 }
 
-function HistoryLinePlot({
+const HistoryLinePlot = memo(function HistoryLinePlot({
   rows,
   xDomain,
   orderedSeries,
@@ -416,6 +446,7 @@ function HistoryLinePlot({
   activeDataKey,
   unit,
   definitionID,
+  selectedTime,
   interactive = true,
 }: {
   rows: ChartRow[];
@@ -425,6 +456,7 @@ function HistoryLinePlot({
   activeDataKey: string | null;
   unit: ChartUnit;
   definitionID: string;
+  selectedTime?: number | null;
   interactive?: boolean;
 }) {
   const percent = unit === '%';
@@ -443,126 +475,163 @@ function HistoryLinePlot({
   );
   const throughputCeiling = useTrendCeiling(throughput ? throughputMaximum : 0);
   const tooltipAnchorRef = useRef<HTMLDivElement>(null);
+  const axis = useChartAxisGeometry(tooltipAnchorRef);
+  const plotActive = useChartVisibility(tooltipAnchorRef);
   return (
     <div
       ref={tooltipAnchorRef}
       className="h-full w-full"
       data-chart-curve="linear"
     >
-      <ResponsiveContainer
-        width="100%"
-        height="100%"
-        minWidth={0}
-        initialDimension={{ width: 600, height: 224 }}
-      >
-        <LineChart
-          data={rows}
-          margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+      <ChartRenderBoundary active={plotActive} layout={axis}>
+        <ResponsiveContainer
+          width="100%"
+          height="100%"
+          minWidth={0}
+          initialDimension={{ width: 600, height: 224 }}
         >
-          <CartesianGrid stroke="var(--border)" vertical={false} />
-          <XAxis
-            dataKey="time"
-            type="number"
-            domain={[xDomain[0], xDomain[1]]}
-            allowDataOverflow
-            tickCount={4}
-            tickFormatter={(value) =>
-              new Date(value).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              })
-            }
-            tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
-            axisLine={false}
-            tickLine={false}
-          />
-          <YAxis
-            domain={
-              bounded
-                ? [0, 100]
-                : throughput
-                  ? [0, throughputCeiling]
-                  : [
-                      (minimum: number) => Math.max(0, Math.floor(minimum - 5)),
-                      (maximum: number) => Math.ceil(maximum + 5),
-                    ]
-            }
-            allowDataOverflow={bounded || throughput}
-            interval={bounded ? 0 : undefined}
-            ticks={bounded ? percentageTicks : undefined}
-            tickFormatter={(value) =>
-              throughput
-                ? formatBytesPerSecond(Number(value))
-                : percent
-                  ? formatRoundedPercent(Number(value))
-                  : `${Math.round(Number(value))}${unit}`
-            }
-            tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
-            axisLine={false}
-            tickLine={false}
-            tickMargin={4}
-            padding={bounded ? { top: 6, bottom: 4 } : undefined}
-            width={throughput ? 72 : bounded ? 44 : 52}
-          />
-          {interactive ? (
-            <Tooltip
-              isAnimationActive={false}
-              portal={
-                typeof document === 'undefined' ? undefined : document.body
-              }
-              wrapperStyle={chartTooltipPortalWrapperStyle}
-              content={(tooltip) => (
-                <ChartTooltipPortal
-                  active={tooltip.active}
-                  anchorRef={tooltipAnchorRef}
-                  coordinate={tooltip.coordinate}
-                >
-                  <SeriesTooltip
-                    active={tooltip.active}
-                    payload={tooltip.payload}
-                    label={tooltip.label}
-                    activeDataKey={activeDataKey}
-                    unit={unit}
-                    testId={`${definitionID}-tooltip`}
-                  />
-                </ChartTooltipPortal>
-              )}
-            />
-          ) : null}
-          {orderedSeries.map(({ entity, valueKey }) => {
-            const focused = activeKey === entity.key;
-            const muted = activeKey !== null && !focused;
-            return (
-              <Line
-                key={entity.key}
-                className={`overview-series ${
-                  focused
-                    ? 'overview-series-focused'
-                    : muted
-                      ? 'overview-series-muted'
-                      : 'overview-series-default'
-                }`}
-                type="linear"
-                dataKey={valueKey}
-                name={entity.label}
-                stroke={colors[entity.colorIndex % colors.length]}
-                strokeWidth={2}
-                strokeOpacity={muted ? 0.18 : focused ? 1 : 0.9}
-                strokeDasharray={seriesDashPattern(entity.colorIndex)}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                dot={false}
-                connectNulls={false}
-                isAnimationActive={false}
-                unit={unit}
+          <LineChart
+            accessibilityLayer={false}
+            data={rows}
+            margin={{
+              top: throughput && axis.compactRates ? axis.rateTop : axis.top,
+              right: 8,
+              left: 0,
+              bottom: 4,
+            }}
+          >
+            <CartesianGrid stroke="var(--border)" vertical={false} />
+            {selectedTime != null ? (
+              <ReferenceLine
+                x={selectedTime}
+                stroke="var(--primary)"
+                strokeDasharray="3 3"
               />
-            );
-          })}
-        </LineChart>
-      </ResponsiveContainer>
+            ) : null}
+            <XAxis
+              dataKey="time"
+              type="number"
+              domain={[xDomain[0], xDomain[1]]}
+              allowDataOverflow
+              tickCount={axis.xTickCount}
+              ticks={axis.singleTimeTick ? [xDomain[1]] : undefined}
+              interval="preserveStartEnd"
+              minTickGap={axis.minTickGap}
+              height="auto"
+              tickFormatter={formatAxisTime}
+              tick={<TimeAxisTick fontSize={axis.tick.fontSize} />}
+              fontSize={axis.tick.fontSize}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              domain={
+                bounded
+                  ? [0, 100]
+                  : throughput
+                    ? [0, throughputCeiling]
+                    : [
+                        (minimum: number) =>
+                          Math.max(0, Math.floor(minimum - 5)),
+                        (maximum: number) => Math.ceil(maximum + 5),
+                      ]
+              }
+              allowDataOverflow={bounded || throughput}
+              interval={bounded ? 0 : undefined}
+              ticks={
+                bounded
+                  ? percentageTicks
+                  : axis.compactRates
+                    ? [0, throughputCeiling]
+                    : undefined
+              }
+              tickFormatter={(value) =>
+                throughput
+                  ? formatAxisByteRate(Number(value))
+                  : percent
+                    ? formatRoundedPercent(Number(value))
+                    : `${Math.round(Number(value))}${unit}`
+              }
+              tick={
+                throughput && axis.compactRates ? (
+                  <StackedRateAxisTick fontSize={axis.tick.fontSize} />
+                ) : (
+                  axis.tick
+                )
+              }
+              fontSize={axis.tick.fontSize}
+              axisLine={false}
+              tickLine={false}
+              tickMargin={4}
+              padding={
+                bounded
+                  ? { top: 6, bottom: 4 }
+                  : axis.compactRates
+                    ? { bottom: axis.rateBottom }
+                    : undefined
+              }
+              width="auto"
+            />
+            {plotActive && interactive ? (
+              <Tooltip
+                isAnimationActive={false}
+                portal={
+                  typeof document === 'undefined' ? undefined : document.body
+                }
+                wrapperStyle={chartTooltipPortalWrapperStyle}
+                content={(tooltip) => (
+                  <ChartTooltipPortal
+                    active={tooltip.active}
+                    anchorRef={tooltipAnchorRef}
+                    coordinate={tooltip.coordinate}
+                  >
+                    <SeriesTooltip
+                      active={tooltip.active}
+                      payload={tooltip.payload}
+                      label={tooltip.label}
+                      activeDataKey={activeDataKey}
+                      unit={unit}
+                      testId={`${definitionID}-tooltip`}
+                    />
+                  </ChartTooltipPortal>
+                )}
+              />
+            ) : null}
+            {orderedSeries.map(({ entity, valueKey }) => {
+              const focused = activeKey === entity.key;
+              const muted = activeKey !== null && !focused;
+              return (
+                <Line
+                  key={entity.key}
+                  className={`overview-series ${
+                    focused
+                      ? 'overview-series-focused'
+                      : muted
+                        ? 'overview-series-muted'
+                        : 'overview-series-default'
+                  }`}
+                  type="linear"
+                  dataKey={valueKey}
+                  name={entity.label}
+                  stroke={colors[entity.colorIndex % colors.length]}
+                  strokeWidth={2}
+                  strokeOpacity={muted ? 0.18 : focused ? 1 : 0.9}
+                  strokeDasharray={seriesDashPattern(entity.colorIndex)}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  dot={false}
+                  connectNulls={false}
+                  isAnimationActive={false}
+                  unit={unit}
+                />
+              );
+            })}
+          </LineChart>
+        </ResponsiveContainer>
+      </ChartRenderBoundary>
     </div>
   );
-}
+});
 
 function ChartPanel({
   definition,
@@ -583,7 +652,11 @@ function ChartPanel({
   rangeLabel: string;
   tooltipsEnabled: boolean;
 }) {
-  const { entities, metric, title, description, unit } = definition;
+  const { entities, metric, title, unit } = definition;
+  const legendStrip = useChartLegendStrip(
+    title,
+    entities.map((entity) => entity.key).join(','),
+  );
   const descriptors = useMemo<AlignedHistorySeriesDescriptor[]>(
     () =>
       entities.map((entity) => ({
@@ -637,6 +710,11 @@ function ChartPanel({
     ],
   );
   const { rows, valueKeys, availableSeries, xDomain } = retainedData;
+  const selection = useChartSelection(
+    rows,
+    xDomain,
+    `${definition.id}:${entities.map((entity) => entity.key).join(',')}`,
+  );
   const timestampsWithValues = useMemo(() => {
     let count = 0;
     for (const row of rows) {
@@ -707,56 +785,26 @@ function ChartPanel({
             : null;
   return (
     <section
-      className={`frost-panel relative min-w-0 overflow-visible border border-border/75 bg-card/90 p-4 ${definition.fullWidth ? 'md:col-span-2' : ''}`}
+      className={`frost-panel host-chart-panel compact-chart-panel ${definition.fullWidth ? 'lg:col-span-2' : ''}`}
       aria-labelledby={`${definition.id}-heading`}
       data-testid={definition.id}
     >
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <h3
-            id={`${definition.id}-heading`}
-            className="flex items-center gap-2 text-[17px] font-semibold"
-          >
-            <MetricIcon
-              metric={definition.icon}
-              className="size-4 text-primary"
-            />
-            {title}
-          </h3>
-          <p className="mt-0.5 text-[13px] text-muted-foreground">
-            {description}
-          </p>
+      <div className="host-chart-heading">
+        <h3 id={`${definition.id}-heading`}>
+          <MetricIcon metric={definition.icon} />
+          {title}
+        </h3>
+        <div className="chart-heading-actions">
+          {stateLabel !== 'live' ? (
+            <span className="host-chart-state">{stateLabel}</span>
+          ) : null}
+          {legendStrip.controls}
         </div>
-        <Badge
-          variant="outline"
-          className={`shrink-0 rounded font-mono text-[13px] uppercase ${
-            stateLabel === 'live'
-              ? 'text-primary'
-              : stateLabel === 'unavailable'
-                ? 'text-muted-foreground'
-                : 'text-amber-700 dark:text-amber-300'
-          }`}
-        >
-          {stateLabel}
-        </Badge>
       </div>
 
-      <ChartLegend
-        entities={entities}
-        valueKeys={valueKeys}
-        rows={rows}
-        unit={unit}
-        activeKey={activeKey}
-        pinnedKey={currentPinnedKey}
-        onEnter={setHoveredKey}
-        onLeave={() => setHoveredKey(null)}
-        onToggle={(key) =>
-          setPinnedKey((current) => (current === key ? null : key))
-        }
-      />
-
       <figure
-        className="chart-plot-frame mt-2 h-56 min-w-0"
+        {...selection.plotProps}
+        className="host-chart-plot chart-plot-frame compact-chart-plot"
         aria-label={`${title} over ${rangeLabel}`}
         aria-busy={loading}
       >
@@ -791,7 +839,8 @@ function ChartPanel({
                 activeDataKey={activeDataKey}
                 unit={unit}
                 definitionID={definition.id}
-                interactive={tooltipsEnabled}
+                selectedTime={selection.selectedTime}
+                interactive={tooltipsEnabled && !selection.selectedRow}
               />
             </div>
             {outgoingData ? (
@@ -814,6 +863,31 @@ function ChartPanel({
           </>
         )}
       </figure>
+      <ChartLegend
+        strip={legendStrip.props}
+        entities={entities}
+        valueKeys={valueKeys}
+        rows={rows}
+        selectedRow={selection.selectedRow}
+        unit={unit}
+        activeKey={activeKey}
+        pinnedKey={currentPinnedKey}
+        onEnter={setHoveredKey}
+        onLeave={() => setHoveredKey(null)}
+        onToggle={(key) =>
+          setPinnedKey((current) => (current === key ? null : key))
+        }
+      />
+      <ChartSelectionReadout
+        selection={selection}
+        label={title}
+        summary={series
+          .map(
+            ({ entity, valueKey }) =>
+              `${entity.label}: ${selection.selectedRow?.[valueKey] == null ? 'Unavailable' : chartValueLabel(Number(selection.selectedRow[valueKey]), unit)}`,
+          )
+          .join(', ')}
+      />
       {error && availableSeries > 0 ? (
         <output className="mt-3 flex items-center justify-between gap-3 border border-amber-500/25 bg-amber-500/[0.05] px-3 py-2 text-[13px] text-amber-700 dark:text-amber-300">
           <span>Some retained history could not be loaded.</span>
@@ -828,6 +902,41 @@ function ChartPanel({
 
 const MemoizedChartPanel = memo(ChartPanel);
 
+function useOverviewEntities(snapshot: Snapshot): OverviewEntity[] {
+  const signature = JSON.stringify(buildOverviewEntities(snapshot));
+  return useMemo(() => JSON.parse(signature) as OverviewEntity[], [signature]);
+}
+
+export function GPUActivityChart(props: Props) {
+  const allEntities = useOverviewEntities(props.snapshot);
+  const entities = useMemo(
+    () => allEntities.filter((entity) => entity.scope === 'physical_gpu'),
+    [allEntities],
+  );
+  const tooltipsEnabled = useChartTooltips();
+  const rangeLabel = formatDuration(props.chartWindowMs);
+  const definition = useMemo<PanelDefinition>(
+    () => ({
+      id: 'gpu-activity-chart',
+      title: 'GPU activity',
+      icon: 'gpu_activity',
+      metric: 'utilization',
+      description: `Physical GPUs · ${rangeLabel}`,
+      unit: '%',
+      entities,
+    }),
+    [entities, rangeLabel],
+  );
+  return (
+    <MemoizedChartPanel
+      {...props}
+      definition={definition}
+      rangeLabel={rangeLabel}
+      tooltipsEnabled={tooltipsEnabled}
+    />
+  );
+}
+
 export function OverviewCharts({
   snapshot,
   connection,
@@ -835,7 +944,7 @@ export function OverviewCharts({
   retentionMs,
   loadHistory,
 }: Props) {
-  const entities = useMemo(() => buildOverviewEntities(snapshot), [snapshot]);
+  const entities = useOverviewEntities(snapshot);
   const tooltipsEnabled = useChartTooltips();
   const rangeLabel = formatDuration(chartWindowMs);
   const physicalEntities = useMemo(
@@ -858,7 +967,7 @@ export function OverviewCharts({
     () => [
       {
         id: 'utilization-chart',
-        title: 'Utilization',
+        title: 'GPU compute',
         icon: 'gpu_activity',
         metric: 'utilization',
         description: `SM activity · ${rangeLabel}`,
@@ -867,7 +976,7 @@ export function OverviewCharts({
       },
       {
         id: 'memory-chart',
-        title: 'Memory',
+        title: 'GPU memory',
         icon: 'memory',
         metric: 'memory_percent',
         description: `Memory used · ${rangeLabel}`,
@@ -876,7 +985,7 @@ export function OverviewCharts({
       },
       {
         id: 'temperature-chart',
-        title: 'Temperature',
+        title: 'GPU temperature',
         icon: 'temperature',
         metric: 'temperature',
         description: `Physical GPUs · ${rangeLabel}`,
@@ -884,17 +993,8 @@ export function OverviewCharts({
         entities: physicalEntities,
       },
       {
-        id: 'memory-activity-chart',
-        title: 'Memory Activity',
-        icon: 'memory_activity',
-        metric: 'memory_activity',
-        description: `Memory activity · ${rangeLabel}`,
-        unit: '%',
-        entities: activityEntities,
-      },
-      {
         id: 'pcie-throughput-chart',
-        title: 'PCIe Transfer',
+        title: 'GPU transfers',
         icon: 'pcie_total_bytes_per_second',
         metric: 'pcie_total',
         description: `Host ↔ GPU · ${rangeLabel}`,
@@ -902,15 +1002,21 @@ export function OverviewCharts({
         entities: activityEntities,
         fullWidth: true,
       },
+      {
+        id: 'memory-activity-chart',
+        title: 'GPU memory activity',
+        icon: 'memory_activity',
+        metric: 'memory_activity',
+        description: `Memory activity · ${rangeLabel}`,
+        unit: '%',
+        entities: activityEntities,
+      },
     ],
     [activityEntities, physicalEntities, rangeLabel],
   );
 
   return (
-    <section
-      className="relative z-10 mt-4 grid grid-cols-1 gap-4 md:grid-cols-2"
-      aria-label={`${rangeLabel} GPU history`}
-    >
+    <>
       {definitions.map((definition) => (
         <MemoizedChartPanel
           key={definition.id}
@@ -924,7 +1030,7 @@ export function OverviewCharts({
           tooltipsEnabled={tooltipsEnabled}
         />
       ))}
-    </section>
+    </>
   );
 }
 

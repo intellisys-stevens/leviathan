@@ -456,6 +456,33 @@ func TestSystemAndFilesystemHistoryAreFirstClassEntities(t *testing.T) {
 	}
 }
 
+func TestStaleStorageCapacityLeavesAnAlignedGap(t *testing.T) {
+	buffer := New(time.Hour, time.Second)
+	at := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	metrics := []string{"storage_total_bytes", "storage_used_bytes", "storage_available_bytes"}
+	for index, status := range []model.MetricStatus{model.StatusAvailable, model.StatusStale, model.StatusEstimated} {
+		sampledAt := at.Add(time.Duration(index) * time.Second)
+		buffer.AddSystem(model.Snapshot{SampledAt: sampledAt, System: model.System{
+			CPU:     model.CPU{Utilization: model.AvailableMetric(20, "percent", model.SourceProcFS, model.ScopeHost, sampledAt)},
+			Memory:  model.SystemMemory{TotalBytes: model.Uint64(2000), Status: model.StatusStale},
+			Storage: model.Storage{Status: status, TotalBytes: model.Uint64(1000), UsedBytes: model.Uint64(500), AvailableBytes: model.Uint64(400), Filesystems: []model.Filesystem{{ID: "fs_test", Status: status, TotalBytes: model.Uint64(1000), UsedBytes: model.Uint64(500), AvailableBytes: model.Uint64(400)}}},
+		}})
+	}
+	aligned := buffer.QueryAligned([]SeriesDescriptor{{Key: "host", Entity: "@host", Metrics: metrics}, {Key: "filesystem", Entity: "fs_test", Metrics: metrics}}, time.Minute, 50, at.Add(2*time.Second))
+	if len(aligned.Points) != 3 {
+		t.Fatalf("aligned points=%+v", aligned.Points)
+	}
+	for _, key := range []string{"host", "filesystem"} {
+		if len(aligned.Points[1].Values[key]) != 0 || len(aligned.Points[0].Values[key]) != 3 || len(aligned.Points[2].Values[key]) != 3 {
+			t.Fatalf("stale storage bridged: %+v", aligned.Points)
+		}
+	}
+	host := buffer.Query("@host", []string{"memory_total_bytes"}, time.Minute, at.Add(2*time.Second))
+	if len(host.Points) != 3 || host.Points[1].Values["memory_total_bytes"] != 2000 {
+		t.Fatal("unrelated memory-total behavior changed")
+	}
+}
+
 func TestIndependentDomainPublicationDoesNotCarryOldValuesForward(t *testing.T) {
 	buffer := New(time.Minute, time.Second)
 	base := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)

@@ -21,6 +21,72 @@ func TestLoopbackEnforcement(t *testing.T) {
 	}
 }
 
+func TestWorkloadTelemetryRequiresOptInAndInventory(t *testing.T) {
+	cfg := Defaults()
+	if cfg.WorkloadTelemetry {
+		t.Fatal("workload collection must be opt-in")
+	}
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("workload_telemetry = true\nattribution_socket = \"/run/leviathan/attribution.sock\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := LoadFile(path, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.WorkloadTelemetry {
+		t.Fatal("workload opt-in was not loaded")
+	}
+	if err := Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg.AttributionSocket = ""
+	if err := Validate(cfg); err == nil {
+		t.Fatal("workload telemetry without inventory accepted")
+	}
+	t.Setenv("LEVIATHAN_WORKLOAD_TELEMETRY", "false")
+	if err := ApplyEnv(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.WorkloadTelemetry {
+		t.Fatal("environment did not override TOML")
+	}
+	t.Setenv("LEVIATHAN_WORKLOAD_TELEMETRY", "maybe")
+	if err := ApplyEnv(&cfg); err == nil {
+		t.Fatal("invalid boolean accepted")
+	}
+}
+
+func TestHealthDefaultsAndConfigurationPrecedence(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	cfg := Defaults()
+	if !cfg.Health.Enabled || cfg.Health.Directory != filepath.Join(state, "leviathan", "health-v1") {
+		t.Fatalf("health defaults = %+v", cfg.Health)
+	}
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[health]\nenabled = false\ndirectory = \"/var/lib/leviathan-test\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := LoadFile(path, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Health.Enabled || cfg.Health.Directory != "/var/lib/leviathan-test" {
+		t.Fatalf("health TOML = %+v", cfg.Health)
+	}
+	t.Setenv("LEVIATHAN_HEALTH_ENABLED", "true")
+	t.Setenv("LEVIATHAN_HEALTH_DIR", filepath.Join(state, "override"))
+	if err := ApplyEnv(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Health.Enabled || cfg.Health.Directory != filepath.Join(state, "override") {
+		t.Fatalf("health env = %+v", cfg.Health)
+	}
+	cfg.Health.Directory = "relative"
+	if err := Validate(cfg); err == nil {
+		t.Fatal("relative health path accepted")
+	}
+}
+
 func TestLoadFileParsesHumanDurationsAndPreservesDefaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	if err := os.WriteFile(path, []byte("interval = \"750ms\"\nprofile_interval = \"3s\"\nprocess_interval = \"4s\"\nhistory_window = \"45m\"\nprovider = \"nvml\"\nattribution_socket = \"/run/leviathan/attribution.sock\"\n"), 0o600); err != nil {
@@ -161,5 +227,37 @@ func TestValidateAncillaryIntervalsAndSocket(t *testing.T) {
 	valid.AttributionSocket = "/run/leviathan/attribution.sock"
 	if err := Validate(valid); err != nil {
 		t.Fatalf("valid attribution socket rejected: %v", err)
+	}
+}
+
+func TestCheckpointConfigurationIsOptInAndValidated(t *testing.T) {
+	cfg := Defaults()
+	if cfg.AttributionCheckpointPath != "" {
+		t.Fatal("checkpoint enabled by default")
+	}
+	path := filepath.Join(t.TempDir(), "checkpoint.toml")
+	if err := os.WriteFile(path, []byte("attribution_socket = \"/run/leviathan/attribution.sock\"\nattribution_checkpoint_path = \"/var/lib/kubelet/plugins/gpu.nvidia.com/checkpoint.json\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := LoadFile(path, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEVIATHAN_ATTRIBUTION_CHECKPOINT_PATH", "/readonly/checkpoint.json")
+	if err := ApplyEnv(&cfg); err != nil || cfg.AttributionCheckpointPath != "/readonly/checkpoint.json" {
+		t.Fatal(cfg, err)
+	}
+	for _, bad := range []string{"relative.json", "/tmp/../checkpoint.json", "/tmp/bad\nfile"} {
+		cfg.AttributionCheckpointPath = bad
+		if Validate(cfg) == nil {
+			t.Fatalf("accepted %q", bad)
+		}
+	}
+	cfg.AttributionCheckpointPath = "/safe/checkpoint.json"
+	cfg.AttributionSocket = ""
+	if Validate(cfg) == nil {
+		t.Fatal("missing socket accepted")
 	}
 }

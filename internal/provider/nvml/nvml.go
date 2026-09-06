@@ -112,6 +112,12 @@ type profileState struct {
 
 func (p *Provider) Name() string { return "nvml" }
 
+func (p *Provider) RefreshTopology() {
+	p.mu.Lock()
+	p.topologyRefreshedAt = time.Time{}
+	p.mu.Unlock()
+}
+
 func (p *Provider) Open(context.Context) error {
 	if ret := gonvml.Init(); ret != gonvml.SUCCESS {
 		status, err := initializationFailure(ret)

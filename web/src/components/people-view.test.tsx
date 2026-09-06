@@ -1,5 +1,11 @@
 import { StrictMode, useState } from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LoadAlignedHistory } from '../overview-history';
 import type { Snapshot } from '../types';
@@ -95,6 +101,12 @@ function fixture(status: 'available' | 'stale' = 'available'): Snapshot {
     ],
     attribution: {
       provider: 'kubernetes_dra',
+      resolution: {
+        status: 'complete',
+        unresolvedAssignments: 0,
+        reasonCodes: [],
+        workloads: [],
+      },
       status,
       workloads: [
         {
@@ -259,9 +271,7 @@ describe('people resource view', () => {
     expect(personCards).toHaveLength(1);
     for (const personCard of personCards) {
       expect(personCard).toHaveClass('snow-capped', 'mobile-person-card');
-      expect(['left', 'right', 'split', 'center', 'corner']).toContain(
-        personCard.getAttribute('data-snow-cap'),
-      );
+      expect(personCard).toHaveAttribute('data-snow-cap', 'generated');
       expect(
         personCard.querySelectorAll(':scope > [data-slot="snow-cap"]'),
       ).toHaveLength(1);
@@ -310,6 +320,9 @@ describe('people resource view', () => {
     const computeButton = screen.getByRole('button', {
       name: 'Open GPU 0 · GI 1 · CI 2 details',
     });
+    expect(
+      within(computeButton.parentElement!).getByText('Allocated'),
+    ).toBeInTheDocument();
     for (const button of [computeButton]) {
       expect(button).toHaveClass(
         'interactive-resource-button',
@@ -343,7 +356,8 @@ describe('people resource view', () => {
     expect(screen.getByText('second-synthetic-workspace')).toBeInTheDocument();
     expect(screen.queryByText('synthetic-workspace')).toBeNull();
     expect(screen.getByText('Second Synthetic GPU')).toBeInTheDocument();
-    expect(screen.getByText('GPU active')).toBeInTheDocument();
+    expect(screen.getByText('Reserved')).toBeInTheDocument();
+    expect(screen.queryByText('GPU active')).toBeNull();
     onSelect.mockClear();
     physicalButton.focus();
     expect(physicalButton).toHaveFocus();
@@ -409,7 +423,7 @@ describe('people resource view', () => {
     });
     render(<PeopleHarness snapshot={snapshot} />);
 
-    const warning = screen.getByText(/could not be resolved/u);
+    const warning = screen.getByText(/pending allocation verification/u);
     const grid = screen.getByTestId('people-grid');
     expect(warning.parentElement).toBe(grid.parentElement);
     expect([...grid.parentElement!.children].indexOf(warning)).toBeLessThan(
@@ -458,10 +472,10 @@ describe('people resource view', () => {
       screen.getByRole('radiogroup', { name: 'Telemetry window' }),
     ).toBeInTheDocument();
     for (const chartName of [
-      'activity',
-      'memory usage',
-      'memory activity',
-      'pcie transfer',
+      'gpu activity',
+      'gpu memory used',
+      'gpu memory activity',
+      'gpu transfers',
     ]) {
       expect(
         screen.getByRole('figure', {
@@ -500,7 +514,7 @@ describe('people resource view', () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole('figure', {
-        name: 'synthetic-owner resource activity trend',
+        name: 'synthetic-owner resource gpu activity trend',
       }),
     ).toBeInTheDocument();
 
@@ -513,6 +527,20 @@ describe('people resource view', () => {
     );
   });
 
+  it('distinguishes unresolved assignments from an empty workload list', () => {
+    const current = fixture();
+    current.attribution!.assignments.forEach((assignment) => {
+      assignment.entityUuid = 'missing-topology';
+    });
+    render(<PeopleHarness snapshot={current} />);
+    expect(
+      screen.getByText(/pending allocation verification/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText('No workspace GPU assignments reported.'),
+    ).toBeNull();
+  });
+
   it('does not request history for a reserved-only selected owner', async () => {
     const loadHistory = historyLoader();
     render(
@@ -523,7 +551,14 @@ describe('people resource view', () => {
       />,
     );
 
-    expect(screen.getByText('No GPU telemetry.')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('figure', { name: /resource gpu activity/ }),
+    ).toBeNull();
+    expect(
+      screen.getByRole('heading', { name: 'CPU used' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Reserved')).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).toBeNull();
     await Promise.resolve();
     expect(loadHistory).not.toHaveBeenCalled();
   });
@@ -603,7 +638,7 @@ describe('people resource view', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('figure', {
-          name: 'synthetic-owner resource activity trend',
+          name: 'synthetic-owner resource gpu activity trend',
         }),
       ).toHaveAttribute('aria-busy', 'false'),
     );

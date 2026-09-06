@@ -125,7 +125,13 @@ export function processSearchText(
   process: Process,
   workspaceLabel?: string,
 ): string {
-  return [process.pid, process.user, process.executable, workspaceLabel]
+  return [
+    process.pid,
+    process.user,
+    process.executable,
+    process.commandLine,
+    workspaceLabel,
+  ]
     .filter(Boolean)
     .join(' ')
     .toLowerCase();

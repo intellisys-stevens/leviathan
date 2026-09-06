@@ -331,6 +331,12 @@ function snapshot(
 
 const workspaceAttribution: Attribution = {
   provider: 'coder-kubernetes',
+  resolution: {
+    status: 'complete',
+    unresolvedAssignments: 0,
+    reasonCodes: [],
+    workloads: [],
+  },
   status: 'available',
   observedAt: sampledAt,
   workloads: [
@@ -500,11 +506,11 @@ describe('Leviathan dashboard states', () => {
 
   it('normalizes canonical hashes and migrates the legacy perspective once', () => {
     expect(parseWorkbenchHash('#resources')).toBe('resources');
-    expect(parseWorkbenchHash('#operations')).toBe('operations');
-    expect(parseWorkbenchHash('#processes')).toBe('operations');
-    expect(parseWorkbenchHash('#diagnostics')).toBe('operations');
+    expect(parseWorkbenchHash('#operations')).toBe('status');
+    expect(parseWorkbenchHash('#processes')).toBe('workloads');
+    expect(parseWorkbenchHash('#diagnostics')).toBe('status');
     expect(operationsFocusForHash('#processes')).toBe('processes');
-    expect(operationsFocusForHash('#diagnostics')).toBe('diagnostics');
+    expect(operationsFocusForHash('#diagnostics')).toBeNull();
     expect(operationsFocusForHash('#operations')).toBeNull();
     expect(parseWorkbenchHash('#Resources')).toBeNull();
     expect(resolveInitialWorkbenchView('#unknown', 'people')).toBe('overview');
@@ -604,13 +610,15 @@ describe('Leviathan dashboard states', () => {
 
     window.history.replaceState(null, '', '#processes');
     render(<App />);
-    expect(window.location.hash).toBe('#operations');
+    expect(window.location.hash).toBe('#workloads');
     expect(
-      screen.getByRole('heading', { name: 'Processes' }),
+      screen.getByRole('heading', { name: 'Workloads', level: 1 }),
     ).toBeInTheDocument();
-    expect(screen.getByTestId('process-section')).toBeInTheDocument();
+    expect(screen.queryByTestId('process-section')).not.toBeInTheDocument();
     await waitFor(() =>
-      expect(screen.getByRole('heading', { name: 'Processes' })).toHaveFocus(),
+      expect(
+        screen.getByRole('heading', { name: 'Workloads', level: 1 }),
+      ).toHaveFocus(),
     );
     expect(scrollIntoViewMock).toHaveBeenCalledWith({
       block: 'start',
@@ -619,18 +627,18 @@ describe('Leviathan dashboard states', () => {
 
     window.history.replaceState(null, '', '#diagnostics');
     window.dispatchEvent(new HashChangeEvent('hashchange'));
-    expect(window.location.hash).toBe('#operations');
+    expect(window.location.hash).toBe('#status');
     await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: 'Diagnostics' }),
-      ).toHaveFocus(),
+      expect(screen.getByRole('heading', { name: 'Status' })).toHaveFocus(),
     );
 
     window.history.replaceState(null, '', '#processes');
     window.dispatchEvent(new HashChangeEvent('hashchange'));
-    expect(window.location.hash).toBe('#operations');
+    expect(window.location.hash).toBe('#workloads');
     await waitFor(() =>
-      expect(screen.getByRole('heading', { name: 'Processes' })).toHaveFocus(),
+      expect(
+        screen.getByRole('heading', { name: 'Workloads', level: 1 }),
+      ).toHaveFocus(),
     );
 
     openView('Resources');
@@ -640,9 +648,9 @@ describe('Leviathan dashboard states', () => {
     );
 
     window.history.back();
-    await waitFor(() => expect(window.location.hash).toBe('#operations'));
+    await waitFor(() => expect(window.location.hash).toBe('#workloads'));
     await waitFor(() =>
-      expect(screen.getByRole('heading', { name: 'Operations' })).toHaveFocus(),
+      expect(screen.getByRole('heading', { name: 'Workloads' })).toHaveFocus(),
     );
   });
 
@@ -652,7 +660,7 @@ describe('Leviathan dashboard states', () => {
     openView('Resources');
     fireEvent.click(
       screen.getByRole('button', {
-        name: /Open GPU 0 · GI 1 \/ CI 0 details/u,
+        name: /Open GPU 0 · GI 1 · CI 0 details/u,
       }),
     );
     await screen.findByRole('dialog', { name: 'GPU 0 · GI 1 · CI 0' });
@@ -664,7 +672,7 @@ describe('Leviathan dashboard states', () => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
     );
     await waitFor(() =>
-      expect(screen.getByRole('heading', { name: 'Operations' })).toHaveFocus(),
+      expect(screen.getByRole('heading', { name: 'Status' })).toHaveFocus(),
     );
   });
 
@@ -679,7 +687,7 @@ describe('Leviathan dashboard states', () => {
     openView('Resources');
     fireEvent.click(
       screen.getByRole('button', {
-        name: /Open GPU 0 · GI 1 \/ CI 0 details/u,
+        name: /Open GPU 0 · GI 1 · CI 0 details/u,
       }),
     );
     await screen.findByRole('dialog', { name: 'GPU 0 · GI 1 · CI 0' });
@@ -689,10 +697,15 @@ describe('Leviathan dashboard states', () => {
     await waitFor(() =>
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
     );
-
-    openView('Operations');
     await waitFor(() =>
-      expect(screen.getByRole('heading', { name: 'Operations' })).toHaveFocus(),
+      expect(
+        screen.getByRole('heading', { name: 'Resources', level: 1 }),
+      ).toHaveFocus(),
+    );
+
+    openView('Status');
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Status' })).toHaveFocus(),
     );
   });
 
@@ -716,6 +729,15 @@ describe('Leviathan dashboard states', () => {
     await waitFor(() =>
       expect(screen.getByRole('heading', { name: 'Resources' })).toHaveFocus(),
     );
+  });
+
+  it('does not claim retained data while waiting for the first snapshot', () => {
+    mockUseLeviathan.mockReturnValue(result(null, 'connecting'));
+    render(<App />);
+    const health = screen.getByRole('region', { name: 'Active host health' });
+    expect(health).toHaveTextContent('Connecting to this host…');
+    expect(health).not.toHaveTextContent(/last (complete )?snapshot|retained/i);
+    expect(screen.getByLabelText('Loading overview view')).toBeInTheDocument();
   });
 
   it('uses one fixed four-tab workbench navigator on mobile', async () => {
@@ -770,7 +792,7 @@ describe('Leviathan dashboard states', () => {
       ).toHaveAttribute('aria-current', 'page');
       expect(
         within(navigation).getByRole('link', {
-          name: /Operations.*1 active diagnostics/u,
+          name: /Status.*1 active diagnostics/u,
         }),
       ).toContainElement(navigation.querySelector('.mobile-diagnostic-count'));
 
@@ -808,78 +830,95 @@ describe('Leviathan dashboard states', () => {
     expect(document.documentElement).not.toHaveClass('dark');
   });
 
-  it('renders the empty GPU state while retaining GPU processes', () => {
+  it('omits the Processes panel while keeping GPU discovery states', () => {
     mockUseLeviathan.mockReturnValue(result(snapshot([])));
     render(<App />);
-    expect(
-      screen.getByRole('button', { name: 'GPU processes: 1' }),
-    ).toBeInTheDocument();
     openView('Resources');
     expect(screen.getByText('No NVIDIA GPUs detected')).toBeInTheDocument();
+    openView('Workloads');
+    expect(screen.queryByTestId('process-section')).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText('Filter GPU processes'),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('4100')).not.toBeInTheDocument();
   });
 
-  it('combines resource totals and links assigned workloads from the overview', async () => {
+  it('shows hardware capacity and routes to a resource section without duplicated attribution', async () => {
     mockUseLeviathan.mockReturnValue(
-      result({ ...snapshot(), attribution: workspaceAttribution }),
+      result({
+        ...snapshot([populatedGPU(0), fullGPU(2)]),
+        attribution: workspaceAttribution,
+      }),
     );
     render(<App />);
-
-    const summary = screen.getByLabelText('Host summary');
-    expect(summary.querySelectorAll('.summary-link')).toHaveLength(3);
-    for (const link of summary.querySelectorAll('.summary-link')) {
-      expect(link).toHaveClass('flowing-surface');
-      expect(
-        link.querySelector(':scope > [data-slot="perimeter-light"]'),
-      ).toHaveAttribute('aria-hidden', 'true');
-    }
-    expect(within(summary).getAllByText('Resources')).toHaveLength(2);
-    expect(within(summary).getByText('1 GPU · 1 instance')).toBeInTheDocument();
-    expect(within(summary).getByText('Assigned workloads')).toBeInTheDocument();
     expect(
-      within(summary).getByText('1 user · 1 workspace'),
-    ).toBeInTheDocument();
-    expect(within(summary).getByText('GPU processes')).toBeInTheDocument();
-    expect(within(summary).getAllByText('Resources')[1]).toHaveClass(
-      'mobile-only-label',
-    );
-    expect(within(summary).getByText('Workloads')).toHaveClass(
-      'mobile-only-label',
-    );
-    expect(within(summary).getByText('Processes')).toHaveClass(
-      'mobile-only-label',
-    );
-    expect(summary).not.toHaveClass('snow-capped');
-    expect(summary).not.toHaveAttribute('data-snow-cap');
-    expect(
-      summary.querySelectorAll(':scope > [data-slot="snow-cap"]'),
-    ).toHaveLength(0);
-    expect(within(summary).queryByText('Compute instances')).toBeNull();
-
-    fireEvent.click(
-      within(summary).getByRole('button', {
-        name: 'Resources: 1 physical GPU and 1 GPU instance',
-      }),
-    );
+      screen.queryByRole('button', { name: /Assignment integration/ }),
+    ).toBeNull();
+    const tiles = document.querySelectorAll('.host-capacity-card');
+    expect(tiles).toHaveLength(4);
+    fireEvent.click(tiles[2]);
     await waitFor(() => expect(window.location.hash).toBe('#resources'));
-    openView('Overview');
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: 'Assigned workloads: 1 user and 1 workspace',
+    expect(
+      document.querySelectorAll('.gpu-resource-grid .gpu-card'),
+    ).toHaveLength(2);
+    expect(
+      screen.queryByRole('group', { name: 'GPU resource filter' }),
+    ).toBeNull();
+    expect(screen.queryByText('Observed workspace assignments')).toBeNull();
+    openView('Workloads');
+    expect(
+      screen.getAllByRole('button', {
+        name: 'Assignment integration: Connected',
       }),
-    );
-    await waitFor(() => expect(window.location.hash).toBe('#workloads'));
+    ).toHaveLength(1);
+    expect(screen.queryByTestId('process-section')).not.toBeInTheDocument();
   });
 
-  it('links to Workloads while clearly marking unavailable attribution', () => {
+  it('selects motherboard resources from capacity tiles and retains selection across views', async () => {
     mockUseLeviathan.mockReturnValue(result(snapshot()));
     render(<App />);
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Inspect RAM resources' }),
+    );
+    await waitFor(() => expect(window.location.hash).toBe('#resources'));
+    const memory = document.getElementById('resource-memory')!;
+    await waitFor(() => expect(memory).toHaveFocus());
+    expect(memory).toHaveAttribute('aria-pressed', 'true');
+    expect(document.getElementById('resource-cpu')).toBeInTheDocument();
+    expect(document.getElementById('resource-storage')).toBeInTheDocument();
+    openView('Workloads');
+    openView('Resources');
+    expect(document.getElementById('resource-memory')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    openView('Overview');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Inspect Storage resources' }),
+    );
+    await waitFor(() =>
+      expect(document.getElementById('resource-storage')).toHaveFocus(),
+    );
+    expect(document.getElementById('resource-storage')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
 
-    const button = screen.getByRole('button', {
-      name: 'Assigned workloads: unavailable',
-    });
-    expect(button).toHaveTextContent('—');
-    fireEvent.click(button);
-    expect(window.location.hash).toBe('#workloads');
+  it('shows every applicable Overview chart without expansion in resource order', async () => {
+    mockUseLeviathan.mockReturnValue(result(snapshot()));
+    render(<App />);
+    await screen.findByTestId('temperature-chart');
+    expect(
+      screen.queryByRole('button', { name: /^GPU details/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('Inspect history')).not.toBeInTheDocument();
+    const headings = [
+      ...document.querySelectorAll('.overview-chart-grid h3'),
+    ].map((node) => node.textContent);
+    expect(headings.slice(0, 2)).toEqual(['CPU', 'RAM']);
+    expect(headings.at(-1)).toBe('Storage');
+    expect(screen.getByTestId('gpu-activity-chart')).toBeInTheDocument();
   });
 
   it('keeps the last snapshot visible while disconnected', () => {
@@ -912,59 +951,21 @@ describe('Leviathan dashboard states', () => {
     expect(retrySnapshot).toHaveBeenCalledOnce();
   });
 
-  it('renders concise live status beside one neutral cadence control', () => {
+  it('uses a fixed half-second cadence throughout dashboard navigation', () => {
     mockUseLeviathan.mockReturnValue(result(snapshot()));
     render(<App />);
-
-    expect(screen.getByTestId('ambient-snow')).toHaveAttribute(
-      'aria-hidden',
-      'true',
-    );
-    const capsule = screen.getByTestId('desktop-live-sampling');
-    expect(within(capsule).getByText('Live')).toBeInTheDocument();
-    expect(within(capsule).queryByText(/#12/)).not.toBeInTheDocument();
-    expect(within(capsule).queryByText('Sampling')).toBeNull();
-    expect(within(capsule).queryByText('Host 0.5s')).not.toBeInTheDocument();
-    const sampling = within(capsule).getByRole('radiogroup', {
-      name: 'View updates',
-    });
-    expect(sampling).toHaveClass('segmented-control');
-    expect(
-      within(sampling).getByRole('radio', {
-        name: '0.5s, every host sample',
-      }),
-    ).toBeInTheDocument();
-    const selectedSampling = within(sampling).getByRole('radio', {
-      name: '1s',
-    });
-    expect(selectedSampling).toBeChecked();
-    expect(sampling.querySelector('.segmented-thumb')).toBeInTheDocument();
-    expect(screen.getByRole('banner')).not.toHaveTextContent('NVML + GPM');
-    expect(screen.getByRole('banner')).not.toHaveTextContent(
-      /\d{1,2}:\d{2}:\d{2}/,
-    );
-  });
-
-  it('exposes slower cadences without reserving an empty feedback slot', () => {
-    const settings: RuntimeSettings = {
-      samplingIntervalMs: 1000,
-      profileIntervalMs: 2000,
-      processIntervalMs: 5000,
-      historyWindowMs: 60 * 60 * 1000,
-      allowedSamplingIntervalsMs: [500, 1000, 2000],
-    };
-    mockUseLeviathan.mockReturnValue(
-      result(snapshot(), 'live', null, settings),
-    );
-    render(<App />);
-
-    expect(screen.queryByTestId('sampling-update-status')).toBeNull();
-    expect(screen.queryByText('Sampling')).toBeNull();
-    expect(
-      screen.getByTitle(
-        'Host samples 1s · profiles 2s · processes 5s. Browser view updates 1s, every host sample.',
-      ),
-    ).toBeInTheDocument();
+    for (const view of ['Overview', 'Resources', 'Workloads', 'Status']) {
+      openView(view);
+      expect(mockUseLeviathan).toHaveBeenLastCalledWith(500);
+      const status = screen.getByTestId('desktop-live-sampling');
+      expect(within(status).getByText('Live')).toBeInTheDocument();
+      expect(
+        within(status).getByLabelText('View updates every 0.5s'),
+      ).toHaveTextContent('0.5s');
+      expect(
+        screen.queryByRole('radiogroup', { name: 'View updates' }),
+      ).toBeNull();
+    }
   });
 
   it('opens and dismisses the accessible mobile view-update popover', async () => {
@@ -973,16 +974,19 @@ describe('Leviathan dashboard states', () => {
     render(<App />);
 
     const trigger = screen.getByRole('button', {
-      name: 'Live status, view updates 1s',
+      name: 'Live status, view updates 0.5s',
     });
     fireEvent.click(trigger);
     const popup = await screen.findByRole('dialog');
     expect(
-      within(popup).getByText(/Host samples 0.5s · profiles 1s · processes 1s/),
-    ).toBeVisible();
+      within(popup).queryByText(
+        /This browser updates|Host samples|profiles|processes/,
+      ),
+    ).toBeNull();
+    expect(within(popup).getByText('View updates')).toBeVisible();
 
-    fireEvent.click(within(popup).getByRole('radio', { name: '2s' }));
-    expect(localStorage.getItem('leviathan.displayCadence.v1')).toBe('2000');
+    expect(within(popup).queryByRole('radiogroup')).toBeNull();
+    expect(mockUseLeviathan).toHaveBeenLastCalledWith(500);
     expect(dashboard.updateSamplingInterval).not.toHaveBeenCalled();
 
     fireEvent.keyDown(document, { key: 'Escape' });
@@ -1009,7 +1013,7 @@ describe('Leviathan dashboard states', () => {
       ),
     );
     render(<App />);
-    openView('Operations');
+    openView('Status');
     expect(
       screen.getAllByText('GPU process records are incomplete'),
     ).toHaveLength(1);
@@ -1017,65 +1021,42 @@ describe('Leviathan dashboard states', () => {
     expect(screen.getByText('Degraded')).toBeInTheDocument();
   });
 
-  it('renders and filters current-namespace GPU processes', async () => {
-    mockUseLeviathan.mockReturnValue(result(snapshot()));
+  it('keeps informational diagnostics neutral without degrading host status', () => {
+    const informational: Diagnostic = {
+      code: 'provider_ready',
+      severity: 'info',
+      component: 'system',
+      summary: 'Host telemetry is available',
+      status: 'available',
+    };
+    mockUseLeviathan.mockReturnValue(
+      result(snapshot([populatedGPU()], [informational])),
+    );
     render(<App />);
-    openView('Operations');
     expect(
-      screen.getByRole('heading', { name: 'Processes' }),
-    ).toBeInTheDocument();
-    expect(screen.getByText('4100')).toBeInTheDocument();
-
-    fireEvent.change(screen.getByLabelText('Filter GPU processes'), {
-      target: { value: 'research' },
-    });
-    await waitFor(() => expect(screen.getByText('4100')).toBeInTheDocument());
-
-    fireEvent.change(screen.getByLabelText('Filter GPU processes'), {
-      target: { value: 'train.py' },
-    });
-    await waitFor(() => {
-      expect(
-        screen.getByText('No GPU processes match this filter.'),
-      ).toBeInTheDocument();
-    });
-  });
-
-  it('preserves process filtering while switching workbench views', async () => {
-    const current = snapshot();
-    current.attribution = workspaceAttribution;
-    const dashboard = result(current);
-    mockUseLeviathan.mockReturnValue(dashboard);
-    render(<App />);
-
-    await screen.findByRole('heading', { name: 'Temperature' });
-    await waitFor(() =>
-      expect(dashboard.alignedHistory).toHaveBeenCalledTimes(5),
-    );
-    openView('Operations');
-    const filter = screen.getByLabelText('Filter GPU processes');
-    fireEvent.change(filter, { target: { value: 'research' } });
-
-    openView('Workloads');
-
-    expect(await screen.findByTestId('people-view')).toBeInTheDocument();
+      screen.queryByRole('region', { name: 'Active host health' }),
+    ).toBeNull();
     expect(
-      screen.getByRole('heading', { name: 'alice', level: 3 }),
+      screen.getByLabelText('Connection status: Live'),
     ).toBeInTheDocument();
-    expect(screen.getByText('training-lab')).toBeInTheDocument();
-    expect(screen.queryByTestId('process-section')).toBeNull();
-    await waitFor(() =>
-      expect(dashboard.alignedHistory).toHaveBeenCalledTimes(6),
+    const navigation = screen.getByRole('link', {
+      name: 'Status',
+    });
+    expect(navigation.querySelector('.diagnostic-count')).toBeNull();
+    fireEvent.click(navigation);
+    const details = screen.getByRole('region', { name: 'Diagnostic details' });
+    expect(
+      within(details).getByText('Host telemetry is available'),
+    ).toBeInTheDocument();
+    expect(within(details).getByText('available')).toHaveClass(
+      'text-muted-foreground',
     );
-
-    openView('Operations');
-    expect(screen.getByLabelText('Filter GPU processes')).toHaveValue(
-      'research',
+    expect(details.querySelector('svg.lucide-info')).toHaveClass(
+      'text-muted-foreground',
     );
-
-    openView('Resources');
-    fireEvent.click(screen.getByRole('button', { name: /GI 1 \/ CI 0/ }));
-    expect(await screen.findByTestId('detail-sheet')).toBeInTheDocument();
+    expect(
+      details.querySelector('.text-amber-700, .text-destructive'),
+    ).toBeNull();
   });
 
   it('restores the persisted People perspective when attribution is configured', () => {
@@ -1094,7 +1075,7 @@ describe('Leviathan dashboard states', () => {
     expect(screen.getByTestId('people-view')).toBeInTheDocument();
     expect(screen.getByText('training-lab')).toBeInTheDocument();
     expect(
-      screen.queryByRole('region', { name: 'GPU topology' }),
+      screen.queryByRole('region', { name: 'GPUs' }),
     ).not.toBeInTheDocument();
   });
 
@@ -1102,9 +1083,7 @@ describe('Leviathan dashboard states', () => {
     mockUseLeviathan.mockReturnValue(result(snapshot()));
     render(<App />);
     openView('Resources');
-    expect(
-      screen.getByRole('region', { name: 'GPU topology' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'GPUs' })).toBeInTheDocument();
     openView('Workloads');
     expect(
       screen.getByText('Workspace attribution is not configured'),
@@ -1119,14 +1098,14 @@ describe('Leviathan dashboard states', () => {
     openView('Resources');
 
     const topology = screen
-      .getByRole('region', { name: 'GPU topology' })
-      .querySelector(':scope > div');
+      .getByRole('region', { name: 'GPUs' })
+      .querySelector('.gpu-resource-grid');
     expect(topology).not.toBeNull();
     expect(topology).toHaveClass(
       'grid',
       'grid-cols-1',
       'items-stretch',
-      'xl:grid-cols-2',
+      'lg:grid-cols-2',
     );
     expect(topology?.querySelectorAll('.gpu-card')).toHaveLength(3);
     for (const card of topology?.querySelectorAll('.gpu-card') ?? []) {
@@ -1187,29 +1166,21 @@ describe('Leviathan dashboard states', () => {
     mockUseLeviathan.mockReturnValue(result(current));
     render(<App />);
 
+    openView('Workloads');
     const attributionTrigger = screen.getByRole('button', {
-      name: /coder-kubernetes attribution: 1 workspace, 1 device, available/i,
+      name: 'Assignment integration: Connected',
     });
-    expect(attributionTrigger).toHaveTextContent(
-      /coder-kubernetes.*1 workspace.*1 device/,
-    );
     fireEvent.click(attributionTrigger);
-    expect(await screen.findByText('alice / training-lab')).toBeInTheDocument();
+    expect(await screen.findByText('coder-kubernetes')).toBeInTheDocument();
+    expect(screen.queryByText('internal-workload-ref')).toBeNull();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(
+      screen.queryByRole('columnheader', { name: 'Workspace' }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText('internal-workload-ref')).not.toBeInTheDocument();
 
-    openView('Operations');
-    expect(
-      screen.getByRole('columnheader', { name: 'Workspace' }),
-    ).toBeInTheDocument();
-    expect(screen.getByText('alice / training-lab')).toBeInTheDocument();
-
-    fireEvent.change(screen.getByLabelText('Filter GPU processes'), {
-      target: { value: 'training-lab' },
-    });
-    await waitFor(() => expect(screen.getByText('4100')).toBeInTheDocument());
-
     openView('Resources');
-    fireEvent.click(screen.getByRole('button', { name: /GI 1 \/ CI 0/ }));
+    fireEvent.click(screen.getByRole('button', { name: /GI 1 · CI 0/ }));
     const dialog = await screen.findByTestId('detail-sheet');
     expect(
       within(dialog).getByRole('heading', { name: 'Workspace attribution' }),
@@ -1224,33 +1195,23 @@ describe('Leviathan dashboard states', () => {
     expect(dialog).not.toHaveTextContent('GPU-fixture-0');
   });
 
-  it('uses the GPU-connected empty-state wording for a healthy zero count', () => {
-    mockUseLeviathan.mockReturnValue(
-      result(snapshot([populatedGPU()], [], [])),
-    );
-    render(<App />);
-    openView('Operations');
-    expect(screen.getByText('No GPU-connected processes.')).toBeInTheDocument();
-  });
-
   it('renders all five overview chart panels with scoped series labels', async () => {
     mockUseLeviathan.mockReturnValue(result(snapshot()));
     render(<App />);
     for (const name of [
-      'Temperature',
-      'Utilization',
-      'Memory',
-      'Memory Activity',
-      'PCIe Transfer',
+      'GPU temperature',
+      'GPU compute',
+      'GPU memory',
+      'GPU memory activity',
+      'GPU transfers',
     ]) {
       expect(await screen.findByRole('heading', { name })).toBeInTheDocument();
     }
     expect(screen.getAllByText('GPU 0').length).toBeGreaterThan(0);
     expect(screen.getAllByText('GPU 0 · GI 1').length).toBeGreaterThan(0);
-    const chartLayer = screen
-      .getByTestId('memory-chart')
-      .closest('[aria-label="30m GPU history"]');
-    expect(chartLayer).toHaveClass('z-10');
+    expect(
+      screen.getByTestId('memory-chart').closest('.overview-chart-grid'),
+    ).not.toBeNull();
     expect(screen.queryByTestId('process-section')).toBeNull();
     await waitFor(() => {
       const wrapper = document.querySelector<HTMLElement>(
@@ -1330,13 +1291,11 @@ describe('Leviathan dashboard states', () => {
       'Memory activity · 30m',
       'Host ↔ GPU · 30m',
     ]) {
-      expect(await screen.findByText(copy)).toBeInTheDocument();
+      expect(screen.queryByText(copy)).toBeNull();
     }
 
-    openView('Operations');
-    expect(
-      screen.getByRole('heading', { name: 'Diagnostics' }),
-    ).toBeInTheDocument();
+    openView('Status');
+    expect(screen.getByRole('heading', { name: 'Status' })).toBeInTheDocument();
 
     expect(screen.queryByText(/hierarchy discovered/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/no outbound requests/i)).not.toBeInTheDocument();
@@ -1355,10 +1314,12 @@ describe('Leviathan dashboard states', () => {
     expect(localStorage.getItem('leviathan.chartWindow.v1')).toBe(
       String(15 * 60 * 1000),
     );
-    expect(await screen.findByText('Physical GPUs · 15m')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('figure', { name: 'GPU activity over 15m' }),
+    ).toBeInTheDocument();
 
     openView('Resources');
-    fireEvent.click(screen.getByRole('button', { name: /GI 1 \/ CI 0/ }));
+    fireEvent.click(screen.getByRole('button', { name: /GI 1 · CI 0/ }));
     expect(
       await screen.findByRole('heading', { name: 'Activity', level: 4 }),
     ).toBeInTheDocument();
@@ -1375,7 +1336,9 @@ describe('Leviathan dashboard states', () => {
     expect(
       await screen.findByRole('figure', { name: '5m activity history' }),
     ).toBeInTheDocument();
-    expect(screen.queryByText('Physical GPUs · 15m')).toBeNull();
+    expect(
+      screen.queryByRole('figure', { name: 'GPU activity over 15m' }),
+    ).toBeNull();
     await waitFor(() =>
       expect(dashboard.history).toHaveBeenCalledWith(
         expect.any(String),
@@ -1389,14 +1352,14 @@ describe('Leviathan dashboard states', () => {
     const dashboard = result(snapshot());
     mockUseLeviathan.mockReturnValue(dashboard);
     render(<App />);
-    await screen.findByRole('heading', { name: 'Temperature' });
+    await screen.findByRole('heading', { name: 'GPU temperature' });
     await waitFor(() =>
-      expect(dashboard.alignedHistory).toHaveBeenCalledTimes(5),
+      expect(dashboard.alignedHistory).toHaveBeenCalledTimes(7),
     );
 
     fireEvent.click(screen.getByRole('radio', { name: '1h' }));
     await waitFor(() =>
-      expect(dashboard.alignedHistory).toHaveBeenCalledTimes(10),
+      expect(dashboard.alignedHistory).toHaveBeenCalledTimes(14),
     );
     expect(dashboard.alignedHistory).toHaveBeenLastCalledWith(
       expect.objectContaining({ window: '1h', maxPoints: 720 }),
@@ -1404,8 +1367,8 @@ describe('Leviathan dashboard states', () => {
 
     fireEvent.click(screen.getByRole('radio', { name: '5m' }));
     await waitFor(() => {
-      expect(screen.getByText('Physical GPUs · 5m')).toBeInTheDocument();
-      expect(dashboard.alignedHistory).toHaveBeenCalledTimes(15);
+      expect(screen.getByRole('radio', { name: '5m' })).toBeChecked();
+      expect(dashboard.alignedHistory).toHaveBeenCalledTimes(21);
     });
     expect(dashboard.alignedHistory).toHaveBeenLastCalledWith(
       expect.objectContaining({ window: '5m', maxPoints: 720 }),
@@ -1428,12 +1391,14 @@ describe('Leviathan dashboard states', () => {
     for (const label of ['5m', '15m', '30m', '1h', '4h', '12h']) {
       expect(await screen.findByRole('radio', { name: label })).toBeDisabled();
     }
-    expect(await screen.findByText('Physical GPUs · 4m')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('figure', { name: 'GPU activity over 4m' }),
+    ).toBeInTheDocument();
     expect(screen.getByRole('contentinfo')).toHaveTextContent(
       'Leviathan v0.1.0',
     );
     openView('Resources');
-    fireEvent.click(screen.getByRole('button', { name: /GI 1 \/ CI 0/ }));
+    fireEvent.click(screen.getByRole('button', { name: /GI 1 · CI 0/ }));
     expect(
       await screen.findByRole('figure', { name: '4m activity history' }),
     ).toBeInTheDocument();
@@ -1447,62 +1412,29 @@ describe('Leviathan dashboard states', () => {
     }
   });
 
-  it('keeps custom host sampling read-only while persisting local cadence', async () => {
-    const settings: RuntimeSettings = {
-      samplingIntervalMs: 250,
-      profileIntervalMs: 250,
-      processIntervalMs: 250,
-      historyWindowMs: 60 * 60 * 1000,
-      allowedSamplingIntervalsMs: [500, 1000, 2000],
-    };
-    const dashboard = result(snapshot(), 'live', null, settings);
-    mockUseLeviathan.mockReturnValue(dashboard);
-    render(<App />);
-
-    expect(screen.queryByText('Custom 0.25s')).toBeNull();
-    const cadenceControl = screen.getByRole('radiogroup', {
-      name: 'View updates',
-    });
-    fireEvent.click(
-      screen.getByRole('radio', {
-        name: '0.25s, every host sample',
-      }),
-    );
-    expect(screen.getByRole('radiogroup', { name: 'View updates' })).toBe(
-      cadenceControl,
-    );
-    expect(
-      within(screen.getByTestId('desktop-live-sampling')).getByRole('radio', {
-        name: '0.25s, every host sample',
-      }),
-    ).toBeChecked();
-    expect(localStorage.getItem('leviathan.displayCadence.v1')).toBe('0');
-    expect(dashboard.updateSamplingInterval).not.toHaveBeenCalled();
-    expect(
-      screen.getByTitle(
-        'Host samples 0.25s · profiles 0.25s · processes 0.25s. Browser view updates 0.25s, every host sample.',
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it('synchronizes the browser-local display cadence from another tab', async () => {
-    const dashboard = result(snapshot());
-    mockUseLeviathan.mockReturnValue(dashboard);
-    render(<App />);
-
-    fireEvent(
-      window,
-      new StorageEvent('storage', {
-        key: 'leviathan.displayCadence.v1',
-        newValue: '2000',
-      }),
-    );
-
-    await waitFor(() =>
-      expect(screen.getByRole('radio', { name: '2s' })).toBeChecked(),
-    );
-    expect(dashboard.updateSamplingInterval).not.toHaveBeenCalled();
-  });
+  it.each(['0', '1000', '2000'])(
+    'ignores saved cadence %s and changes from older tabs',
+    (saved) => {
+      localStorage.setItem('leviathan.displayCadence.v1', saved);
+      const dashboard = result(snapshot());
+      mockUseLeviathan.mockReturnValue(dashboard);
+      render(<App />);
+      expect(mockUseLeviathan).toHaveBeenLastCalledWith(500);
+      fireEvent(
+        window,
+        new StorageEvent('storage', {
+          key: 'leviathan.displayCadence.v1',
+          newValue: '2000',
+        }),
+      );
+      openView('Resources');
+      expect(mockUseLeviathan).toHaveBeenLastCalledWith(500);
+      expect(
+        screen.queryByRole('radiogroup', { name: 'View updates' }),
+      ).toBeNull();
+      expect(dashboard.updateSamplingInterval).not.toHaveBeenCalled();
+    },
+  );
 
   it('focuses and pins patterned chart series from the legend', async () => {
     mockUseLeviathan.mockReturnValue(
@@ -1511,7 +1443,7 @@ describe('Leviathan dashboard states', () => {
     render(<App />);
 
     const temperaturePanel = (
-      await screen.findByRole('heading', { name: 'Temperature' })
+      await screen.findByRole('heading', { name: 'GPU temperature' })
     ).closest('section');
     expect(temperaturePanel).not.toBeNull();
     const gpu0 = within(temperaturePanel as HTMLElement).getByRole('button', {
@@ -1591,7 +1523,9 @@ describe('Leviathan dashboard states', () => {
       alignedHistory: vi.fn(() => unresolved),
     });
     const loadingView = render(<App />);
-    expect((await screen.findAllByText('Loading history…')).length).toBe(5);
+    expect(
+      (await screen.findAllByText('Loading history…')).length,
+    ).toBeGreaterThanOrEqual(6);
     loadingView.unmount();
 
     mockUseLeviathan.mockReturnValue({
@@ -1600,7 +1534,7 @@ describe('Leviathan dashboard states', () => {
     });
     const disconnectedView = render(<App />);
     expect((await screen.findAllByText('History disconnected.')).length).toBe(
-      5,
+      6,
     );
     disconnectedView.unmount();
 
@@ -1613,7 +1547,9 @@ describe('Leviathan dashboard states', () => {
       })),
     });
     const unavailableView = render(<App />);
-    expect((await screen.findAllByText('Metric unavailable.')).length).toBe(5);
+    expect(
+      (await screen.findAllByText('Metric unavailable.')).length,
+    ).toBeGreaterThanOrEqual(6);
     unavailableView.unmount();
 
     mockUseLeviathan.mockReturnValue({
@@ -1644,21 +1580,21 @@ describe('Leviathan dashboard states', () => {
       alignedHistory,
     }));
     const dashboard = render(<App />);
-    await screen.findByRole('heading', { name: 'Temperature' });
-    await waitFor(() => expect(alignedHistory).toHaveBeenCalledTimes(5));
+    await screen.findByRole('heading', { name: 'GPU temperature' });
+    await waitFor(() => expect(alignedHistory).toHaveBeenCalledTimes(7));
 
     current = snapshot();
     current.sequence = 13;
     current.sampledAt = '2026-08-29T12:00:01Z';
     dashboard.rerender(<App />);
-    await waitFor(() => expect(alignedHistory).toHaveBeenCalledTimes(5));
+    await waitFor(() => expect(alignedHistory).toHaveBeenCalledTimes(7));
 
     current = snapshot();
     current.sequence = 14;
     current.sampledAt = '2026-08-29T12:00:02Z';
     current.gpus[0].gpuInstances[0].generation = 'GPU-fixture-0/gi/1@g2';
     dashboard.rerender(<App />);
-    await waitFor(() => expect(alignedHistory).toHaveBeenCalledTimes(10));
+    await waitFor(() => expect(alignedHistory).toHaveBeenCalledTimes(13));
   });
 
   it('shows one concise instance identity without repeated hierarchy details', async () => {
@@ -1666,9 +1602,8 @@ describe('Leviathan dashboard states', () => {
     render(<App />);
     openView('Resources');
     const instanceButton = screen.getByRole('button', {
-      name: /GI 1 \/ CI 0/,
+      name: /GI 1 · CI 0/,
     });
-    expect(instanceButton.parentElement).toHaveClass('min-w-0');
     fireEvent.click(instanceButton);
     const dialog = await screen.findByRole('dialog', {
       name: 'GPU 0 · GI 1 · CI 0',

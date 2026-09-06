@@ -1,3 +1,4 @@
+import { TimeAxisTick, StackedRateAxisTick } from './chart-axis-ticks';
 import {
   type RefObject,
   useEffect,
@@ -6,11 +7,12 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { Activity, Gauge, Layers3, XIcon } from 'lucide-react';
+import { Activity, XIcon } from 'lucide-react';
 import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -49,6 +51,17 @@ import type {
   Selection,
 } from '../types';
 import { useChartTooltips } from '../use-chart-tooltips';
+import {
+  formatAxisByteRate,
+  formatAxisTime,
+  useChartAxisGeometry,
+} from '../use-chart-axis-geometry';
+import {
+  ChartSelectionReadout,
+  compactChartValue,
+  useChartSelection,
+  type CompactChartUnit,
+} from './chart-interaction';
 import { useTrendCeiling } from '../use-trend-ceiling';
 import {
   rawHistoryWindowMilliseconds,
@@ -60,6 +73,7 @@ import {
   chartTooltipPortalWrapperStyle,
 } from './chart-tooltip-portal';
 import { MetricIcon, type MetricVisualKey } from './metric-icon';
+import { GPUBrandIcon } from './gpu-brand-icon';
 import { AttributionDetails } from './workspace-attribution';
 
 type MetricDescriptor = {
@@ -175,14 +189,18 @@ function MetricLegend({
   metrics,
   rows,
   format,
+  unit,
+  selectedRow,
 }: {
   label: string;
   metrics: readonly ChartDescriptor[];
   rows: readonly ChartRow[];
   format: (value: number) => string;
+  unit: CompactChartUnit;
+  selectedRow: ChartRow | null;
 }) {
   return (
-    <ul className="mb-2 flex flex-wrap gap-x-3 gap-y-1" aria-label={label}>
+    <ul className="compact-chart-legend" aria-label={label}>
       {metrics.map((metric, index) => {
         const source = rows
           .map((row) => trendValueSummary(row, metric.key))
@@ -190,17 +208,20 @@ function MetricLegend({
         const direct = rows.findLast(
           (row) => typeof row[metric.key] === 'number',
         )?.[metric.key];
-        const latest =
-          source.at(-1)?.latest ??
-          (typeof direct === 'number' && Number.isFinite(direct)
-            ? direct
-            : null);
+        const sampledValue = selectedRow?.[metric.key];
+        const latest = selectedRow
+          ? typeof sampledValue === 'number'
+            ? sampledValue
+            : null
+          : (source.at(-1)?.latest ??
+            (typeof direct === 'number' && Number.isFinite(direct)
+              ? direct
+              : null));
         const value = latest == null ? '—' : format(latest);
         return (
           <li
             key={metric.key}
             aria-label={`${metric.label}: ${latest == null ? 'Unavailable' : value}`}
-            className="inline-flex items-center gap-1.5 font-mono text-[13px] text-muted-foreground"
           >
             <svg aria-hidden="true" width="18" height="5" viewBox="0 0 18 5">
               <line
@@ -214,8 +235,13 @@ function MetricLegend({
                 strokeLinecap="round"
               />
             </svg>
-            <span>{metric.label}</span>
-            <span className="chart-legend-value text-foreground">{value}</span>
+            <span data-legend-label>{metric.label}</span>
+            <span
+              data-legend-value
+              className="chart-legend-value text-foreground"
+            >
+              {compactChartValue(latest, unit)}
+            </span>
           </li>
         );
       })}
@@ -399,13 +425,16 @@ function ActivityHistoryPlot({
   xDomain,
   metrics,
   interactive = true,
+  selectedTime,
 }: {
   data: ChartRow[];
   xDomain: readonly [number, number];
   metrics: readonly ChartDescriptor[];
   interactive?: boolean;
+  selectedTime?: number | null;
 }) {
   const tooltipAnchorRef = useRef<HTMLDivElement>(null);
+  const axis = useChartAxisGeometry(tooltipAnchorRef);
   return (
     <div
       ref={tooltipAnchorRef}
@@ -419,22 +448,31 @@ function ActivityHistoryPlot({
         initialDimension={{ width: 590, height: 216 }}
       >
         <LineChart
+          accessibilityLayer={false}
           data={data}
-          margin={{ top: 14, right: 8, left: 0, bottom: 2 }}
+          margin={{ top: Math.max(14, axis.top), right: 8, left: 0, bottom: 4 }}
         >
           <CartesianGrid stroke="var(--border)" vertical={false} />
+          {selectedTime != null ? (
+            <ReferenceLine
+              x={selectedTime}
+              stroke="var(--primary)"
+              strokeDasharray="3 3"
+            />
+          ) : null}
           <XAxis
             dataKey="time"
             type="number"
             domain={[xDomain[0], xDomain[1]]}
             allowDataOverflow
-            tickFormatter={(value) =>
-              new Date(value).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              })
-            }
-            tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
+            tickCount={axis.xTickCount}
+            ticks={axis.singleTimeTick ? [xDomain[1]] : undefined}
+            interval="preserveStartEnd"
+            minTickGap={axis.minTickGap}
+            height="auto"
+            tickFormatter={formatAxisTime}
+            tick={<TimeAxisTick fontSize={axis.tick.fontSize} />}
+            fontSize={axis.tick.fontSize}
             axisLine={false}
             tickLine={false}
           />
@@ -443,13 +481,13 @@ function ActivityHistoryPlot({
             allowDataOverflow
             interval={0}
             tickFormatter={(value: number) => formatRoundedPercent(value)}
-            tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
+            tick={axis.tick}
             axisLine={false}
             tickLine={false}
             ticks={[0, 25, 50, 75, 100]}
             tickMargin={4}
             padding={{ top: 6, bottom: 4 }}
-            width={44}
+            width="auto"
           />
           {interactive ? (
             <Tooltip
@@ -497,10 +535,12 @@ function PCIeHistoryPlot({
   data,
   xDomain,
   interactive = true,
+  selectedTime,
 }: {
   data: ChartRow[];
   xDomain: readonly [number, number];
   interactive?: boolean;
+  selectedTime?: number | null;
 }) {
   const maximum = Math.max(
     0,
@@ -515,6 +555,7 @@ function PCIeHistoryPlot({
   );
   const ceiling = useTrendCeiling(maximum);
   const tooltipAnchorRef = useRef<HTMLDivElement>(null);
+  const axis = useChartAxisGeometry(tooltipAnchorRef);
   return (
     <div
       ref={tooltipAnchorRef}
@@ -528,34 +569,59 @@ function PCIeHistoryPlot({
         initialDimension={{ width: 590, height: 216 }}
       >
         <LineChart
+          accessibilityLayer={false}
           data={data}
-          margin={{ top: 14, right: 8, left: 0, bottom: 2 }}
+          margin={{
+            top: axis.compactRates ? axis.rateTop : Math.max(14, axis.top),
+            right: 8,
+            left: 0,
+            bottom: 4,
+          }}
         >
           <CartesianGrid stroke="var(--border)" vertical={false} />
+          {selectedTime != null ? (
+            <ReferenceLine
+              x={selectedTime}
+              stroke="var(--primary)"
+              strokeDasharray="3 3"
+            />
+          ) : null}
           <XAxis
             dataKey="time"
             type="number"
             domain={[xDomain[0], xDomain[1]]}
             allowDataOverflow
-            tickFormatter={(value) =>
-              new Date(value).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              })
-            }
-            tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
+            tickCount={axis.xTickCount}
+            ticks={axis.singleTimeTick ? [xDomain[1]] : undefined}
+            interval="preserveStartEnd"
+            minTickGap={axis.minTickGap}
+            height="auto"
+            tickFormatter={formatAxisTime}
+            tick={<TimeAxisTick fontSize={axis.tick.fontSize} />}
+            fontSize={axis.tick.fontSize}
             axisLine={false}
             tickLine={false}
           />
           <YAxis
             domain={[0, ceiling]}
+            ticks={axis.compactRates ? [0, ceiling] : undefined}
+            padding={
+              axis.compactRates ? { bottom: axis.rateBottom } : undefined
+            }
             allowDataOverflow
-            tickFormatter={(value: number) => formatBytesPerSecond(value)}
-            tick={{ fontSize: 13, fill: 'var(--muted-foreground)' }}
+            tickFormatter={(value: number) => formatAxisByteRate(value)}
+            tick={
+              axis.compactRates ? (
+                <StackedRateAxisTick fontSize={axis.tick.fontSize} />
+              ) : (
+                axis.tick
+              )
+            }
+            fontSize={axis.tick.fontSize}
             axisLine={false}
             tickLine={false}
             tickMargin={4}
-            width={72}
+            width="auto"
           />
           {interactive ? (
             <Tooltip
@@ -897,6 +963,16 @@ export default function DetailSheet({
         : null,
     [outgoingPCIeChartData, outgoingTrendWindow],
   );
+  const activitySelection = useChartSelection(
+    chartData,
+    chartDomain,
+    `${historyEntity}:activity`,
+  );
+  const transferSelection = useChartSelection(
+    pcieChartData,
+    pcieChartDomain,
+    `${historyEntity}:pcie`,
+  );
   const pcieAvailable = hasChartValues(pcieChartData, pcieChartMetrics);
   const tooltipsEnabled = useChartTooltips();
   const memory = memoryPercent(source.memory);
@@ -918,17 +994,15 @@ export default function DetailSheet({
               className="grid size-9 shrink-0 place-items-center rounded-lg border border-primary/15 bg-primary/10 text-primary"
               aria-hidden="true"
             >
-              {physical ? (
-                <Gauge className="size-4.5" />
-              ) : (
-                <Layers3 className="size-4.5" />
-              )}
+              <GPUBrandIcon gpu={gpu} className="size-4.5" />
             </span>
             <div className="min-w-0 flex-1">
               <SheetTitle
                 className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xl font-semibold tracking-[-0.025em]"
                 aria-label={
-                  physical ? `GPU ${gpu.index} · Full GPU` : undefined
+                  physical
+                    ? `GPU ${gpu.index} · ${gpu.migEnabled ? 'Physical GPU' : 'Full GPU'}`
+                    : undefined
                 }
               >
                 <span>
@@ -941,7 +1015,7 @@ export default function DetailSheet({
                     variant="outline"
                     className="rounded font-mono text-[13px] tracking-normal"
                   >
-                    Full GPU
+                    {gpu.migEnabled ? 'MIG enabled' : 'Full GPU'}
                   </Badge>
                 ) : null}
               </SheetTitle>
@@ -1067,10 +1141,13 @@ export default function DetailSheet({
                   label="Activity chart series"
                   metrics={chartMetrics}
                   rows={chartData}
+                  selectedRow={activitySelection.selectedRow}
+                  unit="%"
                   format={formatRoundedPercent}
                 />
                 <figure
-                  className="detail-chart-frame chart-plot-frame h-[216px] p-2 md:h-56"
+                  {...activitySelection.plotProps}
+                  className="detail-chart-frame chart-plot-frame compact-chart-plot p-2"
                   data-testid="detail-history-chart"
                   aria-busy={historyState.loading}
                   aria-label={`${formatDuration(chartWindowMs)} activity history`}
@@ -1103,7 +1180,10 @@ export default function DetailSheet({
                           data={chartData}
                           xDomain={chartDomain}
                           metrics={chartMetrics}
-                          interactive={tooltipsEnabled}
+                          interactive={
+                            tooltipsEnabled && !activitySelection.selectedRow
+                          }
+                          selectedTime={activitySelection.selectedTime}
                         />
                       </div>
                       {outgoingChartData && outgoingChartDomain ? (
@@ -1122,6 +1202,16 @@ export default function DetailSheet({
                     </div>
                   )}
                 </figure>
+                <ChartSelectionReadout
+                  selection={activitySelection}
+                  label="Resource activity"
+                  summary={chartMetrics
+                    .map(
+                      ({ key, label }) =>
+                        `${label}: ${activitySelection.selectedRow?.[key] == null ? 'Unavailable' : formatRoundedPercent(Number(activitySelection.selectedRow[key]))}`,
+                    )
+                    .join(', ')}
+                />
                 {historyError && chartData.length >= 2 ? (
                   <output className="mt-2 flex items-center justify-between gap-3 border border-amber-500/25 bg-amber-500/[0.05] px-3 py-2 text-[13px] text-amber-700 dark:text-amber-300">
                     <span>{historyError}. Last complete history retained.</span>
@@ -1152,10 +1242,13 @@ export default function DetailSheet({
                   label="PCIe transfer chart series"
                   metrics={pcieChartMetrics}
                   rows={pcieChartData}
+                  selectedRow={transferSelection.selectedRow}
+                  unit="bytes_per_second"
                   format={formatBytesPerSecond}
                 />
                 <figure
-                  className="detail-chart-frame chart-plot-frame h-[216px] p-2 md:h-56"
+                  {...transferSelection.plotProps}
+                  className="detail-chart-frame chart-plot-frame compact-chart-plot p-2"
                   data-testid="detail-pcie-chart"
                   aria-busy={historyState.loading}
                   aria-label={`${formatDuration(chartWindowMs)} PCIe transfer history`}
@@ -1176,7 +1269,10 @@ export default function DetailSheet({
                         <PCIeHistoryPlot
                           data={pcieChartData}
                           xDomain={pcieChartDomain}
-                          interactive={tooltipsEnabled}
+                          interactive={
+                            tooltipsEnabled && !transferSelection.selectedRow
+                          }
+                          selectedTime={transferSelection.selectedTime}
                         />
                       </div>
                       {outgoingPCIeChartData && outgoingPCIeChartDomain ? (
@@ -1194,6 +1290,16 @@ export default function DetailSheet({
                     </div>
                   )}
                 </figure>
+                <ChartSelectionReadout
+                  selection={transferSelection}
+                  label="Resource PCIe transfer"
+                  summary={pcieChartMetrics
+                    .map(
+                      ({ key, label }) =>
+                        `${label}: ${transferSelection.selectedRow?.[key] == null ? 'Unavailable' : formatBytesPerSecond(Number(transferSelection.selectedRow[key]))}`,
+                    )
+                    .join(', ')}
+                />
               </section>
             </div>
           </section>
@@ -1202,7 +1308,11 @@ export default function DetailSheet({
             <div className="border border-border bg-card p-3">
               <p className="mb-2 flex items-center gap-2 text-[13px] uppercase tracking-[0.08em] text-muted-foreground">
                 <MetricIcon metric="memory" className="size-3" />{' '}
-                {physical ? 'Full GPU memory' : 'GI memory'}
+                {physical
+                  ? gpu.migEnabled
+                    ? 'Physical GPU memory'
+                    : 'Full GPU memory'
+                  : 'GI memory'}
               </p>
               <div className="flex items-end justify-between gap-2">
                 <p className="font-mono text-sm font-semibold">
@@ -1216,7 +1326,11 @@ export default function DetailSheet({
               <Progress
                 value={memory}
                 aria-label={
-                  physical ? 'Full GPU memory used' : 'GPU instance memory used'
+                  physical
+                    ? gpu.migEnabled
+                      ? 'Physical GPU memory used'
+                      : 'Full GPU memory used'
+                    : 'GPU instance memory used'
                 }
                 className={`mt-2 ${memory != null && memory >= 85 ? '[&_[data-slot=progress-indicator]]:bg-amber-400' : '[&_[data-slot=progress-indicator]]:bg-primary'}`}
               />

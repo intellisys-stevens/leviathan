@@ -43,6 +43,27 @@ func (e AllocationState) Valid() bool {
 	}
 }
 
+// Defines values for AttributionResolutionStatus.
+const (
+	AttributionResolutionStatusComplete   AttributionResolutionStatus = "complete"
+	AttributionResolutionStatusIncomplete AttributionResolutionStatus = "incomplete"
+	AttributionResolutionStatusUnknown    AttributionResolutionStatus = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the AttributionResolutionStatus enum.
+func (e AttributionResolutionStatus) Valid() bool {
+	switch e {
+	case AttributionResolutionStatusComplete:
+		return true
+	case AttributionResolutionStatusIncomplete:
+		return true
+	case AttributionResolutionStatusUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AttributionStatus.
 const (
 	AttributionStatusAvailable   AttributionStatus = "available"
@@ -106,12 +127,82 @@ func (e HealthStatus) Valid() bool {
 	}
 }
 
+// Defines values for HealthComponentId.
+const (
+	HealthComponentIdAttribution HealthComponentId = "attribution"
+	HealthComponentIdGpu         HealthComponentId = "gpu"
+	HealthComponentIdSystem      HealthComponentId = "system"
+	HealthComponentIdUplink      HealthComponentId = "uplink"
+)
+
+// Valid indicates whether the value is a known member of the HealthComponentId enum.
+func (e HealthComponentId) Valid() bool {
+	switch e {
+	case HealthComponentIdAttribution:
+		return true
+	case HealthComponentIdGpu:
+		return true
+	case HealthComponentIdSystem:
+		return true
+	case HealthComponentIdUplink:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for HealthState.
+const (
+	HealthStateDegraded    HealthState = "degraded"
+	HealthStateOperational HealthState = "operational"
+	HealthStateUnavailable HealthState = "unavailable"
+	HealthStateUnknown     HealthState = "unknown"
+	HealthStateUnsupported HealthState = "unsupported"
+)
+
+// Valid indicates whether the value is a known member of the HealthState enum.
+func (e HealthState) Valid() bool {
+	switch e {
+	case HealthStateDegraded:
+		return true
+	case HealthStateOperational:
+		return true
+	case HealthStateUnavailable:
+		return true
+	case HealthStateUnknown:
+		return true
+	case HealthStateUnsupported:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for HealthStatusRetentionDays.
+const (
+	N30 HealthStatusRetentionDays = 30
+	N90 HealthStatusRetentionDays = 90
+)
+
+// Valid indicates whether the value is a known member of the HealthStatusRetentionDays enum.
+func (e HealthStatusRetentionDays) Valid() bool {
+	switch e {
+	case N30:
+		return true
+	case N90:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MetricScope.
 const (
 	MetricScopeComputeInstance MetricScope = "compute_instance"
 	MetricScopeGpuInstance     MetricScope = "gpu_instance"
 	MetricScopeHost            MetricScope = "host"
 	MetricScopePhysicalGpu     MetricScope = "physical_gpu"
+	MetricScopeWorkloadOwner   MetricScope = "workload_owner"
 )
 
 // Valid indicates whether the value is a known member of the MetricScope enum.
@@ -125,6 +216,8 @@ func (e MetricScope) Valid() bool {
 		return true
 	case MetricScopePhysicalGpu:
 		return true
+	case MetricScopeWorkloadOwner:
+		return true
 	default:
 		return false
 	}
@@ -132,6 +225,7 @@ func (e MetricScope) Valid() bool {
 
 // Defines values for MetricSource.
 const (
+	Cgroupfs  MetricSource = "cgroupfs"
 	Dcgm      MetricSource = "dcgm"
 	Nvml      MetricSource = "nvml"
 	NvmlGpm   MetricSource = "nvml_gpm"
@@ -144,6 +238,8 @@ const (
 // Valid indicates whether the value is a known member of the MetricSource enum.
 func (e MetricSource) Valid() bool {
 	switch e {
+	case Cgroupfs:
+		return true
 	case Dcgm:
 		return true
 	case Nvml:
@@ -280,6 +376,30 @@ func (e WorkloadPlatform) Valid() bool {
 	}
 }
 
+// Defines values for WorkloadTelemetryStatus.
+const (
+	WorkloadTelemetryStatusAvailable   WorkloadTelemetryStatus = "available"
+	WorkloadTelemetryStatusPartial     WorkloadTelemetryStatus = "partial"
+	WorkloadTelemetryStatusStale       WorkloadTelemetryStatus = "stale"
+	WorkloadTelemetryStatusUnavailable WorkloadTelemetryStatus = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the WorkloadTelemetryStatus enum.
+func (e WorkloadTelemetryStatus) Valid() bool {
+	switch e {
+	case WorkloadTelemetryStatusAvailable:
+		return true
+	case WorkloadTelemetryStatusPartial:
+		return true
+	case WorkloadTelemetryStatusStale:
+		return true
+	case WorkloadTelemetryStatusUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 // AlignedHistory defines model for AlignedHistory.
 type AlignedHistory struct {
 	Points []AlignedHistoryPoint            `json:"points"`
@@ -319,12 +439,26 @@ type AllocationState string
 
 // Attribution defines model for Attribution.
 type Attribution struct {
-	Assignments []ResourceAssignment  `json:"assignments"`
-	ObservedAt  *time.Time            `json:"observedAt,omitempty"`
-	Provider    string                `json:"provider"`
-	Status      AttributionStatus     `json:"status"`
-	Workloads   []WorkloadAttribution `json:"workloads"`
+	Assignments []ResourceAssignment `json:"assignments"`
+	ObservedAt  *time.Time           `json:"observedAt,omitempty"`
+	Provider    string               `json:"provider"`
+
+	// Resolution Local assignment completeness, independent of source freshness. Missing metadata cannot establish unassigned capacity. No private driver or Kubernetes identities are exposed.
+	Resolution *AttributionResolution `json:"resolution,omitempty"`
+	Status     AttributionStatus      `json:"status"`
+	Workloads  []WorkloadAttribution  `json:"workloads"`
 }
+
+// AttributionResolution Local assignment completeness, independent of source freshness. Missing metadata cannot establish unassigned capacity. No private driver or Kubernetes identities are exposed.
+type AttributionResolution struct {
+	ReasonCodes           []string                       `json:"reasonCodes"`
+	Status                AttributionResolutionStatus    `json:"status"`
+	UnresolvedAssignments int                            `json:"unresolvedAssignments"`
+	Workloads             []WorkloadAssignmentResolution `json:"workloads"`
+}
+
+// AttributionResolutionStatus defines model for AttributionResolution.Status.
+type AttributionResolutionStatus string
 
 // AttributionStatus defines model for AttributionStatus.
 type AttributionStatus string
@@ -454,11 +588,71 @@ type Health struct {
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
 
+// HealthComponent defines model for HealthComponent.
+type HealthComponent struct {
+	Id                 HealthComponentId `json:"id"`
+	Label              string            `json:"label"`
+	LastAcknowledgedAt *time.Time        `json:"lastAcknowledgedAt,omitempty"`
+	Message            *string           `json:"message,omitempty"`
+	ObservedAt         *time.Time        `json:"observedAt,omitempty"`
+	RetryAt            *time.Time        `json:"retryAt,omitempty"`
+	State              HealthState       `json:"state"`
+}
+
+// HealthComponentId defines model for HealthComponent.Id.
+type HealthComponentId string
+
+// HealthCounts Healthy observations are operational divided by operational plus degraded plus unavailable. Coverage is operational plus degraded plus unavailable observations, divided by expected samples; unsupported and unknown are not measured observations. Zero denominators have no percentage.
+type HealthCounts struct {
+	Degraded    int `json:"degraded"`
+	Operational int `json:"operational"`
+	Unavailable int `json:"unavailable"`
+	Unknown     int `json:"unknown"`
+	Unsupported int `json:"unsupported"`
+}
+
+// HealthDay defines model for HealthDay.
+type HealthDay struct {
+	Components map[string]HealthCounts `json:"components"`
+	Date       string                  `json:"date"`
+
+	// ExpectedSamples Begun UTC minute slots, excluding future slots today.
+	ExpectedSamples int `json:"expectedSamples"`
+}
+
 // HealthDomain defines model for HealthDomain.
 type HealthDomain struct {
 	Available bool         `json:"available"`
 	Status    MetricStatus `json:"status"`
 }
+
+// HealthPersistence defines model for HealthPersistence.
+type HealthPersistence struct {
+	Enabled bool    `json:"enabled"`
+	Message *string `json:"message,omitempty"`
+	Saving  bool    `json:"saving"`
+}
+
+// HealthState defines model for HealthState.
+type HealthState string
+
+// HealthStatusReport defines model for HealthStatus.
+type HealthStatusReport struct {
+	Components       []HealthComponent `json:"components"`
+	Days             []HealthDay       `json:"days"`
+	MonitorStartedAt time.Time         `json:"monitorStartedAt"`
+
+	// MonitorUptimeSeconds Elapsed monitor runtime measured with the process monotonic clock, independent of wall-clock corrections. Omitted when unavailable.
+	MonitorUptimeSeconds *float64          `json:"monitorUptimeSeconds,omitempty"`
+	Persistence          HealthPersistence `json:"persistence"`
+
+	// RetentionDays Current servers retain 90 UTC dates. The value 30 remains valid for older servers.
+	RetentionDays HealthStatusRetentionDays `json:"retentionDays"`
+	SampledAt     time.Time                 `json:"sampledAt"`
+}
+
+// HealthStatusRetentionDays Current servers retain 90 UTC dates. The value 30 remains valid for older servers.
+type HealthStatusRetentionDays int
 
 // HistoryPoint defines model for HistoryPoint.
 type HistoryPoint struct {
@@ -591,6 +785,9 @@ type Snapshot struct {
 	SchemaVersion SnapshotSchemaVersion `json:"schemaVersion"`
 	Sequence      uint64                `json:"sequence"`
 	System        System                `json:"system"`
+
+	// WorkloadTelemetry Optional host-local workspace owner telemetry, collected independently of GPU collection. Not included in the locked Yggdrasil upload contract.
+	WorkloadTelemetry *WorkloadTelemetry `json:"workloadTelemetry,omitempty"`
 }
 
 // SnapshotSchemaVersion defines model for Snapshot.SchemaVersion.
@@ -619,6 +816,9 @@ type System struct {
 	SampledAt time.Time    `json:"sampledAt"`
 	Status    MetricStatus `json:"status"`
 	Storage   Storage      `json:"storage"`
+
+	// Uptime Optional kernel uptime in seconds since boot, including suspend time; independent of the monitor process and service availability.
+	Uptime *Metric `json:"uptime,omitempty"`
 }
 
 // SystemMemory defines model for SystemMemory.
@@ -634,6 +834,13 @@ type SystemMemory struct {
 	Utilization    Metric       `json:"utilization"`
 }
 
+// WorkloadAssignmentResolution defines model for WorkloadAssignmentResolution.
+type WorkloadAssignmentResolution struct {
+	ReasonCodes           []string `json:"reasonCodes"`
+	UnresolvedAssignments int      `json:"unresolvedAssignments"`
+	WorkloadRef           string   `json:"workloadRef"`
+}
+
 // WorkloadAttribution Sanitized workload display identity from an optional attribution source. The reference is opaque and source-scoped.
 type WorkloadAttribution struct {
 	Kind      WorkloadKind     `json:"kind"`
@@ -646,8 +853,34 @@ type WorkloadAttribution struct {
 // WorkloadKind defines model for WorkloadKind.
 type WorkloadKind string
 
+// WorkloadOwnerTelemetry Absolute cgroup v2 usage aggregated once per observed Pod and then by stable Coder owner identity. Missing members invalidate only the affected aggregate metrics.
+type WorkloadOwnerTelemetry struct {
+	Message *string `json:"message,omitempty"`
+
+	// Metrics cpu_cores is CPU-time increase divided by elapsed time (logical-CPU equivalents). memory_used_bytes is memory.current, including charged cache. storage_read_bps and storage_write_bps are deduplicated kernel-accounted physical backing-device byte rates. Partial aggregates use null, never inferred zero.
+	Metrics    MetricSet               `json:"metrics"`
+	Name       string                  `json:"name"`
+	Platform   WorkloadPlatform        `json:"platform"`
+	Ref        string                  `json:"ref"`
+	SampledAt  time.Time               `json:"sampledAt"`
+	Status     WorkloadTelemetryStatus `json:"status"`
+	Workspaces []WorkloadAttribution   `json:"workspaces"`
+}
+
 // WorkloadPlatform defines model for WorkloadPlatform.
 type WorkloadPlatform string
+
+// WorkloadTelemetry Optional host-local workspace owner telemetry, collected independently of GPU collection. Not included in the locked Yggdrasil upload contract.
+type WorkloadTelemetry struct {
+	Message    *string                  `json:"message,omitempty"`
+	ObservedAt *time.Time               `json:"observedAt,omitempty"`
+	Owners     []WorkloadOwnerTelemetry `json:"owners"`
+	SampledAt  time.Time                `json:"sampledAt"`
+	Status     WorkloadTelemetryStatus  `json:"status"`
+}
+
+// WorkloadTelemetryStatus defines model for WorkloadTelemetryStatus.
+type WorkloadTelemetryStatus string
 
 // BadRequest defines model for BadRequest.
 type BadRequest = Error

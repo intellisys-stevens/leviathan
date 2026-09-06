@@ -8,6 +8,7 @@ import {
   useLeviathan,
 } from './use-leviathan';
 import { systemCapability, systemFixture } from './test/system-fixture';
+import { ownerFixture } from './test/owner-fixture';
 
 const snapshot: Snapshot = {
   schemaVersion: 'v1',
@@ -317,7 +318,7 @@ describe('useLeviathan runtime settings', () => {
     expect(hook.result.current.settings?.samplingIntervalMs).toBe(500);
   });
 
-  it('clears the interruption error as soon as the event stream reconnects', async () => {
+  it('waits for a newer displayed stream snapshot before restoring live after open or reconnect', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: string | URL | Request) => {
@@ -331,16 +332,31 @@ describe('useLeviathan runtime settings', () => {
 
     const hook = renderHook(() => useLeviathan());
     await waitFor(() => expect(hook.result.current.snapshot).toEqual(snapshot));
+    act(() => FakeEventSource.instances[0].onopen?.());
+    expect(hook.result.current.connection).toBe('connecting');
+    act(() => FakeEventSource.instances[0].emit('snapshot', snapshot));
+    expect(hook.result.current.connection).not.toBe('live');
     act(() => FakeEventSource.instances[0].onerror?.());
     expect(hook.result.current.connection).toBe('reconnecting');
     expect(hook.result.current.streamError).toMatch(/interrupted/);
 
     act(() => FakeEventSource.instances[0].onopen?.());
+    expect(hook.result.current.connection).toBe('reconnecting');
+    expect(hook.result.current.streamError).toMatch(
+      /Waiting for fresh telemetry/,
+    );
+    act(() =>
+      FakeEventSource.instances[0].emit('snapshot', {
+        ...snapshot,
+        sequence: 2,
+        sampledAt: '2026-08-29T12:00:01Z',
+      }),
+    );
     expect(hook.result.current.connection).toBe('live');
     expect(hook.result.current.streamError).toBeNull();
   });
 
-  it('commits only the latest pending snapshot at the browser display cadence', async () => {
+  it('commits only the latest pending snapshot at the global half-second display cadence', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: string | URL | Request) => {
@@ -353,7 +369,7 @@ describe('useLeviathan runtime settings', () => {
     );
 
     const hook = renderHook(({ cadence }) => useLeviathan(cadence), {
-      initialProps: { cadence: 1000 },
+      initialProps: { cadence: 500 },
     });
     await waitFor(() => expect(hook.result.current.snapshot?.sequence).toBe(1));
     vi.useFakeTimers();
@@ -372,10 +388,12 @@ describe('useLeviathan runtime settings', () => {
       });
     });
     expect(hook.result.current.snapshot?.sequence).toBe(1);
+    expect(hook.result.current.connection).not.toBe('live');
     act(() => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(500);
     });
     expect(hook.result.current.snapshot?.sequence).toBe(3);
+    expect(hook.result.current.connection).toBe('live');
 
     hook.rerender({ cadence: 0 });
     act(() => {
@@ -387,6 +405,179 @@ describe('useLeviathan runtime settings', () => {
     });
     expect(hook.result.current.snapshot?.sequence).toBe(4);
   });
+
+  it.each(['interruption', 'malformed event'] as const)(
+    'does not restore live from a cadence-pending sample after %s',
+    async (failure) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: string | URL | Request) => {
+          const url = requestURL(input);
+          if (url === '/api/v1/snapshot') return jsonResponse(snapshot);
+          if (url === '/api/v1/settings') return jsonResponse(initialSettings);
+          if (url === '/api/v1/version') return jsonResponse(buildInfo);
+          throw new Error(`unexpected request: ${url}`);
+        }),
+      );
+      const hook = renderHook(() => useLeviathan(1000));
+      await waitFor(() =>
+        expect(hook.result.current.snapshot?.sequence).toBe(1),
+      );
+      vi.useFakeTimers();
+      const events = FakeEventSource.instances[0];
+      act(() => {
+        events.onopen?.();
+        events.emit('snapshot', {
+          ...snapshot,
+          sequence: 2,
+          sampledAt: '2026-08-29T12:00:01Z',
+        });
+        if (failure === 'interruption') {
+          events.onerror?.();
+          events.onopen?.();
+        } else events.emit('snapshot', null);
+        vi.advanceTimersByTime(1000);
+      });
+      expect(hook.result.current.snapshot?.sequence).toBe(2);
+      expect(hook.result.current.connection).toBe('reconnecting');
+      act(() => {
+        events.emit('snapshot', snapshot);
+        events.emit('snapshot', { ...snapshot, sequence: 2 });
+      });
+      expect(hook.result.current.connection).toBe('reconnecting');
+      act(() =>
+        events.emit('snapshot', {
+          ...snapshot,
+          sequence: 3,
+          sampledAt: '2026-08-29T12:00:02Z',
+        }),
+      );
+      expect(hook.result.current.snapshot?.sequence).toBe(2);
+      expect(hook.result.current.connection).toBe('reconnecting');
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(hook.result.current.snapshot?.sequence).toBe(3);
+      expect(hook.result.current.connection).toBe('live');
+    },
+  );
+
+  it.each([
+    null,
+    { ...snapshot, sequence: 'invalid' },
+    { ...snapshot, sequence: 3, sampledAt: 'invalid' },
+  ])(
+    'clears live freshness on malformed stream data without replacing the retained snapshot: %j',
+    async (payload) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: string | URL | Request) => {
+          const url = requestURL(input);
+          if (url === '/api/v1/snapshot') return jsonResponse(snapshot);
+          if (url === '/api/v1/settings') return jsonResponse(initialSettings);
+          if (url === '/api/v1/version') return jsonResponse(buildInfo);
+          throw new Error(`unexpected request: ${url}`);
+        }),
+      );
+      const hook = renderHook(() => useLeviathan());
+      await waitFor(() =>
+        expect(hook.result.current.snapshot?.sequence).toBe(1),
+      );
+      const events = FakeEventSource.instances[0];
+      act(() =>
+        events.emit('snapshot', {
+          ...snapshot,
+          sequence: 2,
+          sampledAt: '2026-08-29T12:00:01Z',
+        }),
+      );
+      expect(hook.result.current.connection).toBe('live');
+      act(() => events.emit('snapshot', payload));
+      expect(hook.result.current.connection).toBe('reconnecting');
+      expect(hook.result.current.snapshot?.sequence).toBe(2);
+      expect(hook.result.current.streamError).toMatch(/malformed/);
+      act(() =>
+        events.emit('snapshot', {
+          ...snapshot,
+          sequence: 3,
+          sampledAt: '2026-08-29T12:00:02Z',
+        }),
+      );
+      expect(hook.result.current.connection).toBe('live');
+      expect(hook.result.current.streamError).toBeNull();
+    },
+  );
+
+  it.each([
+    { sampling: 1000, cadence: 0, deadline: 5000 },
+    { sampling: 2000, cadence: 1000, deadline: 6000 },
+    { sampling: 1000, cadence: 3000, deadline: 9000 },
+  ])(
+    'expires a silent stream after $deadline ms without duplicate or settings refresh',
+    async ({ sampling, cadence, deadline }) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: string | URL | Request) => {
+          const url = requestURL(input);
+          if (url === '/api/v1/snapshot') return jsonResponse(snapshot);
+          if (url === '/api/v1/settings')
+            return jsonResponse({
+              ...initialSettings,
+              samplingIntervalMs: sampling,
+            });
+          if (url === '/api/v1/version') return jsonResponse(buildInfo);
+          throw new Error(`unexpected request: ${url}`);
+        }),
+      );
+      const hook = renderHook(() => useLeviathan(cadence));
+      await waitFor(() => {
+        expect(hook.result.current.snapshot?.sequence).toBe(1);
+        expect(hook.result.current.settings?.samplingIntervalMs).toBe(sampling);
+      });
+      vi.useFakeTimers();
+      const events = FakeEventSource.instances[0];
+      const streamed = {
+        ...snapshot,
+        sequence: 2,
+        sampledAt: '2026-08-29T12:00:01Z',
+      };
+      act(() => events.emit('snapshot', streamed));
+      act(() => {
+        vi.advanceTimersByTime(deadline - 1);
+      });
+      expect(hook.result.current.connection).toBe('live');
+      act(() => {
+        events.emit('snapshot', streamed);
+        events.emit('settings', {
+          ...initialSettings,
+          samplingIntervalMs: 30000,
+        });
+      });
+      // Expiry follows local elapsed time even when wall-clock time changes.
+      const wallTime = Date.now();
+      vi.setSystemTime(wallTime - 60000);
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(hook.result.current.connection).toBe('reconnecting');
+      expect(hook.result.current.snapshot?.sequence).toBe(2);
+      expect(hook.result.current.streamError).toMatch(/Telemetry delayed/);
+      vi.setSystemTime(wallTime + 1);
+      act(() => events.emit('snapshot', streamed));
+      expect(hook.result.current.connection).toBe('reconnecting');
+      act(() => {
+        events.emit('snapshot', {
+          ...streamed,
+          sequence: 3,
+          sampledAt: '2026-08-29T12:00:02Z',
+        });
+        vi.advanceTimersByTime(cadence);
+      });
+      expect(hook.result.current.connection).toBe('live');
+      hook.unmount();
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
 
   it('reuses unchanged slow-moving slices across telemetry snapshots', () => {
     const previous: Snapshot = {
@@ -403,6 +594,12 @@ describe('useLeviathan runtime settings', () => {
       ],
       attribution: {
         provider: 'kubernetes_dra',
+        resolution: {
+          status: 'complete',
+          unresolvedAssignments: 0,
+          reasonCodes: [],
+          workloads: [],
+        },
         status: 'available',
         workloads: [
           {
@@ -434,12 +631,57 @@ describe('useLeviathan runtime settings', () => {
     expect(shared.capabilities).toBe(previous.capabilities);
     expect(shared.attribution).toBe(previous.attribution);
 
+    const unresolved = structuredClone(next);
+    unresolved.attribution!.resolution!.status = 'incomplete';
+    unresolved.attribution!.resolution!.unresolvedAssignments = 1;
+    expect(shareStableSnapshot(previous, unresolved).attribution).toBe(
+      unresolved.attribution,
+    );
+
     const changed = structuredClone(next);
     changed.processes[0].pid = 43;
     changed.attribution!.assignments[0].state = 'reserved';
     const updated = shareStableSnapshot(previous, changed);
     expect(updated.processes).not.toBe(previous.processes);
     expect(updated.attribution).not.toBe(previous.attribution);
+  });
+
+  it('reuses owner samples between independent polls without hiding freshness or status changes', () => {
+    const previous: Snapshot = {
+      ...snapshot,
+      workloadTelemetry: {
+        sampledAt: snapshot.sampledAt,
+        status: 'available',
+        owners: [ownerFixture()],
+      },
+    };
+    const next = structuredClone(previous);
+    next.sequence++;
+    next.sampledAt = '2026-08-29T12:00:00.500Z';
+    expect(shareStableSnapshot(previous, next).workloadTelemetry).toBe(
+      previous.workloadTelemetry,
+    );
+    for (const change of [
+      (value: NonNullable<Snapshot['workloadTelemetry']>) => {
+        value.sampledAt = next.sampledAt;
+      },
+      (value: NonNullable<Snapshot['workloadTelemetry']>) => {
+        value.status = 'stale';
+      },
+      (value: NonNullable<Snapshot['workloadTelemetry']>) => {
+        value.owners[0].metrics.cpu_cores.value = null;
+        value.owners[0].metrics.cpu_cores.status = 'error';
+      },
+      (value: NonNullable<Snapshot['workloadTelemetry']>) => {
+        value.owners = [];
+      },
+    ]) {
+      const changed = structuredClone(next);
+      change(changed.workloadTelemetry!);
+      expect(shareStableSnapshot(previous, changed).workloadTelemetry).toBe(
+        changed.workloadTelemetry,
+      );
+    }
   });
 
   it('replaces structurally shared processes when workspace attribution changes', () => {
@@ -468,6 +710,12 @@ describe('useLeviathan runtime settings', () => {
       diagnostics: null,
       attribution: {
         provider: 'kubernetes_dra',
+        resolution: {
+          status: 'complete',
+          unresolvedAssignments: 0,
+          reasonCodes: [],
+          workloads: [],
+        },
         status: 'available',
         workloads: null,
         assignments: null,

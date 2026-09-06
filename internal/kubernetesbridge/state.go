@@ -24,6 +24,7 @@ type State struct {
 	assignments   []model.ResourceAssignment
 	processScopes []attribution.ProcessScope
 	stats         BuildStats
+	inventoryV2   *InventoryV2
 }
 
 func NewState(bridgeVersion, nodeName string, now time.Time) *State {
@@ -47,6 +48,21 @@ func newStateWithInstance(bridgeVersion, nodeName, instanceID string, now time.T
 func (s *State) Update(workloads []model.WorkloadAttribution, assignments []model.ResourceAssignment, processScopes []attribution.ProcessScope, stats BuildStats, observedAt time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.updateLocked(workloads, assignments, processScopes, stats, observedAt)
+}
+
+func (s *State) UpdateInventories(workloads []model.WorkloadAttribution, assignments []model.ResourceAssignment, processScopes []attribution.ProcessScope, stats BuildStats, modern InventoryV2, observedAt time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := !reflect.DeepEqual(s.inventoryV2, &modern)
+	s.updateLocked(workloads, assignments, processScopes, stats, observedAt)
+	s.inventoryV2 = &modern
+	if changed {
+		s.revision++
+	}
+}
+
+func (s *State) updateLocked(workloads []model.WorkloadAttribution, assignments []model.ResourceAssignment, processScopes []attribution.ProcessScope, stats BuildStats, observedAt time.Time) {
 	nextWorkloads := append([]model.WorkloadAttribution{}, workloads...)
 	nextAssignments := append([]model.ResourceAssignment{}, assignments...)
 	nextProcessScopes := append([]attribution.ProcessScope{}, processScopes...)
@@ -75,6 +91,10 @@ func (s *State) MarkUnavailable() {
 func (s *State) Document(now time.Time) attribution.Document {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.documentLocked(now)
+}
+
+func (s *State) documentLocked(now time.Time) attribution.Document {
 	return attribution.Document{
 		SchemaVersion: attribution.SchemaVersion, BridgeVersion: s.bridgeVersion,
 		InstanceID: s.instanceID, Revision: s.revision, GeneratedAt: now.UTC(), SourceObservedAt: s.observedAt,
@@ -82,6 +102,25 @@ func (s *State) Document(now time.Time) attribution.Document {
 		Workloads: append([]model.WorkloadAttribution{}, s.workloads...), Assignments: append([]model.ResourceAssignment{}, s.assignments...),
 		ProcessScopes: append([]attribution.ProcessScope{}, s.processScopes...),
 	}
+}
+
+func (s *State) DocumentV2(now time.Time) attribution.DocumentV2 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	d := attribution.DocumentV2{Document: s.documentLocked(now), Bindings: []attribution.DynamicBinding{}, Resolution: attribution.CompleteResolution()}
+	d.SchemaVersion = attribution.SchemaVersionV2
+	if s.inventoryV2 == nil {
+		d.Resolution.Status = "unknown"
+		d.Resolution.ReasonCodes = []string{"inventory_incomplete"}
+		return d
+	}
+	v := s.inventoryV2
+	d.Workloads = append([]model.WorkloadAttribution{}, v.Workloads...)
+	d.Assignments = append([]model.ResourceAssignment{}, v.Assignments...)
+	d.ProcessScopes = append([]attribution.ProcessScope{}, v.ProcessScopes...)
+	d.Bindings = append([]attribution.DynamicBinding{}, v.Bindings...)
+	d.Resolution = attribution.CloneResolution(v.Resolution)
+	return d
 }
 
 func (s *State) Ready() bool {

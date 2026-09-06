@@ -156,7 +156,8 @@ func (s *ProcSampler) Sample(ctx context.Context, at time.Time) (model.System, [
 		})
 	}
 
-	result := model.System{CPU: cpu, Memory: memory, Storage: storage, SampledAt: at}
+	uptime := s.sampleUptime(at)
+	result := model.System{CPU: cpu, Memory: memory, Storage: storage, Uptime: &uptime, SampledAt: at}
 	if available == 0 {
 		result.Status = model.StatusError
 		result.Message = strings.Join(messages, "; ")
@@ -171,6 +172,23 @@ func (s *ProcSampler) Sample(ctx context.Context, at time.Time) (model.System, [
 		result.Message = strings.Join(messages, "; ")
 	}
 	return result, diagnostics, nil
+}
+
+// Uptime is the kernel's elapsed time since boot, including suspend time. Its
+// absence is independent of the existing CPU, memory and storage capability.
+func (s *ProcSampler) sampleUptime(at time.Time) model.Metric {
+	data, err := os.ReadFile(filepath.Join(s.options.ProcRoot, "uptime"))
+	if err != nil {
+		return unavailable("seconds", at, statusForError(err), "host uptime is unavailable")
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) > 0 {
+		seconds, err := strconv.ParseFloat(fields[0], 64)
+		if err == nil && !math.IsNaN(seconds) && !math.IsInf(seconds, 0) && seconds >= 0 {
+			return model.AvailableMetric(seconds, "seconds", model.SourceProcFS, model.ScopeHost, at)
+		}
+	}
+	return unavailable("seconds", at, model.StatusError, "host uptime could not be parsed")
 }
 
 func (s *ProcSampler) sampleCPU(at time.Time) (model.CPU, error) {

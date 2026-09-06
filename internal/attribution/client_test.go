@@ -78,7 +78,7 @@ func TestClientRetainsLastDocumentAcrossBridgeFailure(t *testing.T) {
 		t.Fatal("missing bridge unexpectedly succeeded")
 	}
 	now = now.Add(10 * time.Second)
-	if current := client.Current(now); current.Status != model.AttributionAvailable || len(current.Assignments) != 1 {
+	if current := client.Current(now); current.Status != model.AttributionStale || len(current.Assignments) != 1 {
 		t.Fatalf("grace-period attribution = %+v", current)
 	}
 	now = now.Add(6 * time.Second)
@@ -87,7 +87,7 @@ func TestClientRetainsLastDocumentAcrossBridgeFailure(t *testing.T) {
 	}
 }
 
-func TestClientUsesAgeForGraceEvenWhenSourceReportsFailure(t *testing.T) {
+func TestClientMarksExplicitSourceFailureStaleImmediately(t *testing.T) {
 	for _, sourceState := range []SourceState{SourceStale, SourceError} {
 		t.Run(string(sourceState), func(t *testing.T) {
 			now := time.Unix(1_700_000_000, 0).UTC()
@@ -106,7 +106,7 @@ func TestClientUsesAgeForGraceEvenWhenSourceReportsFailure(t *testing.T) {
 			if err := client.Poll(context.Background()); err != nil {
 				t.Fatal(err)
 			}
-			if current := client.Current(now.Add(14 * time.Second)); current.Status != model.AttributionAvailable || len(current.Assignments) != 1 {
+			if current := client.Current(now.Add(14 * time.Second)); current.Status != model.AttributionStale || len(current.Assignments) != 1 {
 				t.Fatalf("grace attribution = %+v", current)
 			}
 			if current := client.Current(now.Add(15 * time.Second)); current.Status != model.AttributionStale || len(current.Assignments) != 1 {
@@ -152,7 +152,7 @@ func TestClientDoesNotReplaceValidInventoryWithSynchronizingDocument(t *testing.
 	if err := client.Poll(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if current := client.Current(now.Add(10 * time.Second)); current.Status != model.AttributionAvailable || len(current.Assignments) != 1 {
+	if current := client.Current(now.Add(10 * time.Second)); current.Status != model.AttributionStale || len(current.Assignments) != 1 {
 		t.Fatalf("retained attribution = %+v", current)
 	}
 }

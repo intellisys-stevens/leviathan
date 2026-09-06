@@ -30,8 +30,6 @@ function header(
       degraded={false}
       settings={settings()}
       theme="dark"
-      displayCadenceMs={1000}
-      onDisplayCadenceChange={vi.fn()}
       onToggleTheme={vi.fn()}
       {...overrides}
     />
@@ -42,68 +40,28 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('StatusHeader view cadence controls', () => {
-  it('renders a borderless status beside one neutral desktop control', () => {
+describe('StatusHeader fixed cadence', () => {
+  it('renders a compact fixed cadence beside the live status', () => {
     render(header());
-
     const desktop = screen.getByTestId('desktop-live-sampling');
-    const combined = within(desktop).getByLabelText(
-      'Live status and view updates',
-    );
-    expect(combined).not.toHaveClass('border', 'bg-primary/[0.07]');
-    const brandMark = document.querySelector<HTMLElement>(
-      '[style*="leviathan-mark.svg"]',
-    );
-    expect(brandMark).toHaveClass('bg-primary');
-    expect(brandMark).toHaveAttribute('aria-hidden', 'true');
     expect(
       within(desktop).getByRole('status', {
         name: 'Connection status: Live',
       }),
     ).toHaveTextContent('Live');
-    expect(within(desktop).queryByText('Sampling')).toBeNull();
-
-    const control = within(desktop).getByRole('radiogroup', {
-      name: 'View updates',
-    });
-    expect(control).toHaveClass('segmented-control');
     expect(
-      within(control)
-        .getAllByRole('radio')
-        .map((radio) => radio.getAttribute('aria-label')),
-    ).toEqual(['0.5s, every host sample', '1s', '2s']);
-    expect(within(control).getByRole('radio', { name: '1s' })).toBeChecked();
-    expect(control.querySelector('.segmented-thumb')).toHaveClass(
-      'transition-transform',
-      'duration-200',
-      'motion-reduce:transition-none',
+      within(desktop).getByLabelText('View updates every 0.5s'),
+    ).toHaveTextContent('0.5s');
+    expect(
+      screen.queryByRole('radiogroup', { name: 'View updates' }),
+    ).toBeNull();
+    expect(screen.getByTestId('leviathan-header-mark')).toHaveAttribute(
+      'aria-hidden',
+      'true',
     );
-    expect(screen.getByRole('banner')).toHaveTextContent('fixture-host');
-    expect(screen.getByRole('banner')).not.toHaveTextContent('local read-only');
-    const repositoryLink = screen.getByRole('link', {
-      name: 'Open Leviathan repository on GitHub',
-    });
-    expect(repositoryLink).toHaveAttribute(
-      'href',
-      'https://github.com/intellisys-stevens/leviathan',
-    );
-    expect(repositoryLink).toHaveAttribute('target', '_blank');
-    expect(repositoryLink).toHaveAttribute('rel', 'noreferrer');
-    expect(screen.getByRole('banner')).not.toHaveTextContent('NVML + GPM');
-    expect(desktop).not.toHaveTextContent('Host 0.5s');
   });
 
-  it('changes only the browser-local display cadence', () => {
-    const onDisplayCadenceChange = vi.fn();
-    const view = render(header({ onDisplayCadenceChange }));
-    const desktop = screen.getByTestId('desktop-live-sampling');
-    fireEvent.click(within(desktop).getByRole('radio', { name: '2s' }));
-    expect(onDisplayCadenceChange).toHaveBeenCalledWith(2000);
-    view.rerender(header({ displayCadenceMs: 2000, onDisplayCadenceChange }));
-    expect(within(desktop).getByRole('radio', { name: '2s' })).toBeChecked();
-  });
-
-  it('keeps host sampling read-only and scopes settings errors', () => {
+  it('keeps collection settings read-only and retry errors actionable', () => {
     const retry = vi.fn();
     render(
       header({
@@ -119,92 +77,74 @@ describe('StatusHeader view cadence controls', () => {
     fireEvent.click(within(desktop).getByRole('button', { name: 'Retry' }));
     expect(retry).toHaveBeenCalledOnce();
     expect(
-      within(desktop).getByRole('radio', {
-        name: '0.25s, every host sample',
-      }),
+      within(desktop).getByLabelText('View updates every 0.5s'),
+    ).toHaveTextContent('0.5s');
+    expect(
+      screen.queryByRole('radiogroup', { name: 'View updates' }),
+    ).toBeNull();
+  });
+
+  it('retains the fixed browser interval when collection settings are missing or slower', () => {
+    const view = render(header({ settings: null }));
+    for (const configuration of [null, settings(1000), settings(2000)]) {
+      view.rerender(header({ settings: configuration }));
+      expect(
+        screen.getByLabelText('View updates every 0.5s'),
+      ).toHaveTextContent('0.5s');
+      expect(
+        screen.queryByRole('radiogroup', { name: 'View updates' }),
+      ).toBeNull();
+    }
+    expect(
+      screen.getByTitle(
+        'Host samples 2s · profiles 2s · processes 5s. Browser view updates 0.5s.',
+      ),
     ).toBeInTheDocument();
-    expect(desktop).not.toHaveTextContent('Host 0.25s');
   });
 
-  it('uses an honest fallback and removes rates that a slower host cannot deliver', () => {
-    const view = render(header({ settings: null, displayCadenceMs: 0 }));
-    const desktop = screen.getByTestId('desktop-live-sampling');
-    expect(
-      within(desktop).getByRole('radio', {
-        name: 'Auto, every host sample',
-      }),
-    ).toBeChecked();
-    expect(within(desktop).getAllByRole('radio')).toHaveLength(3);
-
-    view.rerender(header({ settings: settings(1000), displayCadenceMs: 1000 }));
-    expect(within(desktop).getAllByRole('radio')).toHaveLength(2);
-    expect(
-      within(desktop).getByRole('radio', {
-        name: '1s, every host sample',
-      }),
-    ).toBeChecked();
-    expect(
-      within(desktop).queryByRole('radio', { name: '1s' }),
-    ).not.toBeInTheDocument();
-    expect(within(desktop).getByRole('radio', { name: '2s' })).toBeVisible();
-
-    view.rerender(header({ settings: settings(500), displayCadenceMs: 1000 }));
-    expect(within(desktop).getAllByRole('radio')).toHaveLength(3);
-    expect(within(desktop).getByRole('radio', { name: '1s' })).toBeChecked();
-  });
-
-  it('uses the same neutral compact treatment for the mobile popover', async () => {
+  it('keeps mobile connection details without cadence choices', async () => {
     render(header());
-
     const trigger = screen.getByRole('button', {
-      name: 'Live status, view updates 1s',
+      name: 'Live status, view updates 0.5s',
     });
-    expect(trigger).toHaveTextContent('Live · 1s');
+    expect(trigger).toHaveTextContent('Live · 0.5s');
     expect(trigger).toHaveClass('border-input', 'bg-popover');
-    expect(trigger).not.toHaveClass('border-primary/25', 'bg-primary/[0.08]');
-
     fireEvent.click(trigger);
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('View updates')).toBeInTheDocument();
+    expect(within(dialog).getByText('fixture-host')).toBeVisible();
+    expect(within(dialog).getByText('Live')).toBeVisible();
     expect(
-      within(dialog).getByText(
-        /Host samples 0.5s · profiles 2s · processes 5s/,
+      within(dialog).queryByText(
+        /This browser updates|Host samples|profiles|processes/,
       ),
-    ).toBeInTheDocument();
-    expect(
-      within(dialog).getByRole('radiogroup', { name: 'View updates' }),
-    ).toHaveClass('segmented-control', 'w-full');
-    expect(within(dialog).getAllByRole('radio')).toHaveLength(3);
+    ).toBeNull();
+    expect(within(dialog).queryByRole('radiogroup')).toBeNull();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(trigger).toHaveFocus();
   });
 
-  it('keeps secondary mobile actions in a concise More popover', async () => {
+  it('exposes the repository and theme actions directly without an app menu', () => {
     const onToggleTheme = vi.fn();
-    render(header({ onToggleTheme }));
-
-    const mark = screen.getByTestId('leviathan-header-mark');
-    expect(mark).toHaveClass('size-8', 'md:size-10');
-    expect(screen.getByText('fixture-host')).toHaveClass('hidden', 'md:block');
-
-    const trigger = screen.getByRole('button', { name: 'Open app menu' });
-    expect(trigger.closest('.mobile-header-more')).not.toBeNull();
-    fireEvent.click(trigger);
-
-    const dialog = await screen.findByRole('dialog', { name: 'App menu' });
-    const repository = within(dialog).getByRole('link', {
+    const view = render(header({ onToggleTheme }));
+    expect(screen.queryByRole('button', { name: 'Open app menu' })).toBeNull();
+    const repository = screen.getByRole('link', {
       name: 'Open Leviathan repository on GitHub',
     });
-    expect(repository).toHaveTextContent('GitHub Repo');
-    expect(
-      within(dialog).getByRole('button', { name: 'Use light theme' }),
-    ).toHaveTextContent('Light Theme');
     expect(repository).toHaveAttribute(
       'href',
       'https://github.com/intellisys-stevens/leviathan',
     );
-    fireEvent.click(
-      within(dialog).getByRole('button', { name: 'Use light theme' }),
-    );
+    expect(repository).toHaveClass('min-h-11', 'min-w-11');
+    const toggle = screen.getByRole('button', { name: 'Use light theme' });
+    expect(toggle).toHaveClass('min-h-11', 'min-w-11');
+    fireEvent.click(toggle);
     expect(onToggleTheme).toHaveBeenCalledOnce();
+    view.rerender(header({ theme: 'light', onToggleTheme }));
+    expect(
+      screen.getByRole('button', { name: 'Use dark theme' }),
+    ).toBeInTheDocument();
   });
 
   it('closes the portaled mobile popover when the desktop breakpoint activates', async () => {
@@ -234,7 +174,7 @@ describe('StatusHeader view cadence controls', () => {
     render(header());
     fireEvent.click(
       screen.getByRole('button', {
-        name: 'Live status, view updates 1s',
+        name: 'Live status, view updates 0.5s',
       }),
     );
     expect(await screen.findByRole('dialog')).toBeInTheDocument();

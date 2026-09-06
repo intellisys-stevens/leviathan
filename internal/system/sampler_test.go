@@ -96,6 +96,29 @@ func TestProcSamplerCollectsDeltasAndSanitizedFilesystems(t *testing.T) {
 	}
 }
 
+func TestHostUptimeUsesKernelSecondsAndRejectsInvalidValues(t *testing.T) {
+	root := t.TempDir()
+	sam := New(Options{ProcRoot: root})
+	at := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	missing := sam.sampleUptime(at)
+	if missing.Value != nil || missing.Status == model.StatusAvailable {
+		t.Fatalf("missing uptime = %+v", missing)
+	}
+	for _, test := range []struct {
+		input string
+		valid bool
+	}{{"1234.75 555.0\n", true}, {"0 0", true}, {"NaN 0", false}, {"+Inf 0", false}, {"-1 0", false}, {"", false}, {"broken", false}} {
+		mustWrite(t, filepath.Join(root, "uptime"), test.input)
+		metric := sam.sampleUptime(at)
+		if (metric.Value != nil) != test.valid || metric.Unit != "seconds" || metric.Scope != model.ScopeHost {
+			t.Fatalf("%q: %+v", test.input, metric)
+		}
+		if test.input == "1234.75 555.0\n" && *metric.Value != 1234.75 {
+			t.Fatalf("uptime=%v", *metric.Value)
+		}
+	}
+}
+
 func TestMemoryFallbackIsExplicitlyEstimated(t *testing.T) {
 	values, err := parseMemInfo("MemTotal: 1000 kB\nMemFree: 100 kB\nBuffers: 50 kB\nCached: 200 kB\nSReclaimable: 25 kB\nShmem: 10 kB\n")
 	if err != nil {

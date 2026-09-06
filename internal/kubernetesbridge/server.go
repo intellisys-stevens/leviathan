@@ -18,17 +18,40 @@ import (
 )
 
 type Server struct {
-	state *State
-	now   func() time.Time
+	state     *State
+	workloads *WorkloadState
+	now       func() time.Time
 }
 
 func NewServer(state *State) *Server {
 	return &Server{state: state, now: func() time.Time { return time.Now().UTC() }}
 }
 
+// WithWorkloads opts into the private Pod metadata handoff. Allocations and
+// legacy readiness semantics remain unchanged for older monitors.
+func (s *Server) WithWorkloads(state *WorkloadState) *Server { s.workloads = state; return s }
+
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/allocations", s.allocations)
+	mux.HandleFunc("GET /v2/allocations", s.allocationsV2)
+	if s.workloads != nil {
+		mux.HandleFunc("GET /v1/workloads", func(writer http.ResponseWriter, _ *http.Request) {
+			document := s.workloads.Document(s.now())
+			if err := document.Validate(); err != nil {
+				writeJSON(writer, http.StatusServiceUnavailable, map[string]string{"error": "workspace inventory is invalid"})
+				return
+			}
+			data, err := json.Marshal(document)
+			if err != nil || len(data) > attribution.MaxDocumentBytes {
+				writeJSON(writer, http.StatusServiceUnavailable, map[string]string{"error": "workspace inventory exceeds limit"})
+				return
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			writer.WriteHeader(http.StatusOK)
+			_, _ = writer.Write(append(data, '\n'))
+		})
+	}
 	mux.HandleFunc("GET /livez", func(writer http.ResponseWriter, _ *http.Request) {
 		writeJSON(writer, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -44,6 +67,22 @@ func (s *Server) Handler() http.Handler {
 		writer.Header().Set("X-Content-Type-Options", "nosniff")
 		mux.ServeHTTP(writer, request)
 	})
+}
+
+func (s *Server) allocationsV2(writer http.ResponseWriter, _ *http.Request) {
+	document := s.state.DocumentV2(s.now())
+	if err := document.Validate(); err != nil {
+		writeJSON(writer, http.StatusServiceUnavailable, map[string]string{"error": "attribution inventory is invalid"})
+		return
+	}
+	data, err := json.Marshal(document)
+	if err != nil || len(data) > attribution.MaxDocumentBytes {
+		writeJSON(writer, http.StatusServiceUnavailable, map[string]string{"error": "attribution inventory exceeds the handoff limit"})
+		return
+	}
+	writer.Header().Set("Content-Type", "application/json")
+	writer.WriteHeader(http.StatusOK)
+	_, _ = writer.Write(append(data, '\n'))
 }
 
 func (s *Server) allocations(writer http.ResponseWriter, _ *http.Request) {

@@ -43,4 +43,26 @@ describe('MetricIcon', () => {
       expect(icon).toHaveClass(expectedIconClass[metric]);
     }
   });
+
+  it('uses the gauge for GPU activity and keeps metric-specific symbols', () => {
+    const view = render(
+      <>
+        <MetricIcon metric="gpu_activity" />
+        <MetricIcon metric="temperature" />
+        <MetricIcon metric="power" />
+        <MetricIcon metric="memory" />
+        <MetricIcon metric="pcie_total_bytes_per_second" />
+      </>,
+    );
+    expect(
+      view.container.querySelector('[data-metric-icon="gpu_activity"]'),
+    ).toHaveClass('lucide-gauge', 'text-primary');
+    expect(view.container.querySelectorAll('[data-gpu-brand]')).toHaveLength(0);
+    expect(view.container.querySelector('.lucide-thermometer')).not.toBeNull();
+    expect(view.container.querySelector('.lucide-zap')).not.toBeNull();
+    expect(view.container.querySelector('.lucide-hard-drive')).not.toBeNull();
+    expect(
+      view.container.querySelector('.lucide-arrow-left-right'),
+    ).not.toBeNull();
+  });
 });

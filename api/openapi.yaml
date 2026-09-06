@@ -9,6 +9,18 @@ info:
 servers:
   - url: http://127.0.0.1:1397
 paths:
+  /api/v1/status:
+    get:
+      operationId: getHealthStatus
+      summary: Return local telemetry health observations for ninety UTC dates.
+      description: Minute samples describe observed telemetry health, not external service availability. Unknown periods are never counted as healthy.
+      responses:
+        "200":
+          description: Current component states, persistence status, and daily observation counts.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthStatus" }
+        "503": { $ref: "#/components/responses/Unavailable" }
   /api/v1/snapshot:
     get:
       operationId: getSnapshot
@@ -159,15 +171,84 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
   schemas:
+    HealthState:
+      type: string
+      enum: [operational, degraded, unavailable, unsupported, unknown]
+    HealthComponent:
+      type: object
+      required: [id, label, state]
+      properties:
+        id: { type: string, enum: [system, gpu, attribution, uplink] }
+        label: { type: string }
+        state: { $ref: "#/components/schemas/HealthState" }
+        observedAt: { type: string, format: date-time }
+        message: { type: string }
+        lastAcknowledgedAt: { type: string, format: date-time }
+        retryAt: { type: string, format: date-time }
+    HealthCounts:
+      type: object
+      description: Healthy observations are operational divided by operational plus degraded plus unavailable. Coverage is operational plus degraded plus unavailable observations, divided by expected samples; unsupported and unknown are not measured observations. Zero denominators have no percentage.
+      required: [operational, degraded, unavailable, unsupported, unknown]
+      properties:
+        operational: { type: integer, minimum: 0 }
+        degraded: { type: integer, minimum: 0 }
+        unavailable: { type: integer, minimum: 0 }
+        unsupported: { type: integer, minimum: 0 }
+        unknown: { type: integer, minimum: 0 }
+    HealthDay:
+      type: object
+      required: [date, expectedSamples, components]
+      properties:
+        date: { type: string, pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' }
+        expectedSamples:
+          type: integer
+          minimum: 0
+          maximum: 1440
+          description: Begun UTC minute slots, excluding future slots today.
+        components:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/HealthCounts" }
+    HealthPersistence:
+      type: object
+      required: [enabled, saving]
+      properties:
+        enabled: { type: boolean }
+        saving: { type: boolean }
+        message: { type: string }
+    HealthStatus:
+      type: object
+      x-go-name: HealthStatusReport
+      required: [sampledAt, monitorStartedAt, retentionDays, persistence, components, days]
+      properties:
+        sampledAt: { type: string, format: date-time }
+        monitorStartedAt: { type: string, format: date-time }
+        monitorUptimeSeconds:
+          type: number
+          format: double
+          minimum: 0
+          description: Elapsed monitor runtime measured with the process monotonic clock, independent of wall-clock corrections. Omitted when unavailable.
+        retentionDays:
+          type: integer
+          enum: [30, 90]
+          description: Current servers retain 90 UTC dates. The value 30 remains valid for older servers.
+        persistence: { $ref: "#/components/schemas/HealthPersistence" }
+        components:
+          type: array
+          items: { $ref: "#/components/schemas/HealthComponent" }
+        days:
+          type: array
+          minItems: 30
+          maxItems: 90
+          items: { $ref: "#/components/schemas/HealthDay" }
     MetricStatus:
       type: string
       enum: [available, unsupported, permission_denied, estimated, stale, error]
     MetricSource:
       type: string
-      enum: [nvml, nvml_gpm, dcgm, proc, procfs, statfs, synthetic]
+      enum: [nvml, nvml_gpm, dcgm, proc, procfs, statfs, cgroupfs, synthetic]
     MetricScope:
       type: string
-      enum: [host, physical_gpu, gpu_instance, compute_instance]
+      enum: [host, physical_gpu, gpu_instance, compute_instance, workload_owner]
     Metric:
       type: object
       required: [value, unit, source, scope, sampledAt, status]
@@ -232,6 +313,40 @@ components:
         kind: { $ref: "#/components/schemas/WorkloadKind" }
         name: { type: string }
         ownerName: { type: string }
+    WorkloadTelemetryStatus:
+      type: string
+      enum: [available, partial, stale, unavailable]
+    WorkloadOwnerTelemetry:
+      type: object
+      description: Absolute cgroup v2 usage aggregated once per observed Pod and then by stable Coder owner identity. Missing members invalidate only the affected aggregate metrics.
+      required: [ref, name, platform, workspaces, sampledAt, status, metrics]
+      properties:
+        ref: { type: string }
+        name: { type: string }
+        platform: { $ref: "#/components/schemas/WorkloadPlatform" }
+        workspaces:
+          type: array
+          items: { $ref: "#/components/schemas/WorkloadAttribution" }
+        sampledAt: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/WorkloadTelemetryStatus" }
+        message: { type: string }
+        metrics:
+          allOf:
+            - { $ref: "#/components/schemas/MetricSet" }
+          description: cpu_cores is CPU-time increase divided by elapsed time (logical-CPU equivalents). memory_used_bytes is memory.current, including charged cache. storage_read_bps and storage_write_bps are deduplicated kernel-accounted physical backing-device byte rates. Partial aggregates use null, never inferred zero.
+    WorkloadTelemetry:
+      type: object
+      description: Optional host-local workspace owner telemetry, collected independently of GPU collection. Not included in the locked Yggdrasil upload contract.
+      required: [sampledAt, status, owners]
+      properties:
+        sampledAt: { type: string, format: date-time }
+        observedAt: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/WorkloadTelemetryStatus" }
+        message: { type: string }
+        owners:
+          type: array
+          maxItems: 128
+          items: { $ref: "#/components/schemas/WorkloadOwnerTelemetry" }
     ResourceAssignment:
       type: object
       description: A scheduler assignment; it does not prove active device use by a process.
@@ -244,11 +359,30 @@ components:
     AttributionStatus:
       type: string
       enum: [available, stale, unavailable]
+    WorkloadAssignmentResolution:
+      type: object
+      required: [workloadRef, unresolvedAssignments, reasonCodes]
+      properties:
+        workloadRef: { type: string }
+        unresolvedAssignments: { type: integer, minimum: 0 }
+        reasonCodes: { type: array, items: { type: string } }
+    AttributionResolution:
+      type: object
+      description: Local assignment completeness, independent of source freshness. Missing metadata cannot establish unassigned capacity. No private driver or Kubernetes identities are exposed.
+      required: [status, unresolvedAssignments, reasonCodes, workloads]
+      properties:
+        status: { type: string, enum: [complete, incomplete, unknown] }
+        unresolvedAssignments: { type: integer, minimum: 0 }
+        reasonCodes: { type: array, items: { type: string } }
+        workloads:
+          type: array
+          items: { $ref: "#/components/schemas/WorkloadAssignmentResolution" }
     Attribution:
       type: object
       required: [provider, status, workloads, assignments]
       properties:
         provider: { type: string }
+        resolution: { $ref: "#/components/schemas/AttributionResolution" }
         status: { $ref: "#/components/schemas/AttributionStatus" }
         observedAt: { type: string, format: date-time }
         workloads:
@@ -445,6 +579,10 @@ components:
         cpu: { $ref: "#/components/schemas/CPU" }
         memory: { $ref: "#/components/schemas/SystemMemory" }
         storage: { $ref: "#/components/schemas/Storage" }
+        uptime:
+          allOf:
+            - { $ref: "#/components/schemas/Metric" }
+          description: Optional kernel uptime in seconds since boot, including suspend time; independent of the monitor process and service availability.
         sampledAt: { type: string, format: date-time }
         status: { $ref: "#/components/schemas/MetricStatus" }
         message: { type: string }
@@ -464,6 +602,8 @@ components:
           items: { $ref: "#/components/schemas/Process" }
         attribution:
           $ref: "#/components/schemas/Attribution"
+        workloadTelemetry:
+          $ref: "#/components/schemas/WorkloadTelemetry"
         capabilities: { $ref: "#/components/schemas/Capabilities" }
         diagnostics: { type: array, items: { $ref: "#/components/schemas/Diagnostic" } }
     HistoryPoint:

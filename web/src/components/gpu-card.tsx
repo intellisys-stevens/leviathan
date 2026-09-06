@@ -1,18 +1,7 @@
-import { memo, type ReactNode } from 'react';
-import { Activity, Box, ChevronRight, Cpu, Gauge } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
+import { memo, useId, useRef, useState, type CSSProperties } from 'react';
+import { ChevronRight } from 'lucide-react';
 import {
   formatBytes,
-  formatBytesPerSecond,
   formatMetric,
   formatPercent,
   memoryPercent,
@@ -20,17 +9,31 @@ import {
   powerLevel,
   temperatureLevel,
 } from '../lib';
-import { gpuAttributionTargets } from '../attribution';
-import type { Attribution, GPU, GpuInstance, Selection } from '../types';
+import { attributedWorkloads, workloadLabel } from '../attribution';
+import type { Attribution, GPU, Selection } from '../types';
 import { MetricIcon } from './metric-icon';
-import { PerimeterLight } from './perimeter-light';
-import { SnowCap, snowCapVariant } from './snow-cap';
-import { WorkspaceBadges } from './workspace-attribution';
+import { GPUBrandIcon } from './gpu-brand-icon';
+import { SnowCap } from './snow-cap';
+import type { GPUAllocationState } from '../gpu-allocation';
+import {
+  gpuChipActivity,
+  gpuChipRegions,
+  gpuTopologyKey,
+  type GPUChipRegion,
+} from './gpu-chip';
+import { GPU_CHIP_COLORS } from './gpu-chip-appearance';
+import { GPUBoardFallback } from './gpu-board-fallback';
+import { GPUBoardView } from './gpu-board-view';
+import './gpu-card.css';
 
 type Props = {
   gpu: GPU;
+  hostKey?: string;
+  theme?: 'dark' | 'light';
+  live?: boolean;
   attribution?: Attribution;
   onSelect: (selection: Selection) => void;
+  allocationStates?: ReadonlyMap<string, GPUAllocationState>;
 };
 
 const temperatureTone = {
@@ -101,523 +104,302 @@ function PowerChip({ gpu }: { gpu: GPU }) {
   );
 }
 
-function instanceStatus(gi: GpuInstance): 'normal' | 'warning' | 'error' {
-  const metrics = Object.values(gi.metrics);
-  if (metrics.some((metric) => metric.status === 'error')) return 'error';
-  const memory = memoryPercent(gi.memory);
-  if (memory != null && memory >= 85) return 'warning';
-  if (
-    metrics.some(
-      (metric) =>
-        metric.status === 'stale' || metric.status === 'permission_denied',
-    )
+function assignmentLabel(state: GPUAllocationState): string {
+  return state === 'unknown'
+    ? 'Assignment unknown'
+    : state.charAt(0).toUpperCase() + state.slice(1);
+}
+
+function AllocationBadge({ state }: { state: GPUAllocationState }) {
+  return (
+    <span className="gpu-allocation-label" data-allocation-state={state}>
+      {state === 'unknown' ? 'Unknown' : assignmentLabel(state)}
+    </span>
+  );
+}
+
+function ownersFor(region: GPUChipRegion, attribution?: Attribution): string {
+  if (attribution?.status !== 'available') return '';
+  const selection = region.selection;
+  return attributedWorkloads(
+    attribution,
+    selection.kind === 'physical_gpu'
+      ? [{ entityType: 'physical_gpu', entityUuid: selection.gpu.uuid }]
+      : [
+          { entityType: 'compute_instance', entityUuid: selection.ci.uuid },
+          { entityType: 'physical_gpu', entityUuid: selection.gpu.uuid },
+        ],
   )
-    return 'warning';
-  return 'normal';
+    .map(
+      ({ workload, state }) =>
+        `${workloadLabel(workload)}${state === 'reserved' ? ' (reserved)' : ''}`,
+    )
+    .join('; ');
 }
 
-function pcieThroughput(gpu: GPU): {
-  value: string;
-  detail: string;
-  accessibleDetail: string;
-} {
-  const rx = metricValue(gpu.metrics.pcie_rx_bytes_per_second);
-  const tx = metricValue(gpu.metrics.pcie_tx_bytes_per_second);
-  if (rx != null && tx != null) {
-    const formattedRX = formatBytesPerSecond(rx);
-    const formattedTX = formatBytesPerSecond(tx);
-    return {
-      value: formatBytesPerSecond(rx + tx),
-      detail: `RX ${formattedRX} · TX ${formattedTX}`,
-      accessibleDetail: `Host to GPU ${formattedRX}; GPU to host ${formattedTX}`,
-    };
-  }
-  if (rx != null) {
-    const formatted = formatBytesPerSecond(rx);
-    return {
-      value: formatted,
-      detail: 'RX · Host → GPU',
-      accessibleDetail: `Host to GPU ${formatted}`,
-    };
-  }
-  if (tx != null) {
-    const formatted = formatBytesPerSecond(tx);
-    return {
-      value: formatted,
-      detail: 'TX · GPU → Host',
-      accessibleDetail: `GPU to host ${formatted}`,
-    };
-  }
-  return {
-    value: '—',
-    detail: 'Unavailable',
-    accessibleDetail: 'PCIe throughput unavailable',
-  };
-}
-
-function PercentMetricTile({
-  accessibleLabel,
-  icon,
-  label,
-  metric,
-  value,
+function ChipSummary({
+  region,
+  state,
+  attribution,
+  live,
 }: {
-  accessibleLabel: string;
-  icon: ReactNode;
-  label: string;
-  metric: string;
-  value: number | null;
+  region: GPUChipRegion;
+  state: GPUAllocationState;
+  attribution?: Attribution;
+  live: boolean;
 }) {
+  const selection = region.selection;
+  const device =
+    selection.kind === 'compute_instance' ? selection.gi : selection.gpu;
+  const shared = selection.kind === 'compute_instance';
+  const memory = memoryPercent(device.memory);
+  const sm = gpuChipActivity(region, live);
+  const smMetric = device.metrics.sm_activity;
+  const owners = live ? ownersFor(region, attribution) : '';
+  const delayed = !live || smMetric?.status === 'stale';
+  const estimated = smMetric?.status === 'estimated';
+  const estimate =
+    smMetric?.unit === 'percent' &&
+    smMetric.scope === (shared ? 'gpu_instance' : 'physical_gpu') &&
+    smMetric.value != null &&
+    Number.isFinite(smMetric.value) &&
+    smMetric.value >= 0 &&
+    smMetric.value <= 100
+      ? smMetric.value
+      : null;
+  const smLabel = delayed
+    ? 'Delayed'
+    : sm != null
+      ? formatPercent(sm)
+      : estimated
+        ? estimate == null
+          ? 'Estimated'
+          : `Estimated ${formatPercent(estimate)}`
+        : 'Unavailable';
+  const statuses = [device.memory.status, smMetric?.status];
+  const notice = statuses.includes('error')
+    ? 'Telemetry error'
+    : !live || statuses.includes('stale')
+      ? 'Telemetry delayed'
+      : statuses.includes('permission_denied')
+        ? 'Limited telemetry'
+        : null;
   return (
-    <div
-      className="full-gpu-metric-tile flex min-w-0 flex-col border border-border/70 bg-card/45 p-3"
-      data-metric={metric}
+    <output
+      className="gpu-chip-summary"
+      aria-live="off"
+      data-region-id={region.id}
     >
-      <div className="full-gpu-metric-heading flex flex-col items-start gap-1 text-[13px] uppercase tracking-[0.11em] text-muted-foreground md:flex-row md:items-center md:justify-between md:gap-2">
-        <span className="full-gpu-metric-label inline-flex min-w-0 items-start gap-1.5 leading-tight md:items-center">
-          {icon}
-          <span>{label}</span>
-        </span>
-        <span className="full-gpu-metric-value shrink-0 whitespace-nowrap font-mono text-foreground">
-          {value == null ? '—' : formatPercent(value)}
-        </span>
+      <div className="gpu-chip-summary-heading">
+        <strong>{region.label}</strong>
+        <AllocationBadge state={state} />
       </div>
-      <Progress
-        value={value}
-        aria-label={accessibleLabel}
-        className="mt-auto pt-3"
-      />
-      {value == null ? (
-        <p className="mt-1.5 font-mono text-[13px] text-muted-foreground">
-          Unavailable
-        </p>
-      ) : null}
-    </div>
+      {shared ? (
+        <p>{selection.ci.profile || selection.gi.profile}</p>
+      ) : (
+        <p>Physical GPU</p>
+      )}
+      {owners ? <p className="gpu-chip-owners">{owners}</p> : null}
+      <dl>
+        <div>
+          <dt>{shared ? `Shared GI ${selection.gi.id} memory` : 'Memory'}</dt>
+          <dd>
+            {memory == null
+              ? 'Unavailable'
+              : `${formatBytes(device.memory.usedBytes)} / ${formatBytes(device.memory.totalBytes)}`}
+          </dd>
+        </div>
+        <div>
+          <dt>
+            {shared
+              ? `Shared GI ${selection.gi.id} SM activity`
+              : 'SM activity'}
+          </dt>
+          <dd>{smLabel}</dd>
+        </div>
+      </dl>
+      {notice ? <p className="gpu-chip-notice">{notice}</p> : null}
+    </output>
   );
 }
 
-function FullGPUResource({
+function GPUCardComponent({
   gpu,
-  onSelect,
-}: {
-  gpu: GPU;
-  onSelect: Props['onSelect'];
-}) {
-  const memory = memoryPercent(gpu.memory);
-  const gpuActivity = metricValue(gpu.metrics.gpu_activity);
-  const sm = metricValue(gpu.metrics.sm_activity);
-  const memoryActivity = metricValue(gpu.metrics.memory_activity);
-  const pcie = pcieThroughput(gpu);
-  const smClock = formatMetric(gpu.metrics.sm_clock);
-  const memoryClock = formatMetric(gpu.metrics.memory_clock);
-  const memoryDetail =
-    memory == null
-      ? 'Unavailable'
-      : `${formatBytes(gpu.memory.usedBytes)} / ${formatBytes(gpu.memory.totalBytes)}`;
-
-  return (
-    <section
-      className="full-gpu-resource mobile-resource-surface interactive-resource flowing-surface relative flex min-h-[9rem] flex-1 flex-col rounded-lg border border-border/80 bg-instance p-3"
-      aria-label={`GPU ${gpu.index} live telemetry`}
-    >
-      <PerimeterLight />
-      <button
-        type="button"
-        className="interactive-resource-button absolute inset-0 z-10 rounded-[inherit] text-left outline-none"
-        aria-label={`Open GPU ${gpu.index} full GPU details`}
-        onClick={() => onSelect({ kind: 'physical_gpu', gpu })}
-      />
-      <div className="pointer-events-none relative z-0 flex items-center justify-between gap-3">
-        <span className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          <Activity className="size-3.5" aria-hidden="true" /> Live telemetry
-        </span>
-        <span className="flex shrink-0 items-center gap-1 font-mono text-[13px] uppercase tracking-[0.1em] text-primary">
-          Details
-          <ChevronRight
-            className="resource-chevron size-4"
-            aria-hidden="true"
-          />
-        </span>
-      </div>
-
-      <div className="full-gpu-metrics mobile-resource-metrics pointer-events-none relative z-0 mt-3 grid flex-1 auto-rows-fr grid-cols-2 gap-2 md:grid-cols-3">
-        <PercentMetricTile
-          metric="gpu-activity"
-          label="GPU active"
-          icon={<MetricIcon metric="gpu_activity" className="size-3.5" />}
-          value={gpuActivity}
-          accessibleLabel={`GPU ${gpu.index} GPU activity`}
-        />
-        <PercentMetricTile
-          metric="sm-activity"
-          label="SM active"
-          icon={<MetricIcon metric="sm_activity" className="size-3.5" />}
-          value={sm}
-          accessibleLabel={`GPU ${gpu.index} SM activity`}
-        />
-        <PercentMetricTile
-          metric="memory-activity"
-          label="Memory active"
-          icon={<MetricIcon metric="memory_activity" className="size-3.5" />}
-          value={memoryActivity}
-          accessibleLabel={`GPU ${gpu.index} memory activity`}
-        />
-
-        <div
-          className="full-gpu-metric-tile flex min-w-0 flex-col border border-border/70 bg-card/45 p-3"
-          data-metric="memory"
-        >
-          <div className="full-gpu-metric-heading flex flex-col items-start gap-1 text-[13px] uppercase tracking-[0.11em] text-muted-foreground md:flex-row md:items-center md:justify-between md:gap-2">
-            <span className="full-gpu-metric-label inline-flex items-start gap-1.5 leading-tight md:items-center">
-              <MetricIcon metric="memory" className="size-3.5" /> Memory
-            </span>
-            <span className="full-gpu-metric-value whitespace-nowrap font-mono text-foreground">
-              {memory == null ? '—' : formatPercent(memory)}
-            </span>
-          </div>
-          <Progress
-            value={memory}
-            aria-label={`GPU ${gpu.index} memory used`}
-            className={`mt-auto pt-3 ${
-              memory != null && memory >= 85
-                ? '[&_[data-slot=progress-indicator]]:bg-amber-400'
-                : '[&_[data-slot=progress-indicator]]:bg-primary'
-            }`}
-          />
-          <p
-            className="full-gpu-memory-detail mt-1.5 whitespace-normal break-words font-mono text-[13px] leading-snug text-muted-foreground md:truncate md:whitespace-nowrap"
-            title={memoryDetail}
-          >
-            {memoryDetail}
-          </p>
-        </div>
-
-        <div
-          className="full-gpu-metric-tile flex min-w-0 flex-col border border-border/70 bg-card/45 p-3"
-          data-metric="pcie"
-        >
-          <div className="flex items-center gap-1.5 text-[13px] uppercase tracking-[0.11em] text-muted-foreground">
-            <MetricIcon
-              metric="pcie_total_bytes_per_second"
-              className="size-3.5"
-            />{' '}
-            PCIe
-          </div>
-          <p className="full-gpu-pcie-value mt-auto pt-2 font-mono text-[15px] font-semibold tabular-nums text-foreground">
-            {pcie.value}
-          </p>
-          <p
-            className="full-gpu-pcie-detail mt-1.5 whitespace-normal break-words font-mono text-[13px] leading-snug text-muted-foreground md:truncate md:whitespace-nowrap"
-            aria-label={pcie.accessibleDetail}
-            title={pcie.accessibleDetail}
-          >
-            {pcie.detail}
-          </p>
-        </div>
-
-        <div
-          className="full-gpu-metric-tile flex min-w-0 flex-col border border-border/70 bg-card/45 p-3"
-          data-metric="clocks"
-        >
-          <div className="mb-1.5 flex items-center gap-1.5 text-[13px] uppercase tracking-[0.11em] text-muted-foreground">
-            <MetricIcon metric="clocks" className="size-3.5" /> Clocks
-          </div>
-          <p
-            className="full-gpu-clock-row mt-auto flex flex-col items-start gap-0.5 font-mono text-[13px] text-muted-foreground md:flex-row md:items-center md:justify-between md:gap-2"
-            aria-label={`GPU ${gpu.index} SM clock ${smClock === '—' ? 'unavailable' : smClock}`}
-          >
-            <span>SM</span>
-            <span className="full-gpu-clock-value whitespace-nowrap text-foreground">
-              {smClock}
-            </span>
-          </p>
-          <p
-            className="full-gpu-clock-row mt-1.5 flex flex-col items-start gap-0.5 font-mono text-[13px] text-muted-foreground md:flex-row md:items-center md:justify-between md:gap-2"
-            aria-label={`GPU ${gpu.index} memory clock ${memoryClock === '—' ? 'unavailable' : memoryClock}`}
-          >
-            <span>Memory</span>
-            <span className="full-gpu-clock-value whitespace-nowrap text-foreground">
-              {memoryClock}
-            </span>
-          </p>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function MigBlock({
-  gpu,
-  gi,
+  hostKey = '',
+  theme = 'dark',
+  live = true,
   attribution,
   onSelect,
-}: {
-  gpu: GPU;
-  gi: GpuInstance;
-  attribution?: Attribution;
-  onSelect: Props['onSelect'];
-}) {
-  const memory = memoryPercent(gi.memory);
-  const sm = metricValue(gi.metrics.sm_activity);
-  const status = instanceStatus(gi);
-  const single = gi.computeInstances.length === 1;
-  const singleCI = single ? gi.computeInstances[0] : undefined;
-  const identity = (
-    <div
-      className={`flex items-start justify-between gap-2 ${single ? 'pointer-events-none relative z-0' : ''}`}
-    >
-      <span className="flex items-center gap-2">
-        <span className="grid size-6 place-items-center rounded bg-primary/10 text-primary">
-          <Cpu className="size-3.5" aria-hidden="true" />
-        </span>
-        <span className="block font-mono text-[15px] font-semibold">
-          {singleCI ? (
-            <>
-              <span className="mobile-only-label">GI {gi.id}</span>
-              <span className="desktop-only-label">
-                GI {gi.id} / CI {singleCI.id}
-              </span>
-            </>
-          ) : (
-            <>GI {gi.id}</>
-          )}
-        </span>
-      </span>
-      <span className="flex shrink-0 items-center gap-1.5">
-        <Badge
-          variant="outline"
-          className="rounded border-primary/15 bg-primary/5 font-mono text-[13px] text-primary"
-        >
-          {gi.profile}
-        </Badge>
-        {single ? (
-          <ChevronRight
-            className="resource-chevron size-4 text-primary"
-            aria-hidden="true"
-          />
-        ) : null}
-      </span>
-    </div>
+  allocationStates,
+}: Props) {
+  const headingID = useId();
+  const descriptionID = useId();
+  const buttons = useRef(new Map<string, HTMLButtonElement>());
+  const [highlight, setHighlight] = useState<{
+    id: string | null;
+    topology: string;
+  }>({ id: null, topology: '' });
+  const regions = gpuChipRegions(gpu);
+  const topologyKey = gpuTopologyKey(gpu);
+  const highlighted =
+    highlight.topology === topologyKey
+      ? regions.find((region) => region.id === highlight.id)
+      : undefined;
+  const stateFor = (id: string): GPUAllocationState =>
+    !live || (attribution && attribution.status !== 'available')
+      ? 'unknown'
+      : (allocationStates?.get(id) ?? 'unknown');
+  const appearances = regions.map((region) => ({
+    id: region.id,
+    state: stateFor(region.id),
+    activity: gpuChipActivity(region, live),
+  }));
+  const colors = GPU_CHIP_COLORS[theme];
+  const highlightRegion = (id: string | null) =>
+    setHighlight((previous) =>
+      previous.id === id && previous.topology === topologyKey
+        ? previous
+        : { id, topology: topologyKey },
+    );
+  const selectRegion = (id: string) => {
+    const region = regions.find((candidate) => candidate.id === id);
+    if (!region) return;
+    buttons.current.get(id)?.focus({ preventScroll: true });
+    onSelect(region.selection);
+  };
+  const fallback = (
+    <GPUBoardFallback
+      regions={regions}
+      appearances={appearances}
+      theme={theme}
+      highlightedId={highlighted?.id ?? null}
+    />
   );
-  const content = (
-    <>
-      {singleCI ? (
-        <>
-          <PerimeterLight />
+  return (
+    <article
+      className="gpu-card accelerator-card gpu-3d-card snow-capped"
+      aria-labelledby={headingID}
+      data-gpu-index={gpu.index}
+      data-gpu-uuid={gpu.uuid}
+      data-snow-cap="generated"
+      style={
+        {
+          '--gpu-chip-assigned': colors.assigned,
+          '--gpu-chip-unassigned': colors.unassigned,
+          '--gpu-chip-reserved': colors.reserved,
+          '--gpu-chip-unknown': colors.unknown,
+        } as CSSProperties
+      }
+    >
+      <SnowCap surfaceKey={`gpu:${gpu.uuid}`} />
+      <header className="gpu-hardware-header">
+        <div className="gpu-hardware-heading">
+          <GPUBrandIcon gpu={gpu} className="gpu-identity-icon size-4" />
+          <h3 id={headingID}>GPU {gpu.index}</h3>
+          <span className="gpu-mode-label">
+            {gpu.migEnabled ? 'MIG' : 'Full GPU'}
+          </span>
           <button
             type="button"
-            className="interactive-resource-button absolute inset-0 z-10 rounded-[inherit] text-left outline-none"
-            aria-label={`Open GPU ${gpu.index} · GI ${gi.id} / CI ${singleCI.id} details`}
-            onClick={() =>
-              onSelect({
-                kind: 'compute_instance',
-                gpu,
-                gi,
-                ci: singleCI,
-              })
-            }
-          />
-        </>
-      ) : null}
-      {identity}
-
-      <div className="pointer-events-none relative z-0 mt-4 grid grid-cols-2 gap-3">
-        <div>
-          <div className="mb-1.5 flex justify-between text-[13px] uppercase tracking-[0.11em] text-muted-foreground">
-            <span className="inline-flex items-center gap-1.5">
-              <MetricIcon metric="memory" className="size-3.5" />
-              <span className="mobile-only-label">Mem</span>
-              <span className="desktop-only-label">Memory</span>
-            </span>
-            <span className="font-mono text-foreground">
-              {memory == null ? '—' : formatPercent(memory)}
-            </span>
-          </div>
-          <Progress
-            value={memory}
-            aria-label={`GPU ${gpu.index} GI ${gi.id} memory used`}
-            className={
-              memory != null && memory >= 85
-                ? '[&_[data-slot=progress-indicator]]:bg-amber-400'
-                : '[&_[data-slot=progress-indicator]]:bg-primary'
-            }
-          />
+            className="accelerator-detail-button"
+            aria-label={`Open GPU ${gpu.index} physical GPU details`}
+            onClick={() => onSelect({ kind: 'physical_gpu', gpu })}
+          >
+            <ChevronRight className="size-4" aria-hidden="true" />
+          </button>
         </div>
-        <div>
-          <div className="mb-1.5 flex justify-between text-[13px] uppercase tracking-[0.11em] text-muted-foreground">
-            <span className="inline-flex items-center gap-1.5">
-              <MetricIcon metric="sm_activity" className="size-3.5" />
-              <span className="mobile-only-label">SM</span>
-              <span className="desktop-only-label">SM active</span>
-            </span>
-            <span className="font-mono text-foreground">
-              {sm == null ? '—' : formatPercent(sm)}
-            </span>
-          </div>
-          <Progress
-            value={sm}
-            aria-label={`GPU ${gpu.index} GI ${gi.id} SM activity`}
-          />
-        </div>
-      </div>
-
-      {attribution?.status === 'available' ? (
-        <div
-          className={
-            single
-              ? 'pointer-events-none relative z-20 mt-3 [&_button]:pointer-events-auto'
-              : 'mt-3'
-          }
-        >
-          <WorkspaceBadges
-            attribution={attribution}
-            targets={gi.computeInstances.map((ci) => ({
-              entityType: 'compute_instance',
-              entityUuid: ci.uuid,
-            }))}
-            limit={3}
-            showUnassigned
-          />
-        </div>
-      ) : null}
-
-      {!singleCI ? (
-        <div className="mobile-ci-list mt-4 space-y-1.5 border-t border-border/70 pt-3">
-          <p className="font-mono text-[13px] uppercase tracking-[0.12em] text-muted-foreground">
-            {gi.computeInstances.length} CIs · shared GI metrics
-          </p>
-          {gi.computeInstances.map((ci) => (
-            <div
-              key={ci.uuid}
-              className="mobile-ci-card interactive-resource flowing-surface relative flex w-full items-center justify-between gap-3 rounded border border-transparent px-2 py-2 text-left"
-            >
-              <PerimeterLight />
-              <button
-                type="button"
-                className="interactive-resource-button absolute inset-0 z-10 rounded-[inherit] text-left outline-none"
-                aria-label={`Open GPU ${gpu.index} · GI ${gi.id} · CI ${ci.id} details`}
-                onClick={() =>
-                  onSelect({ kind: 'compute_instance', gpu, gi, ci })
-                }
-              />
-              <span className="pointer-events-none relative z-0 font-mono text-[15px] text-primary">
-                CI {ci.id}
-              </span>
-              <span className="pointer-events-none relative z-0 flex min-w-0 flex-1 items-center justify-end gap-2">
-                <span className="truncate font-mono text-[13px] text-muted-foreground">
-                  {ci.profile}
-                </span>
-              </span>
-              <span className="pointer-events-none relative z-20 [&_button]:pointer-events-auto">
-                <WorkspaceBadges
-                  attribution={attribution}
-                  targets={[
-                    {
-                      entityType: 'compute_instance',
-                      entityUuid: ci.uuid,
-                    },
-                  ]}
-                  limit={1}
-                  showUnassigned
-                />
-              </span>
-              <ChevronRight
-                className="resource-chevron pointer-events-none relative z-0 size-4 shrink-0 text-primary"
-                aria-hidden="true"
-              />
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </>
-  );
-
-  const className = `min-w-0 rounded-lg border p-3 text-left ${single ? 'interactive-resource flowing-surface relative' : ''} ${status === 'error' ? 'border-destructive/60 bg-destructive/5' : status === 'warning' ? 'border-amber-500/35 bg-amber-500/[0.035]' : 'border-border/80 bg-instance'}`;
-  return (
-    <div className="mobile-mig-block min-w-0">
-      <div className={`${className} h-full`}>{content}</div>
-    </div>
-  );
-}
-
-function GPUCardComponent({ gpu, attribution, onSelect }: Props) {
-  const snowVariant = snowCapVariant(gpu.uuid);
-  return (
-    <Card
-      className="frost-panel snow-capped gpu-card mobile-resource-card h-full border-border/75 bg-card/90 py-0 shadow-[0_14px_35px_rgb(0_0_0/13%)] ring-0"
-      data-snow-cap={snowVariant}
-    >
-      <SnowCap variant={snowVariant} />
-      <CardHeader className="border-b border-border/70 py-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="grid size-9 shrink-0 place-items-center rounded-md border border-primary/20 bg-primary/10 text-primary">
-            <Gauge className="size-4" aria-hidden="true" />
-          </span>
-          <div className="min-w-0">
-            <CardTitle className="flex flex-wrap items-center gap-2 text-[17px]">
-              GPU {gpu.index}
-              <Badge className="rounded bg-primary/12 text-primary hover:bg-primary/12">
-                {gpu.migEnabled ? 'MIG enabled' : 'Full GPU'}
-              </Badge>
-            </CardTitle>
-            <CardDescription className="truncate font-mono text-[13px]">
-              {gpu.name}
-            </CardDescription>
-          </div>
-        </div>
-        <CardAction className="col-span-full col-start-1 row-span-1 row-start-2 mt-2 flex flex-wrap justify-end gap-2 text-[13px] text-muted-foreground sm:col-span-1 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:mt-0 sm:flex-nowrap">
+        <p className="gpu-model-name">{gpu.name}</p>
+        <div className="gpu-hardware-status">
           <TemperatureChip gpu={gpu} />
           <PowerChip gpu={gpu} />
-        </CardAction>
-        <div className="col-span-full mt-1 min-w-0">
-          <WorkspaceBadges
-            attribution={attribution}
-            targets={gpuAttributionTargets(gpu)}
-            limit={3}
-          />
         </div>
-      </CardHeader>
-      <CardContent className="gpu-resource-body mobile-resource-body flex min-h-[13rem] flex-1 flex-col py-4">
-        {gpu.migEnabled ? (
-          <>
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                <Box className="size-3" aria-hidden="true" /> MIG instances
-              </div>
-              <span className="font-mono text-[13px] text-muted-foreground">
-                {gpu.gpuInstances.length} GI ·{' '}
-                {gpu.gpuInstances.reduce(
-                  (sum, gi) => sum + gi.computeInstances.length,
-                  0,
-                )}{' '}
-                CI
+      </header>
+      <div className="gpu-scene-area">
+        <GPUBoardView
+          gpuKey={`${hostKey}/${gpu.uuid}`}
+          topologyKey={topologyKey}
+          regions={regions}
+          appearances={appearances}
+          theme={theme}
+          highlightedId={highlighted?.id ?? null}
+          onHighlight={highlightRegion}
+          onSelect={selectRegion}
+          label={`GPU ${gpu.index} interactive board`}
+          fallback={fallback}
+        />
+        {highlighted ? (
+          <ChipSummary
+            region={highlighted}
+            attribution={attribution}
+            live={live}
+            state={stateFor(highlighted.id)}
+          />
+        ) : null}
+      </div>
+      <div
+        className="gpu-instance-controls"
+        aria-label={`GPU ${gpu.index} chip regions`}
+        onMouseLeave={() => {
+          if (
+            !buttons.current.has(highlight.id ?? '') ||
+            ![...buttons.current.values()].includes(
+              document.activeElement as HTMLButtonElement,
+            )
+          )
+            highlightRegion(null);
+        }}
+      >
+        {regions.map((region) => {
+          const selection = region.selection;
+          const compute = selection.kind === 'compute_instance';
+          const state = stateFor(region.id);
+          const description = [
+            compute ? selection.ci.profile : 'Physical GPU',
+            assignmentLabel(state),
+            live ? ownersFor(region, attribution) : '',
+          ]
+            .filter(Boolean)
+            .join('. ');
+          return (
+            <button
+              type="button"
+              key={region.identity}
+              ref={(element) => {
+                if (element) buttons.current.set(region.id, element);
+                else buttons.current.delete(region.id);
+              }}
+              className={compute ? 'gpu-ci-button' : 'gpu-full-chip-button'}
+              data-ci-uuid={compute ? selection.ci.uuid : undefined}
+              data-region-id={region.id}
+              data-chip-key={region.id}
+              data-allocation-state={state}
+              data-highlighted={highlighted?.id === region.id || undefined}
+              aria-label={
+                compute
+                  ? `Open GPU ${gpu.index} · GI ${selection.gi.id} · CI ${selection.ci.id} details`
+                  : `Open GPU ${gpu.index} full GPU details`
+              }
+              aria-describedby={`${descriptionID}-${region.id}`}
+              onFocus={() => highlightRegion(region.id)}
+              onBlur={() => highlightRegion(null)}
+              onMouseEnter={() => highlightRegion(region.id)}
+              onClick={() => selectRegion(region.id)}
+            >
+              <span id={`${descriptionID}-${region.id}`} className="sr-only">
+                {description}
               </span>
-            </div>
-            {gpu.gpuInstances.length === 0 ? (
-              <div className="flex flex-1 items-center border border-dashed border-border p-5 text-[15px] text-muted-foreground">
-                No active MIG instances.
-              </div>
-            ) : (
-              <div
-                className={`mig-resource-grid grid flex-1 grid-cols-1 gap-2 ${gpu.gpuInstances.length > 1 ? 'sm:grid-cols-2' : ''}`}
-              >
-                {gpu.gpuInstances.map((gi) => (
-                  <MigBlock
-                    key={gi.uuid}
-                    gpu={gpu}
-                    gi={gi}
-                    attribution={attribution}
-                    onSelect={onSelect}
-                  />
-                ))}
-              </div>
-            )}
-          </>
-        ) : (
-          <FullGPUResource gpu={gpu} onSelect={onSelect} />
-        )}
-      </CardContent>
-    </Card>
+              <span className="gpu-ci-identity">
+                {compute ? region.label : 'Inspect chip'}
+              </span>
+              <AllocationBadge state={state} />
+            </button>
+          );
+        })}
+        {regions.length === 0 ? (
+          <p className="accelerator-empty">No observed MIG instances.</p>
+        ) : null}
+      </div>
+    </article>
   );
 }
 

@@ -1,5 +1,8 @@
 import type { components } from './api.gen';
 
+export type WorkloadTelemetry = components['schemas']['WorkloadTelemetry'];
+export type WorkloadOwnerTelemetry =
+  components['schemas']['WorkloadOwnerTelemetry'];
 export type WorkloadAttribution = components['schemas']['WorkloadAttribution'];
 export type ResourceAssignment = components['schemas']['ResourceAssignment'];
 export type Attribution = components['schemas']['Attribution'];

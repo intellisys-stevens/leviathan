@@ -1,0 +1,316 @@
+.motherboard-resources {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.motherboard-resources.snow-capped {
+  isolation: auto;
+  /* Keep HTML overlays above the shared graphics layer. */
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.motherboard-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 4px 12px 0 16px;
+}
+.motherboard-panel-heading > p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.motherboard-panel-heading svg,
+.motherboard-category-button svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--primary);
+}
+.motherboard-about {
+  position: relative;
+}
+.motherboard-about > summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-height: 44px;
+  border-radius: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+.motherboard-about > summary::-webkit-details-marker {
+  display: none;
+}
+.motherboard-about > p {
+  position: absolute;
+  z-index: 8;
+  top: 100%;
+  right: 0;
+  width: min(20rem, calc(100vw - 4rem));
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--popover-foreground);
+  background: var(--popover);
+  box-shadow: var(--glass-shadow);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+.motherboard-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+.motherboard-scene,
+.motherboard-details {
+  min-width: 0;
+}
+.motherboard-resources .hardware-board-viewport {
+  height: 280px;
+}
+.motherboard-resources .hardware-board-toolbar {
+  padding-inline: 4px;
+}
+.motherboard-details {
+  padding: 0 16px 12px;
+}
+.motherboard-category {
+  min-width: 0;
+  padding: 6px 0 10px;
+}
+.motherboard-category + .motherboard-category {
+  border-top: 1px solid var(--border);
+}
+.motherboard-category-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.motherboard-category-heading h2 {
+  min-width: 0;
+  flex: 1;
+}
+.motherboard-category-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 44px;
+  min-height: 44px;
+  max-width: 100%;
+  padding: 4px 8px;
+  margin-left: -8px;
+  border-radius: 6px;
+  color: var(--foreground);
+  text-align: left;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  scroll-margin-top: 9rem;
+  transition:
+    background-color 180ms,
+    color 180ms;
+}
+.motherboard-category-button[aria-pressed='true'],
+.motherboard-category[data-highlighted='true'] .motherboard-category-button,
+.motherboard-about > summary:hover {
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 9%, transparent);
+}
+.motherboard-resources button:focus-visible,
+.motherboard-about > summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+.motherboard-data-state {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted-foreground);
+  font: 500 0.6875rem/1.4 var(--font-sans);
+}
+.motherboard-data-state[data-status='partial'],
+.motherboard-data-state[data-status='estimated'] {
+  color: var(--foreground);
+  border-style: dashed;
+}
+.motherboard-model-name {
+  margin-bottom: 7px;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+.motherboard-facts {
+  display: grid;
+  gap: 5px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+.motherboard-facts > div,
+.motherboard-filesystem-facts > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  min-width: 0;
+}
+.motherboard-facts dt,
+.motherboard-filesystem-facts dt {
+  color: var(--muted-foreground);
+}
+.motherboard-facts dd,
+.motherboard-filesystem-facts dd {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.motherboard-metric {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.motherboard-loads {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0 4px;
+}
+.motherboard-loads > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.motherboard-empty {
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.motherboard-reserved-total {
+  display: inline-block;
+  color: var(--muted-foreground);
+}
+.motherboard-storage-rates {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0 4px;
+}
+.motherboard-filesystems {
+  margin-top: 6px;
+  display: grid;
+  gap: 6px;
+}
+.motherboard-filesystem {
+  min-width: 0;
+  padding: 6px 0 0;
+  border-top: 1px solid color-mix(in oklch, var(--border) 65%, transparent);
+  font-size: 0.75rem;
+}
+.motherboard-filesystem-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.motherboard-filesystem-heading h3 {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.motherboard-fullest {
+  font-size: 0.6875rem;
+}
+.motherboard-filesystem-percent {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.motherboard-filesystem-heading > span {
+  color: var(--muted-foreground);
+}
+.motherboard-filesystem-facts {
+  margin-top: 3px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+}
+.motherboard-filesystem-facts > div {
+  justify-content: start;
+  gap: 4px;
+}
+.motherboard-filesystem-facts > div:first-child dt {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.motherboard-filesystem-facts > div:not(:first-child) {
+  color: var(--muted-foreground);
+}
+.motherboard-filesystem-facts > div:not(:first-child) dt {
+  order: 1;
+  text-transform: lowercase;
+}
+.motherboard-filesystem-usage {
+  margin-top: 4px;
+}
+@media (min-width: 640px) {
+  .motherboard-resources .hardware-board-viewport {
+    height: 360px;
+  }
+}
+@media (min-width: 1024px) {
+  .motherboard-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .motherboard-details {
+    border-left: 1px solid var(--border);
+  }
+  .motherboard-resources .hardware-board-viewport {
+    height: 460px;
+  }
+}
+@media (max-width: 767px) {
+  .motherboard-category-button {
+    scroll-margin-top: 5rem;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .motherboard-resources *,
+  .motherboard-resources *::before,
+  .motherboard-resources *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+@media (forced-colors: active) {
+  .motherboard-resources,
+  .motherboard-category,
+  .motherboard-details,
+  .motherboard-filesystem,
+  .motherboard-data-state,
+  .motherboard-about > p {
+    border-color: CanvasText;
+  }
+  .motherboard-category-button[aria-pressed='true'] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}

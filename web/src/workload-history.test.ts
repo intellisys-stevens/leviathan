@@ -6,6 +6,7 @@ import {
   buildWorkloadTelemetryEntities,
   currentWorkloadRow,
   loadWorkloadHistory,
+  mergeWorkloadRows,
   workloadHistoryBatches,
   workloadHistoryDescriptors,
   workloadHistoryKeys,
@@ -253,5 +254,179 @@ describe('workload history mapping', () => {
       expect(request.series.every(({ metrics }) => metrics.length === 6)).toBe(
         true,
       );
+  });
+
+  it('does not append unchanged GPU measurements at host or cgroup publication times', () => {
+    const { selections } = topology();
+    const entities = buildWorkloadTelemetryEntities(
+      [person('owner-a', 'alice', selections)],
+      'owner-a',
+    );
+    const first = currentWorkloadRow(sampledAt, entities)!;
+    let rows = [first];
+    for (const seconds of [1, 2, 3, 10, 20]) {
+      const publication = new Date(
+        Date.parse(sampledAt) + seconds * 1000,
+      ).toISOString();
+      const retained = currentWorkloadRow(publication, entities)!;
+      expect(retained.time).toBe(Date.parse(sampledAt));
+      const previous = rows;
+      rows = mergeWorkloadRows(rows, retained, 30 * 60000);
+      expect(rows).toBe(previous);
+    }
+    expect(rows).toEqual([first]);
+  });
+
+  it('keeps corrected values, unavailable samples and retention changes observable', () => {
+    const initial = [
+      { time: 1000, activity: 0 },
+      { time: 2000, activity: 25 },
+    ];
+    expect(mergeWorkloadRows(initial, { time: 2000, activity: 25 }, 2000)).toBe(
+      initial,
+    );
+    const corrected = mergeWorkloadRows(
+      initial,
+      { time: 2000, activity: 50 },
+      2000,
+    );
+    expect(corrected).not.toBe(initial);
+    expect(corrected.at(-1)?.activity).toBe(50);
+    const unavailable = mergeWorkloadRows(
+      corrected,
+      { time: 2000, activity: null },
+      2000,
+    );
+    expect(unavailable.at(-1)?.activity).toBeNull();
+    const pruned = mergeWorkloadRows(
+      initial,
+      { time: 2000, activity: 25 },
+      500,
+    );
+    expect(pruned).toEqual([{ time: 2000, activity: 25 }]);
+    expect(initial).toHaveLength(2);
+  });
+
+  it('aligns independently observed entities without inventing a gap for an unchanged GPU', () => {
+    const { selections } = topology();
+    const [first] = buildWorkloadTelemetryEntities(
+      [person('owner-a', 'alice', selections)],
+      'owner-a',
+    );
+    const second = structuredClone(first);
+    second.key = 'gi:another';
+    second.entity = 'GI-another';
+    const observed = '2026-08-30T12:00:02Z';
+    second.source.memory.sampledAt = observed;
+    second.source.memory.usedBytes = 0;
+    for (const metric of Object.values(second.source.metrics))
+      metric.sampledAt = observed;
+    second.source.metrics.sm_activity.value = 0;
+    const entities = [first, second];
+    const current = currentWorkloadRow('2026-08-30T12:00:20Z', entities)!;
+    expect(current.time).toBe(Date.parse(observed));
+    expect(current).toMatchObject({
+      [workloadHistoryKeys(0).activity]: 50,
+      [workloadHistoryKeys(0).memory]: 40,
+      [workloadHistoryKeys(1).activity]: 0,
+      [workloadHistoryKeys(1).memory]: 0,
+    });
+    const laterHost = currentWorkloadRow('2026-08-30T12:00:22Z', entities)!;
+    expect(mergeWorkloadRows([current], laterHost, 30 * 60000)).toEqual([
+      current,
+    ]);
+  });
+
+  it('adds an all-unavailable observation at publication time without replacing the last good GPU sample', () => {
+    const { selections } = topology();
+    const entities = buildWorkloadTelemetryEntities(
+      [person('owner-a', 'alice', selections)],
+      'owner-a',
+    );
+    const first = currentWorkloadRow(sampledAt, entities)!;
+    const source = entities[0].source;
+    source.memory.status = 'stale';
+    for (const metric of Object.values(source.metrics)) metric.status = 'stale';
+    const gapTime = '2026-08-30T12:00:20Z';
+    const gap = currentWorkloadRow(gapTime, entities)!;
+    expect(gap.time).toBe(Date.parse(gapTime));
+    for (const key of Object.values(workloadHistoryKeys(0)).filter(
+      (key) => key !== 'assigned_0',
+    ))
+      expect(gap[key]).toBeNull();
+    const rows = mergeWorkloadRows([first], gap, 5 * 60000);
+    expect(rows[0]).toEqual(first);
+    source.memory.status = 'available';
+    source.memory.sampledAt = '2026-08-30T12:00:21Z';
+    for (const metric of Object.values(source.metrics)) {
+      metric.status = 'available';
+      metric.sampledAt = source.memory.sampledAt;
+    }
+    const recovered = currentWorkloadRow('2026-08-30T12:00:25Z', entities)!;
+    const complete = mergeWorkloadRows(rows, recovered, 5 * 60000);
+    expect(complete.map((row) => row[workloadHistoryKeys(0).activity])).toEqual(
+      [50, null, 50],
+    );
+    expect(complete.map((row) => row.time)).toEqual(
+      [sampledAt, gapTime, source.memory.sampledAt].map(Date.parse),
+    );
+  });
+
+  it('preserves per-metric unavailability and does not add transfer rates sampled at different times', () => {
+    const { selections } = topology();
+    const entities = buildWorkloadTelemetryEntities(
+      [person('owner-a', 'alice', selections)],
+      'owner-a',
+    );
+    const source = entities[0].source;
+    const observed = '2026-08-30T12:00:02Z';
+    source.memory.sampledAt = observed;
+    source.metrics.sm_activity.sampledAt = observed;
+    source.metrics.dram_activity.status = 'unsupported';
+    source.metrics.pcie_tx_bytes_per_second.sampledAt = observed;
+    const row = currentWorkloadRow('2026-08-30T12:00:20Z', entities)!;
+    expect(row.time).toBe(Date.parse(observed));
+    expect(row[workloadHistoryKeys(0).activity]).toBe(50);
+    expect(row[workloadHistoryKeys(0).memoryActivity]).toBeNull();
+    expect(row[workloadHistoryKeys(0).pcieTotal]).toBeNull();
+  });
+
+  it('uses only parent GI telemetry and rejects values without valid provenance', () => {
+    const { selections } = topology();
+    const selection = selections[0];
+    if (selection.kind !== 'compute_instance')
+      throw new Error('expected a compute instance');
+    selection.ci.metrics.sm_activity = {
+      ...selection.gi.metrics.sm_activity,
+      scope: 'compute_instance',
+      value: 99,
+    };
+    const entities = buildWorkloadTelemetryEntities(
+      [person('owner-a', 'alice', selections)],
+      'owner-a',
+    );
+    expect(
+      currentWorkloadRow(sampledAt, entities)?.[
+        workloadHistoryKeys(0).activity
+      ],
+    ).toBe(50);
+    entities[0].source.memory.sampledAt = 'invalid';
+    for (const metric of Object.values(entities[0].source.metrics))
+      metric.sampledAt = 'invalid';
+    const unavailable = currentWorkloadRow('2026-08-30T12:00:10Z', entities)!;
+    expect(unavailable.time).toBe(Date.parse('2026-08-30T12:00:10Z'));
+    expect(unavailable[workloadHistoryKeys(0).activity]).toBeNull();
+    expect(unavailable[workloadHistoryKeys(0).memory]).toBeNull();
+  });
+
+  it('does not reinsert old GPU points outside the currently retained window', () => {
+    const key = workloadHistoryKeys(0).activity;
+    const existing = [
+      { time: 10000, [key]: 1 },
+      { time: 60000, [key]: 2 },
+    ];
+    expect(mergeWorkloadRows(existing, { time: 0, [key]: 3 }, 30000)).toEqual([
+      { time: 60000, [key]: 2 },
+    ]);
   });
 });

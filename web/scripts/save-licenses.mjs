@@ -66,11 +66,24 @@ for (const [packagePath, metadata] of Object.entries(lock.packages ?? {})) {
   noticeRows.push(`${identity} — ${metadata.license}`);
 }
 
+const marksSource = path.join(webRoot, 'src/assets/gpu-brands');
+const marksDestination = path.join(destination, 'gpu-brand-marks');
+await mkdir(marksDestination, { recursive: true });
+for (const file of ['README.md', 'LICENSE.simple-icons.md']) {
+  await copyFile(
+    path.join(marksSource, file),
+    path.join(marksDestination, file),
+  );
+}
+noticeRows.push(
+  'GPU brand marks (Simple Icons) — CC0-1.0; trademarks retained',
+);
+
 noticeRows.sort((left, right) => left.localeCompare(right));
 await writeFile(
   path.join(destination, 'THIRD_PARTY_NOTICES.txt'),
-  `Leviathan embedded web production dependencies\n\n${noticeRows.join('\n')}\n`,
+  `Leviathan embedded web production dependencies and graphics\n\n${noticeRows.join('\n')}\n`,
 );
 console.log(
-  `Saved notices for ${noticeRows.length} production web packages to ${destination}.`,
+  `Saved notices for ${noticeRows.length - 1} production web packages and GPU brand graphics to ${destination}.`,
 );
