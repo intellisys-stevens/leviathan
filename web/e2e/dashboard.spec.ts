@@ -1404,9 +1404,10 @@ test('lays out GPU cards responsively without rendering opaque identifiers', asy
   }
 });
 
-test('uses fixed half-second updates with compact accessible status', async ({
+test('changes only browser display cadence with compact accessible status', async ({
   page,
 }) => {
+  test.setTimeout(60_000);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const settingsPatches: string[] = [];
   page.on('request', (request) => {
@@ -1423,21 +1424,32 @@ test('uses fixed half-second updates with compact accessible status', async ({
   const header = page.getByRole('banner');
   const desktop = page.getByTestId('desktop-live-sampling');
   const mobile = page.getByTestId('mobile-live-sampling');
-  await expect(
-    page.getByRole('radiogroup', { name: 'View updates' }),
-  ).toHaveCount(0);
   if (page.viewportSize()!.width >= 768) {
     await expect(desktop).toBeVisible();
     await expect(mobile).toBeHidden();
     await expect(desktop.getByText('Live', { exact: true })).toBeVisible();
-    await expect(desktop.getByLabel('View updates every 0.5s')).toBeVisible();
-    expect((await desktop.boundingBox())!.width).toBeLessThan(140);
+    const choices = desktop.getByRole('radiogroup', { name: 'View updates' });
+    await expect(choices.getByRole('radio', { name: '2s' })).toBeChecked();
+    for (const [label, value] of [
+      ['1s', '1000'],
+      ['0.5s', '500'],
+      ['2s', '2000'],
+    ]) {
+      await choices.getByText(label, { exact: true }).click();
+      await expect(choices.getByRole('radio', { name: label })).toBeChecked();
+      expect(
+        await page.evaluate(() =>
+          localStorage.getItem('leviathan.displayCadence.v1'),
+        ),
+      ).toBe(value);
+    }
+    expect((await desktop.boundingBox())!.width).toBeLessThan(240);
   } else {
     await expect(desktop).toBeHidden();
     const trigger = mobile.getByRole('button', {
-      name: 'Live status, view updates 0.5s',
+      name: 'Live status, view updates 2s',
     });
-    await expect(trigger).toHaveText('Live · 0.5s');
+    await expect(trigger).toHaveText('Live · 2s');
     for (const control of [
       trigger,
       header.getByRole('button', { name: /Use (light|dark) theme/ }),
@@ -1451,7 +1463,25 @@ test('uses fixed half-second updates with compact accessible status', async ({
     const popup = page.getByRole('dialog');
     await expect(popup).toBeVisible();
     await expect(popup.getByText('synthetic-host')).toBeVisible();
-    await expect(popup.getByRole('radiogroup')).toHaveCount(0);
+    const choices = popup.getByRole('radiogroup', { name: 'View updates' });
+    await expect(
+      choices.getByRole('radio', { name: '2s', exact: true }),
+    ).toBeChecked();
+    for (const [label, value] of [
+      ['1s', '1000'],
+      ['0.5s', '500'],
+      ['2s', '2000'],
+    ]) {
+      await choices.getByText(label, { exact: true }).click();
+      await expect(
+        choices.getByRole('radio', { name: label, exact: true }),
+      ).toBeChecked();
+      expect(
+        await page.evaluate(() =>
+          localStorage.getItem('leviathan.displayCadence.v1'),
+        ),
+      ).toBe(value);
+    }
     await expect(popup).not.toContainText(
       /This browser updates|Host samples|profiles|processes/,
     );
@@ -1459,14 +1489,29 @@ test('uses fixed half-second updates with compact accessible status', async ({
     await expect(popup).toBeHidden();
     await expect(trigger).toBeFocused();
   }
-  await expect(header).toHaveScreenshot('fixed-cadence-header.png', {
+  await page.reload();
+  if (page.viewportSize()!.width >= 768) {
+    await expect(desktop.getByRole('radio', { name: '2s' })).toBeChecked();
+    await expect(desktop.getByText('Live', { exact: true })).toBeVisible();
+  } else {
+    await expect(
+      mobile.getByRole('button', { name: 'Live status, view updates 2s' }),
+    ).toBeVisible();
+  }
+  expect(
+    await page.evaluate(
+      async () =>
+        (await (await fetch('/api/v1/settings')).json()).samplingIntervalMs,
+    ),
+  ).toBe(500);
+  await expect(header).toHaveScreenshot('view-cadence-header.png', {
     animations: 'disabled',
     timeout: 20_000,
   });
   expect(settingsPatches).toEqual([]);
 });
 
-test('preserves chart-window motion with the fixed dashboard cadence', async ({
+test('preserves chart-window motion independently of browser cadence', async ({
   page,
 }, testInfo) => {
   test.skip(
@@ -1501,8 +1546,8 @@ test('preserves chart-window motion with the fixed dashboard cadence', async ({
   await expect(
     page
       .getByTestId('desktop-live-sampling')
-      .getByLabel('View updates every 0.5s'),
-  ).toBeVisible();
+      .getByRole('radio', { name: '0.5s' }),
+  ).toBeChecked();
   await expect
     .poll(async () => (await motion(chartWindow)).transform)
     .not.toBe(initialTransform);

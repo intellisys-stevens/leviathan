@@ -122,16 +122,19 @@ memory remains shared within each GPU instance.
 Capacity cards share aligned rows and bottom bars. GPU metrics use the cyan gauge;
 vendor marks identify devices in Resources, Workloads, and detail headers.
 The mobile header exposes GitHub and the theme switch directly. Its View updates
-popup keeps the hostname and connection state. The refresh rate is fixed at 0.5s
-for every browser; older saved cadence preferences are ignored. Charts keep
-collecting every sample while offscreen, but pause SVG redraws until they approach
-the viewport or receive keyboard focus. Repeated unchanged measurements reuse the
-existing chart data; no samples are skipped to achieve the display cadence.
+popup keeps the hostname and connection state, with 0.5s, 1s, and 2s display
+intervals. The desktop header offers the same choices. The selection is saved in
+this browser and defaults to 0.5s; it never changes backend sampling or retained
+history. Each display update uses the latest available snapshot. Offscreen charts
+pause SVG redraws until they approach the viewport or receive keyboard focus.
+Repeated unchanged measurements reuse the existing chart data.
 
-Overview and Workloads charts share aligned, equal-height panels with single-row GPU legends.
-Swipe the legend or use its arrow buttons to reach additional series; keyboard
-Left/Right and Home/End move focus through them. Select a legend item to highlight
-its series. Enlarged text can grow naturally.
+On desktop, Overview and Workloads charts share aligned, equal-height panels with
+single-row GPU legends. Swipe the legend or use its arrow buttons to reach
+additional series. On mobile, every chart legend shows its complete list in two
+columns, with values below labels and room for long names to wrap. Keyboard
+Left/Right and Home/End move focus through the labels. Select a legend item to
+highlight its series. Enlarged text can grow naturally.
 Charts support direct tap and keyboard inspection (Left/Right, Home/End). Escape
 or Live returns to current values.
 

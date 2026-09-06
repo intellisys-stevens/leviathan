@@ -356,55 +356,60 @@ describe('useLeviathan runtime settings', () => {
     expect(hook.result.current.streamError).toBeNull();
   });
 
-  it('commits only the latest pending snapshot at the global half-second display cadence', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (input: string | URL | Request) => {
-        const url = requestURL(input);
-        if (url === '/api/v1/snapshot') return jsonResponse(snapshot);
-        if (url === '/api/v1/settings') return jsonResponse(initialSettings);
-        if (url === '/api/v1/version') return jsonResponse(buildInfo);
-        throw new Error(`unexpected request: ${url}`);
-      }),
-    );
+  it.each([500, 1000, 2000])(
+    'commits only the latest pending snapshot at the %sms browser cadence',
+    async (cadence) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: string | URL | Request) => {
+          const url = requestURL(input);
+          if (url === '/api/v1/snapshot') return jsonResponse(snapshot);
+          if (url === '/api/v1/settings') return jsonResponse(initialSettings);
+          if (url === '/api/v1/version') return jsonResponse(buildInfo);
+          throw new Error(`unexpected request: ${url}`);
+        }),
+      );
 
-    const hook = renderHook(({ cadence }) => useLeviathan(cadence), {
-      initialProps: { cadence: 500 },
-    });
-    await waitFor(() => expect(hook.result.current.snapshot?.sequence).toBe(1));
-    vi.useFakeTimers();
-    vi.setSystemTime(Date.now());
+      const hook = renderHook(({ cadence }) => useLeviathan(cadence), {
+        initialProps: { cadence },
+      });
+      await waitFor(() =>
+        expect(hook.result.current.snapshot?.sequence).toBe(1),
+      );
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.now());
 
-    act(() => {
-      FakeEventSource.instances[0].emit('snapshot', {
-        ...snapshot,
-        sequence: 2,
-        sampledAt: '2026-08-29T12:00:01Z',
+      act(() => {
+        FakeEventSource.instances[0].emit('snapshot', {
+          ...snapshot,
+          sequence: 2,
+          sampledAt: '2026-08-29T12:00:01Z',
+        });
+        FakeEventSource.instances[0].emit('snapshot', {
+          ...snapshot,
+          sequence: 3,
+          sampledAt: '2026-08-29T12:00:02Z',
+        });
       });
-      FakeEventSource.instances[0].emit('snapshot', {
-        ...snapshot,
-        sequence: 3,
-        sampledAt: '2026-08-29T12:00:02Z',
+      expect(hook.result.current.snapshot?.sequence).toBe(1);
+      expect(hook.result.current.connection).not.toBe('live');
+      act(() => {
+        vi.advanceTimersByTime(cadence);
       });
-    });
-    expect(hook.result.current.snapshot?.sequence).toBe(1);
-    expect(hook.result.current.connection).not.toBe('live');
-    act(() => {
-      vi.advanceTimersByTime(500);
-    });
-    expect(hook.result.current.snapshot?.sequence).toBe(3);
-    expect(hook.result.current.connection).toBe('live');
+      expect(hook.result.current.snapshot?.sequence).toBe(3);
+      expect(hook.result.current.connection).toBe('live');
 
-    hook.rerender({ cadence: 0 });
-    act(() => {
-      FakeEventSource.instances[0].emit('snapshot', {
-        ...snapshot,
-        sequence: 4,
-        sampledAt: '2026-08-29T12:00:03Z',
+      hook.rerender({ cadence: 0 });
+      act(() => {
+        FakeEventSource.instances[0].emit('snapshot', {
+          ...snapshot,
+          sequence: 4,
+          sampledAt: '2026-08-29T12:00:03Z',
+        });
       });
-    });
-    expect(hook.result.current.snapshot?.sequence).toBe(4);
-  });
+      expect(hook.result.current.snapshot?.sequence).toBe(4);
+    },
+  );
 
   it.each(['interruption', 'malformed event'] as const)(
     'does not restore live from a cadence-pending sample after %s',

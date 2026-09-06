@@ -31,6 +31,10 @@
 - Receipt-based Yggdrasil connection history, saved in isolated daily sidecars
   that preserve the legacy health journal and rollback compatibility.
 - Shared NVIDIA, AMD, Intel, and generic GPU identity icons across the dashboard.
+- Signed per-host managed updates and automatic setup through Yggdrasil, with
+  native Linux updaters, prerequisite checks, systemd recovery, and rollback.
+- Dynamic NVIDIA DRA attribution through private allocation handoffs and optional
+  driver checkpoint resolution, validated against live GPU and MIG identities.
 
 ### Changed
 
@@ -50,7 +54,13 @@
   devices, and keeps incomplete availability explicit. Overview capacity and charts
   put CPU and RAM before GPU and Storage. Resources groups host measurements in
   the motherboard panel above GPU boards. Overview and Workloads plots share compact, equal-height panels;
-  single-row GPU legends support scrolling, arrow controls, and keyboard access.
+  desktop GPU legends support scrolling, arrow controls, and keyboard access.
+  Mobile charts show every legend label in two columns, with wrapping names and
+  values below each label.
+- Browser update speeds of 0.5s, 1s, and 2s are saved per browser and selected
+  through a glass control. Display preferences do not change host sampling or
+  retained history. Overview capacity cards share the navigation's rounded cyan
+  hover glow and reduced-motion behavior.
 - Assignment integration appears once in Workloads; provider details are
   disclosed on demand. Reserved assignments remain distinct from active usage.
 - Snow accumulates in 1–2 separated piles with randomized heights and spacing.
@@ -70,6 +80,12 @@
   Shared GI activity stays explicit, and reduced motion keeps the effect static.
 - Host history preserves independent sample timestamps and missing values;
   incomplete capacity readings stay explicit rather than becoming zero.
+
+### Fixed
+
+- Independently sampled GPU, host, and workload series no longer acquire false
+  line breaks when another series reports a measurement. Charts preserve real
+  gaps represented by explicitly unavailable samples, including in detail views.
 
 ### Security and privacy
 

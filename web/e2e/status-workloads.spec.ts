@@ -492,7 +492,7 @@ test('measured zero, partial, unavailable and disconnected owner values remain d
   ).toBeAttached();
 });
 
-test('phone Storage I/O legends keep complete units in one row while both series remain reachable', async ({
+test('phone Storage I/O legends show both series in two columns with complete units', async ({
   page,
 }, testInfo) => {
   await page.setViewportSize({ width: 320, height: 800 });
@@ -522,19 +522,30 @@ test('phone Storage I/O legends keep complete units in one row while both series
   );
   expect(measurements[0].top).toBe(measurements[1].top);
   for (const measurement of measurements) {
-    expect(measurement.height).toBe(44);
+    expect(measurement.height).toBeGreaterThanOrEqual(44);
     expect(measurement.valueHeight).toBeCloseTo(measurement.lineHeight, 1);
     expect(measurement.fits).toBe(true);
   }
   await expect(cells.last().locator('[data-legend-value]')).toHaveText(
     '1 KiB/s',
   );
-  await panel
-    .getByRole('button', { name: 'Next Aster Storage I/O series', exact: true })
-    .click();
-  await expect
-    .poll(() => strip.evaluate((element) => element.scrollLeft))
-    .toBeGreaterThan(0);
+  await expect(
+    panel.getByRole('button', {
+      name: 'Next Aster Storage I/O series',
+      exact: true,
+    }),
+  ).toBeHidden();
+  expect(
+    await strip.evaluate(
+      (element) =>
+        getComputedStyle(element).gridTemplateColumns.split(' ').length,
+    ),
+  ).toBe(2);
+  expect(
+    await strip.evaluate(
+      (element) => element.scrollWidth - element.clientWidth,
+    ),
+  ).toBeLessThanOrEqual(1);
   const visible = await cells.last().evaluate((button) => {
     const bounds = button.getBoundingClientRect();
     const viewport = button.parentElement!.getBoundingClientRect();
@@ -700,7 +711,8 @@ for (const width of [320, 360, 390, 430, 640, 767, 768, 1024, 1440]) {
             .getBoundingClientRect();
           return {
             height: bounds.height,
-            noOverlap: label.right <= value.left + 1,
+            noOverlap:
+              label.right <= value.left + 1 || label.bottom <= value.top + 1,
             fits: value.right <= bounds.right + 1,
           };
         }),

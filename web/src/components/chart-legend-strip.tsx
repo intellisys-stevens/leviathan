@@ -87,7 +87,8 @@ export function useChartLegendStrip(label: string, seriesKey: string) {
             );
     event.preventDefault();
     event.stopPropagation();
-    items[index]?.focus({ preventScroll: true });
+    // Full mobile grids scroll with the page; desktop strips scroll themselves.
+    items[index]?.focus({ preventScroll: edges.overflow });
     const target = items[index]?.getBoundingClientRect();
     const bounds = element.getBoundingClientRect();
     if (target && (target.left < bounds.left || target.right > bounds.right)) {

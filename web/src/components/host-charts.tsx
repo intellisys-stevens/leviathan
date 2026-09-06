@@ -1,3 +1,4 @@
+import { SampledLine } from './sampled-line';
 import {
   ChartRenderBoundary,
   useChartVisibility,
@@ -14,7 +15,6 @@ import {
 import { Cpu, Database, MemoryStick, type LucideIcon } from 'lucide-react';
 import {
   CartesianGrid,
-  Line,
   LineChart,
   ReferenceLine,
   ResponsiveContainer,
@@ -201,7 +201,7 @@ const HostHistoryPlot = memo(function HostHistoryPlot({
             />
           ) : null}
           {keys.map((key, index) => (
-            <Line
+            <SampledLine
               key={key}
               type="linear"
               dataKey={key}
@@ -211,7 +211,6 @@ const HostHistoryPlot = memo(function HostHistoryPlot({
               strokeOpacity={activeKey && activeKey !== key ? 0.2 : 1}
               strokeDasharray={index ? '6 3' : undefined}
               dot={false}
-              connectNulls={false}
               isAnimationActive={false}
             />
           ))}

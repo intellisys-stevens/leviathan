@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { buildTrendRows } from './chart-trend';
 import type { AttributedPerson } from './attribution';
 import type { LoadAlignedHistory } from './overview-history';
 import type { GPU, GpuInstance, Selection } from './types';
@@ -210,6 +211,40 @@ describe('workload history mapping', () => {
       [keys.memoryActivity]: 35,
       [keys.pcieTotal]: 150,
     });
+  });
+
+  it('distinguishes other history batches from an absent descriptor in its own response', () => {
+    const { selections } = topology();
+    const [entity] = buildWorkloadTelemetryEntities(
+      [person('owner-a', 'alice', selections)],
+      'owner-a',
+    );
+    const entities = [entity, { ...entity, key: 'other', entity: 'GI-other' }];
+    const descriptors = workloadHistoryDescriptors(entities);
+    const rows = workloadRowsFromHistory(
+      descriptors.map((descriptor, index) => ({
+        window: '5m',
+        series: [descriptor],
+        points: [0, 2, 4].map((second) => ({
+          sampledAt: new Date(
+            Date.parse(sampledAt) + second * 1000 + index * 500,
+          ).toISOString(),
+          values:
+            index === 0 && second === 2
+              ? {}
+              : { [descriptor.key]: { sm_activity: 40 + second } },
+        })),
+      })),
+      entities,
+    );
+    const keys = entities.map(
+      (_, index) => workloadHistoryKeys(index).activity,
+    );
+    expect(rows[0][keys[1]]).toBeUndefined();
+    expect(rows[2][keys[0]]).toBeNull();
+    const trend = buildTrendRows(rows, keys, 5 * 60_000);
+    expect(trend.map((row) => row[keys[0]])).toEqual([40, null, 44]);
+    expect(trend.map((row) => row[keys[1]])).toEqual([40, 42, 44]);
   });
 
   it('batches aligned requests under both series and metric limits', async () => {

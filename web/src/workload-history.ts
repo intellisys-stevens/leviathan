@@ -197,14 +197,17 @@ export function workloadRowsFromHistory(
 ): ChartRow[] {
   const rows = new Map<number, ChartRow>();
   for (const response of responses) {
+    const requested = new Set(response.series.map(({ key }) => key));
     for (const point of response.points) {
       const time = Date.parse(point.sampledAt);
       if (!Number.isFinite(time)) continue;
       const row: ChartRow = rows.get(time) ?? { time };
       for (const [index, entity] of entities.entries()) {
         const keys = workloadHistoryKeys(index);
-        const values = point.values[keys.descriptor];
-        if (!values) continue;
+        // Other request batches have independent timestamp sets. A missing
+        // descriptor in its own response, however, is an explicit outage.
+        if (!requested.has(keys.descriptor)) continue;
+        const values = point.values[keys.descriptor] ?? {};
         row[keys.activity] = percentageMetric(values, entity.activityMetric);
         row[keys.memory] = memoryPercentage(values);
         row[keys.memoryActivity] = percentageMetric(

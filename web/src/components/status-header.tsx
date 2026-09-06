@@ -3,10 +3,11 @@ import { AlertTriangle, ChevronDown, Moon, Sun } from 'lucide-react';
 import { memo } from 'react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { formatSamplingInterval } from '../chart-window';
-import { displayCadenceMs } from '../display-cadence';
+import { displayCadencePresets } from '../display-cadence';
 import type { RuntimeSettings } from '../types';
 import { useMediaQuery } from '../use-media-query';
 import type { ConnectionState } from '../use-leviathan';
+import { SegmentedControl } from './segmented-control';
 
 type Props = {
   hostname?: string;
@@ -14,6 +15,8 @@ type Props = {
   degraded: boolean;
   settings: RuntimeSettings | null;
   settingsError?: string | null;
+  displayCadenceMs: number;
+  onDisplayCadenceChange: (milliseconds: number) => void;
   theme: 'dark' | 'light';
   onRetrySettings?: () => void;
   onToggleTheme: () => void;
@@ -42,6 +45,8 @@ function StatusHeaderComponent({
   degraded,
   settings,
   settingsError = null,
+  displayCadenceMs,
+  onDisplayCadenceChange,
   theme,
   onRetrySettings,
   onToggleTheme,
@@ -129,15 +134,12 @@ function StatusHeaderComponent({
                 {indicator}
                 {statusName}
               </output>
-              <span aria-hidden="true" className="text-muted-foreground">
-                ·
-              </span>
-              <span
-                className="font-mono text-[13px] text-muted-foreground"
-                aria-label={`View updates every ${displayedCadenceText}`}
-              >
-                {displayedCadenceText}
-              </span>
+              <SegmentedControl
+                ariaLabel="View updates"
+                options={displayCadencePresets}
+                value={displayCadenceMs}
+                onValueChange={onDisplayCadenceChange}
+              />
             </div>
             {settingsError ? (
               <output
@@ -199,7 +201,15 @@ function StatusHeaderComponent({
                         {statusName}
                       </span>
                     </div>
-                    <div className="relative">
+                    <div className="relative mt-3">
+                      <SegmentedControl
+                        ariaLabel="View updates"
+                        options={displayCadencePresets}
+                        value={displayCadenceMs}
+                        onValueChange={onDisplayCadenceChange}
+                        className="w-full"
+                        itemClassName="min-h-11 min-w-11"
+                      />
                       {settingsError ? (
                         <output
                           role="alert"

@@ -29,6 +29,8 @@ function header(
       connection="live"
       degraded={false}
       settings={settings()}
+      displayCadenceMs={500}
+      onDisplayCadenceChange={vi.fn()}
       theme="dark"
       onToggleTheme={vi.fn()}
       {...overrides}
@@ -40,8 +42,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('StatusHeader fixed cadence', () => {
-  it('renders a compact fixed cadence beside the live status', () => {
+describe('StatusHeader browser cadence', () => {
+  it('renders compact browser cadence choices beside the live status', () => {
     render(header());
     const desktop = screen.getByTestId('desktop-live-sampling');
     expect(
@@ -49,12 +51,9 @@ describe('StatusHeader fixed cadence', () => {
         name: 'Connection status: Live',
       }),
     ).toHaveTextContent('Live');
-    expect(
-      within(desktop).getByLabelText('View updates every 0.5s'),
-    ).toHaveTextContent('0.5s');
-    expect(
-      screen.queryByRole('radiogroup', { name: 'View updates' }),
-    ).toBeNull();
+    expect(within(desktop).getByRole('radio', { name: '0.5s' })).toBeChecked();
+    expect(within(desktop).getAllByRole('radio')).toHaveLength(3);
+    expect(screen.queryByRole('combobox')).toBeNull();
     expect(screen.getByTestId('leviathan-header-mark')).toHaveAttribute(
       'aria-hidden',
       'true',
@@ -76,24 +75,14 @@ describe('StatusHeader fixed cadence', () => {
     );
     fireEvent.click(within(desktop).getByRole('button', { name: 'Retry' }));
     expect(retry).toHaveBeenCalledOnce();
-    expect(
-      within(desktop).getByLabelText('View updates every 0.5s'),
-    ).toHaveTextContent('0.5s');
-    expect(
-      screen.queryByRole('radiogroup', { name: 'View updates' }),
-    ).toBeNull();
+    expect(within(desktop).getByRole('radio', { name: '0.5s' })).toBeChecked();
   });
 
-  it('retains the fixed browser interval when collection settings are missing or slower', () => {
+  it('keeps browser choices independent of collection settings', () => {
     const view = render(header({ settings: null }));
     for (const configuration of [null, settings(1000), settings(2000)]) {
       view.rerender(header({ settings: configuration }));
-      expect(
-        screen.getByLabelText('View updates every 0.5s'),
-      ).toHaveTextContent('0.5s');
-      expect(
-        screen.queryByRole('radiogroup', { name: 'View updates' }),
-      ).toBeNull();
+      expect(screen.getByRole('radio', { name: '0.5s' })).toBeChecked();
     }
     expect(
       screen.getByTitle(
@@ -102,8 +91,9 @@ describe('StatusHeader fixed cadence', () => {
     ).toBeInTheDocument();
   });
 
-  it('keeps mobile connection details without cadence choices', async () => {
-    render(header());
+  it('offers all three browser cadences in the mobile connection popover', async () => {
+    const onDisplayCadenceChange = vi.fn();
+    render(header({ onDisplayCadenceChange }));
     const trigger = screen.getByRole('button', {
       name: 'Live status, view updates 0.5s',
     });
@@ -119,10 +109,33 @@ describe('StatusHeader fixed cadence', () => {
         /This browser updates|Host samples|profiles|processes/,
       ),
     ).toBeNull();
-    expect(within(dialog).queryByRole('radiogroup')).toBeNull();
+    const choices = within(dialog).getByRole('radiogroup', {
+      name: 'View updates',
+    });
+    expect(within(choices).getAllByRole('radio')).toHaveLength(3);
+    expect(within(choices).getByRole('radio', { name: '0.5s' })).toBeChecked();
+    fireEvent.click(within(choices).getByRole('radio', { name: '2s' }));
+    expect(onDisplayCadenceChange).toHaveBeenCalledWith(2000);
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(trigger).toHaveFocus();
+  });
+
+  it('reports the selected display cadence in desktop and mobile controls', () => {
+    const onDisplayCadenceChange = vi.fn();
+    const view = render(header({ onDisplayCadenceChange }));
+    fireEvent.click(screen.getByRole('radio', { name: '1s' }));
+    expect(onDisplayCadenceChange).toHaveBeenCalledWith(1000);
+    view.rerender(header({ displayCadenceMs: 1000, onDisplayCadenceChange }));
+    expect(screen.getByRole('radio', { name: '1s' })).toBeChecked();
+    expect(
+      screen.getByRole('button', { name: 'Live status, view updates 1s' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTitle(
+        'Host samples 0.5s · profiles 2s · processes 5s. Browser view updates 1s.',
+      ),
+    ).toBeInTheDocument();
   });
 
   it('exposes the repository and theme actions directly without an app menu', () => {

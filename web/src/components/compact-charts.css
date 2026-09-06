@@ -282,6 +282,43 @@
   outline-offset: 2px;
 }
 @media (max-width: 767px) {
+  :is(.compact-chart-panel, .detail-sheet-surface)
+    .compact-chart-legend.compact-chart-legend {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+    overflow: visible;
+    scroll-snap-type: none;
+  }
+  :is(.compact-chart-panel, .detail-sheet-surface)
+    .compact-chart-legend.compact-chart-legend
+    > :is(button, li) {
+    grid-template-columns: 18px minmax(0, 1fr);
+    align-content: center;
+    gap: 0.2rem 0.375rem;
+    min-height: 56px;
+    padding: 0.5rem;
+  }
+  :is(.compact-chart-panel, .detail-sheet-surface)
+    .compact-chart-legend.compact-chart-legend
+    [data-legend-value] {
+    grid-column: 2;
+    grid-row: 2;
+    min-width: 0;
+    padding-left: 0;
+    border-left: 0;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  :is(.compact-chart-panel, .detail-sheet-surface)
+    .compact-chart-legend.compact-chart-legend
+    .host-data-state {
+    grid-row: 3;
+  }
+  .chart-legend-navigation {
+    display: none;
+  }
   .compact-chart-panel.compact-chart-panel {
     padding: 0.75rem;
   }

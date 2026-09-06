@@ -11,13 +11,18 @@
   min-width: 0;
   padding: 1rem;
   border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   text-align: left;
   transition:
-    border-color var(--duration-feedback),
-    background-color var(--duration-feedback);
+    border-color var(--duration-feedback) var(--ease-out),
+    background-color var(--duration-feedback) var(--ease-out);
 }
 .host-capacity-card:hover {
-  border-color: var(--primary);
+  border-color: color-mix(in oklch, var(--primary) 22%, transparent);
+  background: color-mix(in oklch, var(--primary) 9%, transparent);
+}
+.host-capacity-card::before {
+  inset-inline: var(--radius-md);
 }
 .host-capacity-card:focus-visible {
   outline: 2px solid var(--ring);

@@ -1,3 +1,4 @@
+import { SampledLine } from './sampled-line';
 import {
   ChartRenderBoundary,
   useChartVisibility,
@@ -6,7 +7,6 @@ import { TimeAxisTick, StackedRateAxisTick } from './chart-axis-ticks';
 import { memo, useMemo, useRef, useState } from 'react';
 import {
   CartesianGrid,
-  Line,
   LineChart,
   ReferenceLine,
   ResponsiveContainer,
@@ -306,7 +306,6 @@ export function chartRows(
       let row = rowsByTime.get(time);
       if (!row) {
         row = { time };
-        for (const key of valueKeys) row[key] = null;
         rowsByTime.set(time, row);
       }
       const valueKey = valueKeys[index];
@@ -601,7 +600,7 @@ const HistoryLinePlot = memo(function HistoryLinePlot({
               const focused = activeKey === entity.key;
               const muted = activeKey !== null && !focused;
               return (
-                <Line
+                <SampledLine
                   key={entity.key}
                   className={`overview-series ${
                     focused
@@ -620,7 +619,6 @@ const HistoryLinePlot = memo(function HistoryLinePlot({
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   dot={false}
-                  connectNulls={false}
                   isAnimationActive={false}
                   unit={unit}
                 />

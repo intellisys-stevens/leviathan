@@ -151,12 +151,7 @@ export function hostChartRows(
     for (const point of points[key]) {
       const time = Date.parse(point.sampledAt);
       if (!Number.isFinite(time)) continue;
-      const row =
-        byTime.get(time) ??
-        (Object.fromEntries([
-          ['time', time],
-          ...keys.map((name) => [name, null]),
-        ]) as ChartRow);
+      const row: ChartRow = byTime.get(time) ?? { time };
       const value = finite(point.values.value);
       row[key] =
         value == null

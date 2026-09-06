@@ -1,3 +1,4 @@
+import { SampledLine } from './sampled-line';
 import {
   ChartRenderBoundary,
   useChartVisibility,
@@ -17,7 +18,6 @@ import {
 } from 'react';
 import {
   CartesianGrid,
-  Line,
   LineChart,
   ReferenceLine,
   ResponsiveContainer,
@@ -398,7 +398,7 @@ const AssignedTelemetryPlot = memo(function AssignedTelemetryPlot({
               />
             ) : null}
             {entities.map((entity, index) => (
-              <Line
+              <SampledLine
                 key={entity.key}
                 type="linear"
                 dataKey={workloadHistoryKeys(index)[metric]}
@@ -410,7 +410,6 @@ const AssignedTelemetryPlot = memo(function AssignedTelemetryPlot({
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 dot={false}
-                connectNulls={false}
                 isAnimationActive={false}
               />
             ))}

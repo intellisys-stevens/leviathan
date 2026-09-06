@@ -951,21 +951,21 @@ describe('Leviathan dashboard states', () => {
     expect(retrySnapshot).toHaveBeenCalledOnce();
   });
 
-  it('uses a fixed half-second cadence throughout dashboard navigation', () => {
-    mockUseLeviathan.mockReturnValue(result(snapshot()));
+  it('preserves the selected browser cadence throughout dashboard navigation', () => {
+    const dashboard = result(snapshot());
+    mockUseLeviathan.mockReturnValue(dashboard);
     render(<App />);
+    expect(mockUseLeviathan).toHaveBeenLastCalledWith(500);
+    fireEvent.click(screen.getByRole('radio', { name: '1s' }));
     for (const view of ['Overview', 'Resources', 'Workloads', 'Status']) {
       openView(view);
-      expect(mockUseLeviathan).toHaveBeenLastCalledWith(500);
+      expect(mockUseLeviathan).toHaveBeenLastCalledWith(1000);
       const status = screen.getByTestId('desktop-live-sampling');
       expect(within(status).getByText('Live')).toBeInTheDocument();
-      expect(
-        within(status).getByLabelText('View updates every 0.5s'),
-      ).toHaveTextContent('0.5s');
-      expect(
-        screen.queryByRole('radiogroup', { name: 'View updates' }),
-      ).toBeNull();
+      expect(within(status).getByRole('radio', { name: '1s' })).toBeChecked();
     }
+    expect(localStorage.getItem('leviathan.displayCadence.v1')).toBe('1000');
+    expect(dashboard.updateSamplingInterval).not.toHaveBeenCalled();
   });
 
   it('opens and dismisses the accessible mobile view-update popover', async () => {
@@ -985,8 +985,14 @@ describe('Leviathan dashboard states', () => {
     ).toBeNull();
     expect(within(popup).getByText('View updates')).toBeVisible();
 
-    expect(within(popup).queryByRole('radiogroup')).toBeNull();
+    const choices = within(popup).getByRole('radiogroup', {
+      name: 'View updates',
+    });
     expect(mockUseLeviathan).toHaveBeenLastCalledWith(500);
+    fireEvent.click(within(choices).getByRole('radio', { name: '2s' }));
+    expect(mockUseLeviathan).toHaveBeenLastCalledWith(2000);
+    expect(within(choices).getByRole('radio', { name: '2s' })).toBeChecked();
+    expect(localStorage.getItem('leviathan.displayCadence.v1')).toBe('2000');
     expect(dashboard.updateSamplingInterval).not.toHaveBeenCalled();
 
     fireEvent.keyDown(document, { key: 'Escape' });
@@ -1412,26 +1418,27 @@ describe('Leviathan dashboard states', () => {
     }
   });
 
-  it.each(['0', '1000', '2000'])(
-    'ignores saved cadence %s and changes from older tabs',
-    (saved) => {
+  it.each([
+    ['0', 500],
+    ['500', 500],
+    ['1000', 1000],
+    ['2000', 2000],
+    ['invalid', 500],
+  ] as const)(
+    'restores saved browser cadence %s as %s without changing collection',
+    (saved, expected) => {
       localStorage.setItem('leviathan.displayCadence.v1', saved);
       const dashboard = result(snapshot());
       mockUseLeviathan.mockReturnValue(dashboard);
       render(<App />);
-      expect(mockUseLeviathan).toHaveBeenLastCalledWith(500);
-      fireEvent(
-        window,
-        new StorageEvent('storage', {
-          key: 'leviathan.displayCadence.v1',
-          newValue: '2000',
-        }),
-      );
+      expect(mockUseLeviathan).toHaveBeenLastCalledWith(expected);
       openView('Resources');
-      expect(mockUseLeviathan).toHaveBeenLastCalledWith(500);
+      expect(mockUseLeviathan).toHaveBeenLastCalledWith(expected);
       expect(
-        screen.queryByRole('radiogroup', { name: 'View updates' }),
-      ).toBeNull();
+        within(
+          screen.getByRole('radiogroup', { name: 'View updates' }),
+        ).getByRole('radio', { checked: true }),
+      ).toHaveAttribute('value', String(expected));
       expect(dashboard.updateSamplingInterval).not.toHaveBeenCalled();
     },
   );

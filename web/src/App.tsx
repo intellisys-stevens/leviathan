@@ -54,7 +54,10 @@ import {
   storedChartWindow,
   storedDetailChartWindow,
 } from './chart-window';
-import { displayCadenceMs } from './display-cadence';
+import {
+  displayCadenceStorageKey,
+  storedDisplayCadence,
+} from './display-cadence';
 import type { BuildInfo, Selection, SelectionKey, Snapshot } from './types';
 import { useMediaQuery } from './use-media-query';
 import { useLeviathan } from './use-leviathan';
@@ -445,6 +448,8 @@ export function DetailSheetFallback({
 }
 
 export function App() {
+  const [displayCadenceMs, setDisplayCadenceMs] =
+    useState(storedDisplayCadence);
   const leviathan = useLeviathan(displayCadenceMs);
   const {
     snapshot,
@@ -691,6 +696,11 @@ export function App() {
     writeBrowserSetting(chartWindowStorageKey, String(milliseconds));
   }, []);
 
+  const selectDisplayCadence = useCallback((milliseconds: number) => {
+    setDisplayCadenceMs(milliseconds);
+    writeBrowserSetting(displayCadenceStorageKey, String(milliseconds));
+  }, []);
+
   const toggleTheme = useCallback(() => {
     setTheme((value) => (value === 'dark' ? 'light' : 'dark'));
   }, []);
@@ -743,6 +753,8 @@ export function App() {
         degraded={degraded}
         settings={settings}
         settingsError={settingsError}
+        displayCadenceMs={displayCadenceMs}
+        onDisplayCadenceChange={selectDisplayCadence}
         theme={theme}
         onRetrySettings={retrySettings}
         onToggleTheme={toggleTheme}

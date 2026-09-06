@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import type { GPU, Metric, Snapshot } from '../src/types';
 import { systemCapability, systemFixture } from '../src/test/system-fixture';
 
@@ -183,9 +183,10 @@ function legendCellGeometry(elements: Element[]) {
     const value = element.querySelector<HTMLElement>('[data-legend-value]')!;
     const labelBounds = label.getBoundingClientRect();
     const valueBounds = value.getBoundingClientRect();
-    const centers = [swatch, labelBounds, valueBounds].map(
-      (rect) => rect.top + rect.height / 2,
-    );
+    const stacked = valueBounds.top >= labelBounds.bottom - 1;
+    const centers = (
+      stacked ? [swatch, labelBounds] : [swatch, labelBounds, valueBounds]
+    ).map((rect) => rect.top + rect.height / 2);
     return {
       label: label.textContent,
       width: bounds.width,
@@ -199,7 +200,7 @@ function legendCellGeometry(elements: Element[]) {
       aligned: Math.max(...centers) - Math.min(...centers) <= 1,
       noOverlap:
         swatch.right <= labelBounds.left + 1 &&
-        labelBounds.right <= valueBounds.left + 1,
+        (stacked || labelBounds.right <= valueBounds.left + 1),
       labelFits:
         label.scrollWidth <= label.clientWidth + 1 &&
         label.scrollHeight <= label.clientHeight + 1 &&
@@ -214,6 +215,30 @@ function legendCellGeometry(elements: Element[]) {
   });
 }
 
+async function expectMobileLegendGrid(legend: Locator) {
+  const layout = await legend.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    return {
+      columns: getComputedStyle(element).gridTemplateColumns.split(' ').length,
+      overflow: element.scrollWidth - element.clientWidth,
+      allVisible: [...element.children].every((child) => {
+        const cell = child.getBoundingClientRect();
+        return (
+          cell.left >= bounds.left - 1 &&
+          cell.right <= bounds.right + 1 &&
+          cell.top >= bounds.top - 1 &&
+          cell.bottom <= bounds.bottom + 1 &&
+          cell.width <= bounds.width / 2 &&
+          cell.height >= 44
+        );
+      }),
+    };
+  });
+  expect(layout.columns).toBe(2);
+  expect(layout.overflow).toBeLessThanOrEqual(1);
+  expect(layout.allVisible).toBe(true);
+}
+
 async function installBackend(page: Page, theme: string) {
   await page.addInitScript((selectedTheme) => {
     localStorage.setItem('leviathan.theme.v1', selectedTheme);
@@ -224,6 +249,7 @@ async function installBackend(page: Page, theme: string) {
       onerror: ((event: Event) => void) | null = null;
       constructor() {
         super();
+        Object.assign(window, { __chartEventSource: this });
         queueMicrotask(() => this.onopen?.(new Event('open')));
       }
       close() {}
@@ -308,12 +334,92 @@ test.beforeEach(async ({ page }, testInfo) => {
   ).toBeVisible({ timeout: 20_000 });
 });
 
+for (const minutes of [5, 30]) {
+  test(`keeps live GPU and MIG curves continuous with staggered samples in the ${minutes}m window`, async ({
+    page,
+  }) => {
+    await page.evaluate((windowMs) => {
+      localStorage.setItem('leviathan.chartWindow.v1', String(windowMs));
+    }, minutes * 60_000);
+    await page.reload();
+    await expect(
+      page.getByTestId('pcie-throughput-chart').locator('.recharts-wrapper'),
+    ).toBeVisible();
+    await expect(page.locator('figure[aria-busy="true"]')).toHaveCount(0);
+
+    // Model one-second physical GPU updates and staggered two-second MIG memory
+    // caches. All metrics stay available, as in the live-host reproduction.
+    await page.evaluate(async (base) => {
+      const source = (window as unknown as { __chartEventSource: EventTarget })
+        .__chartEventSource;
+      for (let index = 1; index <= 12; index += 1) {
+        const next = structuredClone(base);
+        const elapsed = index * 1000;
+        next.sequence += index;
+        next.sampledAt = new Date(
+          Date.parse(base.sampledAt) + elapsed,
+        ).toISOString();
+        for (const gpu of next.gpus) {
+          gpu.memory.sampledAt = next.sampledAt;
+          for (const metric of Object.values(gpu.metrics))
+            metric.sampledAt = next.sampledAt;
+          for (const [ordinal, gi] of gpu.gpuInstances.entries()) {
+            const offset = ordinal * 500;
+            const observed = Math.max(
+              0,
+              Math.floor((elapsed - offset) / 2000) * 2000 + offset,
+            );
+            gi.memory.sampledAt = new Date(
+              Date.parse(base.sampledAt) + observed,
+            ).toISOString();
+            for (const metric of Object.values(gi.metrics))
+              metric.sampledAt = gi.memory.sampledAt;
+          }
+        }
+        source.dispatchEvent(
+          new MessageEvent('snapshot', { data: JSON.stringify(next) }),
+        );
+        await new Promise((resolve) => window.setTimeout(resolve, 550));
+      }
+    }, snapshot);
+
+    for (const id of [
+      'utilization-chart',
+      'memory-chart',
+      'memory-activity-chart',
+      'temperature-chart',
+      'pcie-throughput-chart',
+    ]) {
+      const chart = page.getByTestId(id);
+      await chart.scrollIntoViewIfNeeded();
+      const curves = chart.locator('.overview-series .recharts-line-curve');
+      await expect(curves).toHaveCount(id === 'temperature-chart' ? 4 : 13);
+      await expect
+        .poll(async () =>
+          curves.evaluateAll((paths) =>
+            paths.every((path) => {
+              const commands = path.getAttribute('d') ?? '';
+              return (
+                (commands.match(/M/g)?.length ?? 0) === 1 &&
+                (commands.match(/L/g)?.length ?? 0) >= 9
+              );
+            }),
+          ),
+        )
+        .toBe(true);
+    }
+  });
+}
+
 test('dense thirteen-series legend strips have equal readable cells and accessible precision', async ({
   page,
 }) => {
   const chart = page.getByTestId('pcie-throughput-chart');
   const cells = chart.locator('.compact-chart-legend > button');
   await expect(cells).toHaveCount(13);
+  if (page.viewportSize()!.width < 768) {
+    await expectMobileLegendGrid(chart.locator('.compact-chart-legend'));
+  }
   await expect(cells.first()).toHaveAccessibleName(
     'Focus GPU 0 · GI 3. Current 554.1 KiB/s',
   );
@@ -358,7 +464,7 @@ test('dense thirteen-series legend strips have equal readable cells and accessib
   }
 });
 
-test('every series is reachable in the compact strip without changing panel height', async ({
+test('every series is reachable in the desktop strip or full mobile grid', async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -375,37 +481,45 @@ test('every series is reachable in the compact strip without changing panel heig
     (element) => element.getBoundingClientRect().height,
   );
   await expect(cells).toHaveCount(13);
-  await expect(previous).toBeDisabled();
-  await expect(next).toBeEnabled();
-  const reachable = new Set<string>();
-  for (let step = 0; step < 20; step++) {
-    const visible = await strip.evaluate((element) => {
-      const viewport = element.getBoundingClientRect();
-      return [...element.querySelectorAll(':scope > button')].flatMap(
-        (button) => {
-          const bounds = button.getBoundingClientRect();
-          return bounds.left >= viewport.left - 1 &&
-            bounds.right <= viewport.right + 1
-            ? [button.getAttribute('data-series')!]
-            : [];
-        },
-      );
-    });
-    visible.forEach((key) => reachable.add(key));
-    if (await next.isDisabled()) break;
-    const before = await strip.evaluate((element) => element.scrollLeft);
-    await next.click();
-    await expect
-      .poll(() => strip.evaluate((element) => element.scrollLeft))
-      .toBeGreaterThan(before);
+  if (page.viewportSize()!.width >= 768) {
+    await expect(previous).toBeDisabled();
+    await expect(next).toBeEnabled();
+    const reachable = new Set<string>();
+    for (let step = 0; step < 20; step++) {
+      const visible = await strip.evaluate((element) => {
+        const viewport = element.getBoundingClientRect();
+        return [...element.querySelectorAll(':scope > button')].flatMap(
+          (button) => {
+            const bounds = button.getBoundingClientRect();
+            return bounds.left >= viewport.left - 1 &&
+              bounds.right <= viewport.right + 1
+              ? [button.getAttribute('data-series')!]
+              : [];
+          },
+        );
+      });
+      visible.forEach((key) => reachable.add(key));
+      if (await next.isDisabled()) break;
+      const before = await strip.evaluate((element) => element.scrollLeft);
+      await next.click();
+      await expect
+        .poll(() => strip.evaluate((element) => element.scrollLeft))
+        .toBeGreaterThan(before);
+    }
+    await expect(next).toBeDisabled();
+    expect(reachable.size, 'Every series can be fully read using Next').toBe(
+      13,
+    );
+    await expect(previous).toBeEnabled();
+    const heightAfterPaging = await chart.evaluate(
+      (element) => element.getBoundingClientRect().height,
+    );
+    expect(Math.abs(heightAfterPaging - initialHeight)).toBeLessThanOrEqual(1);
+  } else {
+    await expect(previous).toBeHidden();
+    await expect(next).toBeHidden();
+    await expectMobileLegendGrid(strip);
   }
-  await expect(next).toBeDisabled();
-  expect(reachable.size, 'Every series can be fully read using Next').toBe(13);
-  await expect(previous).toBeEnabled();
-  const heightAfterPaging = await chart.evaluate(
-    (element) => element.getBoundingClientRect().height,
-  );
-  expect(Math.abs(heightAfterPaging - initialHeight)).toBeLessThanOrEqual(1);
 
   await cells.last().focus();
   await page.keyboard.press('Home');
@@ -516,14 +630,20 @@ test('Overview follows CPU RAM GPU Storage order in responsive compact columns',
       `${width}px plots precede their legends in document order`,
     ).toBe(true);
     const panelHeights = layout.panels.map(({ height }) => height);
-    expect(
-      Math.max(...panelHeights) - Math.min(...panelHeights),
-      `${width}px all Overview panels have the same height: ${JSON.stringify(layout.panels)}`,
-    ).toBeLessThanOrEqual(1);
-    expect(
-      Math.max(...panelHeights),
-      `${width}px compact panel height`,
-    ).toBeLessThanOrEqual(width < 768 ? 300 : 310);
+    if (width >= 768) {
+      expect(
+        Math.max(...panelHeights) - Math.min(...panelHeights),
+        `${width}px all Overview panels have the same height: ${JSON.stringify(layout.panels)}`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.max(...panelHeights),
+        `${width}px compact panel height`,
+      ).toBeLessThanOrEqual(width < 768 ? 300 : 310);
+    } else {
+      for (const legend of await grid.locator('.compact-chart-legend').all()) {
+        await expectMobileLegendGrid(legend);
+      }
+    }
     for (const panel of layout.panels) {
       const siblings = layout.panels.filter(
         (sibling) => Math.abs(sibling.top - panel.top) <= 1,
@@ -652,10 +772,12 @@ test('Workloads charts match the compact Overview layout on desktop and phones',
       expect(
         Math.abs(panel.plotHeight - (width < 768 ? 144 : 160)),
       ).toBeLessThanOrEqual(1);
-      expect(
-        Math.abs(panel.height - overviewHeights.get(width)!),
-      ).toBeLessThanOrEqual(1);
-      expect(panel.height).toBeLessThanOrEqual(width < 768 ? 300 : 310);
+      if (width >= 768) {
+        expect(
+          Math.abs(panel.height - overviewHeights.get(width)!),
+        ).toBeLessThanOrEqual(1);
+        expect(panel.height).toBeLessThanOrEqual(width < 768 ? 300 : 310);
+      }
       const siblings = layout.panels.filter(
         (other) => Math.abs(other.top - panel.top) <= 1,
       );
@@ -671,6 +793,11 @@ test('Workloads charts match the compact Overview layout on desktop and phones',
     const geometry = await grid
       .locator('.compact-chart-legend > button')
       .evaluateAll(legendCellGeometry);
+    if (width < 768) {
+      for (const legend of await grid.locator('.compact-chart-legend').all()) {
+        await expectMobileLegendGrid(legend);
+      }
+    }
     expect(geometry).toHaveLength(56);
     expect(
       geometry.every(
@@ -696,10 +823,15 @@ test('Workloads compact legends retain every series and direct history interacti
     (element) => element.getBoundingClientRect().height,
   );
   await expect(cells).toHaveCount(13);
-  await next.click();
-  await expect
-    .poll(() => strip.evaluate((element) => element.scrollLeft))
-    .toBeGreaterThan(0);
+  if (page.viewportSize()!.width >= 768) {
+    await next.click();
+    await expect
+      .poll(() => strip.evaluate((element) => element.scrollLeft))
+      .toBeGreaterThan(0);
+  } else {
+    await expect(next).toBeHidden();
+    await expectMobileLegendGrid(strip);
+  }
   await cells.first().focus();
   await page.keyboard.press('Home');
   for (let index = 0; index < 13; index++) {

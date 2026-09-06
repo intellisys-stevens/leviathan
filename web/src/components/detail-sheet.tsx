@@ -1,3 +1,4 @@
+import { SampledLine } from './sampled-line';
 import { TimeAxisTick, StackedRateAxisTick } from './chart-axis-ticks';
 import {
   type RefObject,
@@ -10,7 +11,6 @@ import {
 import { Activity, XIcon } from 'lucide-react';
 import {
   CartesianGrid,
-  Line,
   LineChart,
   ReferenceLine,
   ResponsiveContainer,
@@ -510,7 +510,7 @@ function ActivityHistoryPlot({
             />
           ) : null}
           {metrics.map((descriptor, index) => (
-            <Line
+            <SampledLine
               key={descriptor.key}
               type="linear"
               dataKey={descriptor.key}
@@ -521,7 +521,6 @@ function ActivityHistoryPlot({
               strokeLinecap="round"
               strokeLinejoin="round"
               dot={false}
-              connectNulls={false}
               isAnimationActive={false}
             />
           ))}
@@ -644,7 +643,7 @@ function PCIeHistoryPlot({
             />
           ) : null}
           {pcieChartMetrics.map((descriptor, index) => (
-            <Line
+            <SampledLine
               key={descriptor.key}
               type="linear"
               dataKey={descriptor.key}
@@ -655,7 +654,6 @@ function PCIeHistoryPlot({
               strokeLinecap="round"
               strokeLinejoin="round"
               dot={false}
-              connectNulls={false}
               isAnimationActive={false}
             />
           ))}

@@ -211,6 +211,57 @@ describe('overview history', () => {
     expect(data.availableSeries).toBe(0);
   });
 
+  it.each([
+    'utilization',
+    'memory_percent',
+    'memory_activity',
+    'pcie_total',
+  ] as const)(
+    'preserves live %s samples when physical GPUs and MIG memory refresh at different times',
+    (metric) => {
+      const initial = fixture();
+      const entities = buildOverviewEntities(initial);
+      const points: Record<string, OverviewPoint[]> = {};
+      for (let index = 0; index < 8; index += 1) {
+        const snapshot = structuredClone(initial);
+        snapshot.sampledAt = new Date(
+          Date.parse(sampledAt) + index * 500,
+        ).toISOString();
+        snapshot.gpus[0].memory.sampledAt = snapshot.sampledAt;
+        const gi = snapshot.gpus[0].gpuInstances[0];
+        gi.memory.sampledAt = new Date(
+          Date.parse(sampledAt) + Math.floor(index / 4) * 2000,
+        ).toISOString();
+        gi.metrics.pcie_rx_bytes_per_second = {
+          ...gi.metrics.sm_activity,
+          value: 0,
+        };
+        gi.metrics.pcie_tx_bytes_per_second = {
+          ...gi.metrics.sm_activity,
+          value: 0,
+        };
+        for (const entity of entities) {
+          points[entity.key] = mergeOverviewPoints(
+            points[entity.key] ?? [],
+            [pointFromSnapshot(snapshot, entity)!],
+            snapshot.sampledAt,
+          );
+        }
+      }
+      for (const window of [5, 30]) {
+        const actual = chartRows(entities, points, metric, window * 60_000);
+        for (const [index, entity] of entities.entries()) {
+          const expected = chartRows([entity], points, metric, window * 60_000);
+          expect(
+            actual.rows
+              .filter((row) => Object.hasOwn(row, `series_${index}`))
+              .map((row) => row[`series_${index}`]),
+          ).toEqual(expected.rows.map((row) => row.series_0));
+        }
+      }
+    },
+  );
+
   it('retains independent GPU sample times across host publications and history loads', async () => {
     const initial = fixture();
     initial.sampledAt = '2026-08-29T12:00:05Z';

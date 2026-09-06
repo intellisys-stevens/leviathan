@@ -1,6 +1,7 @@
 import { useId } from 'react';
 import { ArrowUpRight, Cpu, Database, Gauge, MemoryStick } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
+import { PerimeterLight } from './perimeter-light';
 import { formatBytes, formatPercent } from '../lib';
 import {
   buildGPUAllocationView,
@@ -226,13 +227,14 @@ export function CapacityOverview({
           <button
             key={key}
             type="button"
-            className="host-capacity-card frost-panel"
+            className="host-capacity-card frost-panel flowing-surface"
             onClick={() => onNavigate(key)}
             aria-label={`Inspect ${label} resources`}
             aria-describedby={
               key === 'gpu' ? allocationDescriptionId : undefined
             }
           >
+            <PerimeterLight />
             <span className="host-capacity-label">
               <span>
                 <Icon aria-hidden="true" />

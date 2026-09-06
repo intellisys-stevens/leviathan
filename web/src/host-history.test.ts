@@ -65,6 +65,21 @@ describe('host history', () => {
     expect(rows.map((row) => row.cpu)).toEqual([20, null, 50]);
   });
 
+  it('keeps staggered disk read and write samples without creating cross-series gaps', () => {
+    const points = currentHostPoints(snapshot());
+    points.read = [
+      { sampledAt: '2026-09-05T11:59:40Z', values: { value: 10 } },
+      { sampledAt: '2026-09-05T11:59:42Z', values: {} },
+    ];
+    points.write = [
+      { sampledAt: '2026-09-05T11:59:40.500Z', values: { value: 0 } },
+      { sampledAt: '2026-09-05T11:59:41.500Z', values: { value: 20 } },
+    ];
+    const { rows } = hostChartRows(points, ['read', 'write'], 5 * 60_000);
+    expect(rows.map((row) => row.read)).toEqual([10, undefined, null]);
+    expect(rows.map((row) => row.write)).toEqual([0, 20, undefined]);
+  });
+
   it('withholds stale current values and supports estimated RAM', () => {
     const data = snapshot();
     data.system.cpu.utilization.status = 'stale';

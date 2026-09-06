@@ -16,8 +16,10 @@ on CPU-only machines and runs independently from the NVIDIA provider.
 
 Host samples follow the configured collector interval, one second by default.
 Mount topology is rediscovered every ten seconds by default; capacity is read on
-each host sample. All dashboard views render the latest available sample at a
-fixed 0.5-second cadence; this does not start or reconfigure another collector.
+each host sample. All dashboard views render the latest available sample at the
+browser's selected 0.5-, 1-, or 2-second display interval (0.5 seconds by default).
+This preference never starts or reconfigures a collector; backend sampling and
+retained history remain independent of browser display updates.
 
 ## Delta and fallback rules
 

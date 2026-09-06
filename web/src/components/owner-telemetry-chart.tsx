@@ -1,3 +1,4 @@
+import { SampledLine } from './sampled-line';
 import {
   ChartRenderBoundary,
   useChartVisibility,
@@ -6,7 +7,6 @@ import { memo, useMemo, useRef, useState } from 'react';
 import { Cpu, Database, MemoryStick } from 'lucide-react';
 import {
   CartesianGrid,
-  Line,
   LineChart,
   ReferenceLine,
   ResponsiveContainer,
@@ -314,7 +314,7 @@ export const OwnerTelemetryPanel = memo(function OwnerTelemetryPanel({
                   />
                 ) : null}
                 {definition.keys.map((key, index) => (
-                  <Line
+                  <SampledLine
                     key={key}
                     type="linear"
                     dataKey={key}
@@ -324,7 +324,6 @@ export const OwnerTelemetryPanel = memo(function OwnerTelemetryPanel({
                     strokeOpacity={highlighted && highlighted !== key ? 0.2 : 1}
                     strokeDasharray={index ? '6 3' : undefined}
                     dot={false}
-                    connectNulls={false}
                     isAnimationActive={false}
                   />
                 ))}

@@ -79,6 +79,9 @@ export function buildTrendRows(
       buckets.set(bucketEnd, bucket);
     }
     for (const key of valueKeys) {
+      // A row from another independently sampled series is not an outage.
+      // Producers use an explicit null when this series was unavailable.
+      if (!Object.hasOwn(row, key)) continue;
       let value = bucket.values.get(key);
       if (!value) {
         value = accumulator();
@@ -104,7 +107,10 @@ export function buildTrendRows(
     .map(([time, bucket]) => {
       const row: ChartRow = { time };
       for (const key of valueKeys) {
-        const value = bucket.values.get(key) ?? accumulator();
+        const value = bucket.values.get(key);
+        // Leave unsampled series absent, including entire buckets between
+        // observations. Never turn them into a null gap or a carried value.
+        if (!value) continue;
         row[key] =
           value.count > 0 && !value.gap ? value.sum / value.count : null;
         row[trendStatisticKey(key, 'count')] = value.count;
