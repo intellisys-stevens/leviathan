@@ -1035,32 +1035,32 @@ test('keeps the ambient snow backing store viewport-sized and DPR-capped', async
         };
       });
 
-    await expect
-      .poll(async () => {
-        const metrics = await readMetrics();
-        return (
-          Math.abs(
-            metrics.backingWidth -
-              Math.round(metrics.cssWidth * metrics.cappedDPR),
-          ) <= 1 &&
+    const coarse = width < 768;
+    // The worker publishes particle metadata separately from its canvas resize.
+    // Wait for one complete observation of the requested viewport state.
+    await expect(async () => {
+      const metrics = await readMetrics();
+      expect(
+        Math.abs(
+          metrics.backingWidth -
+            Math.round(metrics.cssWidth * metrics.cappedDPR),
+        ) <= 1 &&
           Math.abs(
             metrics.backingHeight -
               Math.round(metrics.cssHeight * metrics.cappedDPR),
-          ) <= 1
-        );
-      })
-      .toBe(true);
-
-    const metrics = await readMetrics();
-    expect(metrics.left).toBeCloseTo(0, 1);
-    expect(metrics.top).toBeCloseTo(0, 1);
-    expect(metrics.cssWidth).toBeCloseTo(metrics.viewportWidth, 0);
-    expect(metrics.cssHeight).toBeCloseTo(metrics.viewportHeight, 0);
-    const coarse = width < 768;
-    expect(metrics.backingWidth / metrics.cssWidth).toBeLessThanOrEqual(1.26);
-    expect(metrics.backingHeight / metrics.cssHeight).toBeLessThanOrEqual(1.26);
-    expect(metrics.particleCount).toBeGreaterThanOrEqual(coarse ? 60 : 120);
-    expect(metrics.particleCount).toBeLessThanOrEqual(coarse ? 100 : 220);
+          ) <= 1,
+      ).toBe(true);
+      expect(metrics.left).toBeCloseTo(0, 1);
+      expect(metrics.top).toBeCloseTo(0, 1);
+      expect(metrics.cssWidth).toBeCloseTo(metrics.viewportWidth, 0);
+      expect(metrics.cssHeight).toBeCloseTo(metrics.viewportHeight, 0);
+      expect(metrics.backingWidth / metrics.cssWidth).toBeLessThanOrEqual(1.26);
+      expect(metrics.backingHeight / metrics.cssHeight).toBeLessThanOrEqual(
+        1.26,
+      );
+      expect(metrics.particleCount).toBeGreaterThanOrEqual(coarse ? 60 : 120);
+      expect(metrics.particleCount).toBeLessThanOrEqual(coarse ? 100 : 220);
+    }).toPass({ timeout: 5_000 });
   }
 
   const session = await page.context().newCDPSession(page);
@@ -1232,7 +1232,12 @@ test('keeps chart hover tooltips above plot clipping and inside the viewport', a
     await expect(tooltip).not.toContainText(
       /Trend|Latest|minimum|maximum|samples?|bucket|live bucket/iu,
     );
-    const geometry = await tooltip.evaluate((element) => {
+    // Live chart updates can remount the tooltip between locator resolution
+    // and evaluation, so resolve and measure the current node in one task.
+    const geometry = await page.evaluate((tooltipTestId) => {
+      const element = document.querySelector<HTMLElement>(
+        `[data-testid="${tooltipTestId}"]`,
+      )!;
       const portal = element.closest<HTMLElement>('.chart-tooltip-portal')!;
       const bounds = portal.getBoundingClientRect();
       return {
@@ -1249,7 +1254,7 @@ test('keeps chart hover tooltips above plot clipping and inside the viewport', a
         viewportWidth: window.innerWidth,
         viewportHeight: window.innerHeight,
       };
-    });
+    }, tooltipTestId);
     expect(geometry.left).toBeGreaterThanOrEqual(8);
     expect(geometry.top).toBeGreaterThanOrEqual(8);
     expect(geometry.right).toBeLessThanOrEqual(geometry.viewportWidth - 8);
@@ -2612,7 +2617,16 @@ test('keeps every flowing treatment rounded and pointer transparent', async ({
       .first()
       .locator(':scope > [data-slot="perimeter-light"]'),
   ).toHaveCount(0);
-  await assertRoundedPerimeter(page.locator('.segmented-control').first());
+  await assertRoundedPerimeter(
+    page
+      .getByRole('banner')
+      .getByRole('radiogroup', { name: 'View updates', exact: true }),
+  );
+  await assertRoundedPerimeter(
+    page
+      .getByRole('region', { name: 'Activity', exact: true })
+      .getByRole('radiogroup', { name: 'Chart window', exact: true }),
+  );
 
   await page.getByRole('link', { name: 'Resources' }).click();
   await expect(
