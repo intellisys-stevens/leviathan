@@ -326,7 +326,7 @@ func TestSystemdRebootPrepareInterruptedUpdate(t *testing.T) {
 	waitHost(t, 60*time.Second, func() bool {
 		return readJSON(filepath.Join(fixture.Config.StateDirectory, "transaction.json"), &pending) == nil && pending.Job.ID == "reboot-crash" && pending.Phase == "verifying"
 	})
-	hostCommand(t, "systemctl", "kill", "--kill-whom=main", "--signal=KILL", "leviathan-updater.service")
+	hostCommand(t, "systemctl", "kill", "--kill-who=main", "--signal=KILL", "leviathan-updater.service")
 	hostCommand(t, "systemctl", "stop", "leviathan-updater.service")
 	var retained journal
 	if err := readJSON(filepath.Join(fixture.Config.StateDirectory, "transaction.json"), &retained); err != nil || retained.Job.ID != "reboot-crash" || retained.Phase != "verifying" {

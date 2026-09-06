@@ -93,7 +93,7 @@ func automaticSetupUpdates(t *testing.T, setup *setupFixture, installed setupRec
 		var j journal
 		return readJSON(filepath.Join(installed.Config.StateDirectory, "transaction.json"), &j) == nil && j.Job.ID == "generated-crash" && j.Phase == "verifying"
 	})
-	hostCommand(t, "systemctl", "kill", "--kill-whom=main", "--signal=KILL", "leviathan-updater.service")
+	hostCommand(t, "systemctl", "kill", "--kill-who=main", "--signal=KILL", "leviathan-updater.service")
 	crash := outcome("generated-crash", p.RolledBack)
 	if crash.Installation != success.Installation {
 		t.Fatal("crash recovery did not restore the previous exact installation")

@@ -322,7 +322,7 @@ WantedBy=multi-user.target
 		var j journal
 		return readJSON(filepath.Join(cfg.StateDirectory, "transaction.json"), &j) == nil && j.Phase == "verifying"
 	})
-	hostCommand(t, "systemctl", "kill", "--kill-whom=main", "--signal=KILL", "leviathan-updater.service")
+	hostCommand(t, "systemctl", "kill", "--kill-who=main", "--signal=KILL", "leviathan-updater.service")
 	outcome(p.RolledBack, "crash")
 	t.Log("SIGKILL during verification recovered and rolled back after supervisor restart")
 	server.Lock()
