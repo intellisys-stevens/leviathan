@@ -86,6 +86,8 @@
 - Independently sampled GPU, host, and workload series no longer acquire false
   line breaks when another series reports a measurement. Charts preserve real
   gaps represented by explicitly unavailable samples, including in detail views.
+- View changes restore scrolling and keyboard focus as soon as the destination
+  mounts, before software-rendered GPU scenes can delay the next frame.
 
 ### Security and privacy
 

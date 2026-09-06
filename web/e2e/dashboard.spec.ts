@@ -623,6 +623,12 @@ async function installSyntheticBackend(
   });
 }
 
+async function waitForOverviewCharts(page: Page) {
+  await expect(
+    page.getByTestId('host-cpu-chart').locator('.recharts-wrapper'),
+  ).toBeVisible({ timeout: 20_000 });
+}
+
 test.beforeEach(async ({ page }, testInfo) => {
   const theme = testInfo.project.name.endsWith('-light') ? 'light' : 'dark';
   await page.addInitScript((selectedTheme) => {
@@ -648,9 +654,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     }),
   ).toBeVisible();
   if (!directOperations) {
-    await expect(
-      page.getByTestId('host-cpu-chart').locator('.recharts-wrapper'),
-    ).toBeVisible({ timeout: 20_000 });
+    await waitForOverviewCharts(page);
   }
 });
 
@@ -1970,22 +1974,25 @@ test('navigates all four hash views with current-page and history semantics', as
   ).toBeFocused();
 });
 
-test('loads all four canonical hashes as direct top-level views', async ({
-  page,
-}, testInfo) => {
-  test.skip(
-    testInfo.project.name !== 'chromium-desktop-dark',
-    'One desktop project covers canonical direct entry.',
-  );
+test.describe('loads canonical hashes as direct top-level views', () => {
   for (const view of ['Overview', 'Resources', 'Workloads', 'Status']) {
-    await page.goto(`/#${view.toLowerCase()}`);
-    await expect(
-      page.getByRole('heading', { name: view, exact: true, level: 1 }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole('link', { name: view, exact: true }),
-    ).toHaveAttribute('aria-current', 'page');
-    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+    test(view, async ({ page }, testInfo) => {
+      test.skip(
+        testInfo.project.name !== 'chromium-desktop-dark',
+        'One desktop project covers canonical direct entry.',
+      );
+      // Enter from another document so each case tests initial routing rather
+      // than queuing transitions from the preceding view.
+      await page.goto('about:blank');
+      await page.goto(`/#${view.toLowerCase()}`);
+      await expect(
+        page.getByRole('heading', { name: view, exact: true, level: 1 }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole('link', { name: view, exact: true }),
+      ).toHaveAttribute('aria-current', 'page');
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+    });
   }
 });
 
@@ -2141,47 +2148,18 @@ test('keeps Workloads to Operations shell geometry stable', async ({
   expect(operations.scrollbarGutter).toContain('stable');
 });
 
-test('opens native GPU chip controls and Workloads resource whitespace', async ({
+test('opens native full GPU and MIG chip controls', async ({
   page,
 }, testInfo) => {
   test.skip(
     testInfo.project.name !== 'chromium-desktop-dark',
-    'One pointer-capable project covers stretched resource surfaces.',
+    'One pointer-capable project covers native GPU chip controls.',
   );
   await page.getByRole('link', { name: 'Resources' }).click();
 
   const gpuCards = page.locator('.gpu-card');
   await expect(gpuCards).toHaveCount(2);
   await expect(gpuCards.first()).toHaveClass(/snow-capped/u);
-
-  const activateWhitespace = async (buttonName: string | RegExp) => {
-    const button = page.getByRole('button', { name: buttonName }).first();
-    const surface = button.locator('xpath=..');
-    const [buttonBox, surfaceBox] = await Promise.all([
-      button.boundingBox(),
-      surface.boundingBox(),
-    ]);
-    expect(buttonBox).not.toBeNull();
-    expect(surfaceBox).not.toBeNull();
-    expect(Math.abs(buttonBox!.width - surfaceBox!.width)).toBeLessThanOrEqual(
-      2.1,
-    );
-    expect(
-      Math.abs(buttonBox!.height - surfaceBox!.height),
-    ).toBeLessThanOrEqual(2.1);
-    await button.click({
-      position: {
-        x: Math.max(2, buttonBox!.width - 12),
-        y: Math.max(2, buttonBox!.height - 12),
-      },
-    });
-    await expect(page.getByTestId('detail-sheet')).toBeVisible();
-    await page
-      .getByTestId('detail-sheet')
-      .getByRole('button', { name: 'Close' })
-      .click();
-    await expect(page.getByTestId('detail-sheet')).toBeHidden();
-  };
 
   const fullChip = page.getByRole('button', {
     name: 'Open GPU 0 full GPU details',
@@ -2207,10 +2185,46 @@ test('opens native GPU chip controls and Workloads resource whitespace', async (
     .getByTestId('detail-sheet')
     .getByRole('button', { name: 'Close' })
     .click();
+  await expect(page.getByTestId('detail-sheet')).toBeHidden();
+});
 
+test('opens Workloads details through resource whitespace', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== 'chromium-desktop-dark',
+    'One pointer-capable project covers stretched resource surfaces.',
+  );
   await page.getByRole('link', { name: 'Workloads' }).click();
   await selectWorkloadOwner(page, 'synthetic-owner');
-  await activateWhitespace(/^Open GPU \d+ · Full GPU details$/u);
+  const button = page
+    .getByRole('button', { name: /^Open GPU \d+ · Full GPU details$/u })
+    .first();
+  const surface = button.locator('xpath=..');
+  const [buttonBox, surfaceBox] = await Promise.all([
+    button.boundingBox(),
+    surface.boundingBox(),
+  ]);
+  expect(buttonBox).not.toBeNull();
+  expect(surfaceBox).not.toBeNull();
+  expect(Math.abs(buttonBox!.width - surfaceBox!.width)).toBeLessThanOrEqual(
+    2.1,
+  );
+  expect(Math.abs(buttonBox!.height - surfaceBox!.height)).toBeLessThanOrEqual(
+    2.1,
+  );
+  await button.click({
+    position: {
+      x: Math.max(2, buttonBox!.width - 12),
+      y: Math.max(2, buttonBox!.height - 12),
+    },
+  });
+  await expect(page.getByTestId('detail-sheet')).toBeVisible();
+  await page
+    .getByTestId('detail-sheet')
+    .getByRole('button', { name: 'Close' })
+    .click();
+  await expect(page.getByTestId('detail-sheet')).toBeHidden();
 });
 
 test('keeps GPU view layout stationary on keyboard focus and Workloads glow inside its perimeter', async ({
@@ -2659,38 +2673,42 @@ test('keeps every flowing treatment rounded and pointer transparent', async ({
   ).toBeLessThanOrEqual(0);
 });
 
-test('has no serious or critical authored accessibility violations', async ({
-  page,
-}) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  for (const view of ['Overview', 'Resources', 'Workloads', 'Status']) {
+for (const view of ['Overview', 'Resources', 'Workloads', 'Status']) {
+  test(`${view} has no serious or critical authored accessibility violations`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.getByRole('link', { name: view }).click();
-    let results = await new AxeBuilder({ page }).analyze();
-    let blocking = results.violations.filter(
+    const results = await new AxeBuilder({ page }).analyze();
+    const blocking = results.violations.filter(
       ({ impact }) => impact === 'serious' || impact === 'critical',
     );
     expect(
       blocking,
       `${view}: ${blocking.map(({ id }) => id).join(', ')}`,
     ).toEqual([]);
+  });
+}
 
-    if (view === 'Resources') {
-      await page
-        .getByRole('button', { name: 'Open GPU 0 full GPU details' })
-        .click();
-      await expect(page.getByTestId('detail-sheet')).toBeVisible();
-      results = await new AxeBuilder({ page }).analyze();
-      blocking = results.violations.filter(
-        ({ impact }) => impact === 'serious' || impact === 'critical',
-      );
-      expect(
-        blocking,
-        `Resource detail: ${blocking.map(({ id }) => id).join(', ')}`,
-      ).toEqual([]);
-      await page.keyboard.press('Escape');
-      await expect(page.getByTestId('detail-sheet')).toBeHidden();
-    }
-  }
+test('Resource detail has no serious or critical authored accessibility violations', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.getByRole('link', { name: 'Resources' }).click();
+  await page
+    .getByRole('button', { name: 'Open GPU 0 full GPU details' })
+    .click();
+  await expect(page.getByTestId('detail-sheet')).toBeVisible();
+  const results = await new AxeBuilder({ page }).analyze();
+  const blocking = results.violations.filter(
+    ({ impact }) => impact === 'serious' || impact === 'critical',
+  );
+  expect(
+    blocking,
+    `Resource detail: ${blocking.map(({ id }) => id).join(', ')}`,
+  ).toEqual([]);
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('detail-sheet')).toBeHidden();
 });
 
 test('removes spatial motion when reduced motion is requested', async ({
@@ -3788,6 +3806,11 @@ test('whole-machine history is inspectable directly by keyboard and touch', asyn
     cpu.getByRole('button', { name: 'Return CPU to live values' }),
   ).toBeVisible();
   await session.send('Emulation.setTouchEmulationEnabled', { enabled: false });
+});
+
+test('resource detail history is inspectable directly by keyboard', async ({
+  page,
+}) => {
   await page.getByRole('link', { name: 'Resources' }).click();
   await page
     .getByRole('button', { name: 'Open GPU 0 full GPU details' })
@@ -3873,134 +3896,194 @@ test('whole-machine assignment states remain explicit without a process panel', 
   );
 });
 
-test('whole-machine layouts retain readable controls at 200 percent text size', async ({
-  page,
-}, testInfo) => {
-  test.setTimeout(60_000);
-  test.skip(
-    !testInfo.project.name.includes('desktop'),
-    'Both desktop projects exercise enlarged text at phone widths.',
-  );
+test.describe('whole-machine layouts retain readable controls at 200 percent text size', () => {
   for (const width of [320, 360]) {
-    await page.setViewportSize({ width, height: 900 });
-    for (const view of ['Overview', 'Resources', 'Workloads', 'Status']) {
-      // A reload restores the original font sizes before the next measurement.
-      await page.goto(`/#${view.toLowerCase()}`);
-      await page.reload();
-      await expect(
-        page.getByRole('heading', { name: view, level: 1 }),
-      ).toBeVisible();
-      if (view === 'Overview') {
-        await expect(page.locator('.recharts-wrapper')).toHaveCount(9);
-      }
-      if (view === 'Workloads') {
-        await selectWorkloadOwner(page, 'synthetic-owner');
-        await expect(page.locator('.workload-telemetry-chart')).toHaveCount(7);
-        // This legacy fixture has GPU readings but no owner cgroup measurements.
-        await expect(
-          page.locator('.workload-telemetry-chart .recharts-wrapper'),
-        ).toHaveCount(4);
-      }
-      if (view === 'Status') {
-        await expect(page.locator('.health-day')).toHaveCount(270);
-      }
-      await page.evaluate(async () => {
-        await document.fonts.ready;
-        // Enlarge text only: changing layout rem units would mask cramped controls.
-        const fonts = [
-          ...document.body.querySelectorAll<HTMLElement | SVGElement>('*'),
-        ].map(
-          (element) =>
-            [element, parseFloat(getComputedStyle(element).fontSize)] as const,
-        );
-        for (const [element, size] of fonts) {
-          element.style?.setProperty('font-size', `${size * 2}px`, 'important');
-        }
-      });
-      await expect
-        .poll(
-          () =>
-            page.evaluate(
-              () => document.documentElement.scrollWidth - innerWidth,
-            ),
-          {
-            message: `${view} at ${width}px must fit with 200% text`,
-          },
-        )
-        .toBeLessThanOrEqual(0);
-      const navigation = page.getByRole('navigation', {
-        name: 'Mobile workbench views',
-      });
-      const links = await navigation.getByRole('link').evaluateAll((elements) =>
-        elements.map((element) => {
-          const bounds = element.getBoundingClientRect();
-          const walker = document.createTreeWalker(
-            element,
-            NodeFilter.SHOW_TEXT,
+    test.describe(`${width}px`, () => {
+      test.use({ viewport: { width, height: 900 } });
+      for (const view of ['Overview', 'Resources', 'Workloads', 'Status']) {
+        test(view, async ({ page }, testInfo) => {
+          test.skip(
+            !testInfo.project.name.includes('desktop'),
+            'Both desktop projects exercise enlarged text at phone widths.',
           );
-          const textBounds: DOMRect[] = [];
-          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-            if (!node.textContent?.trim()) continue;
-            const range = document.createRange();
-            range.selectNodeContents(node);
-            textBounds.push(range.getBoundingClientRect());
+          test.setTimeout(60_000);
+          await page.goto(`/#${view.toLowerCase()}`);
+          await expect(
+            page.getByRole('heading', { name: view, level: 1 }),
+          ).toBeVisible();
+          if (view === 'Overview') {
+            await waitForOverviewCharts(page);
+            await expect(page.locator('.recharts-wrapper')).toHaveCount(9);
           }
-          return {
-            inside: bounds.left >= 0 && bounds.right <= innerWidth,
-            // Decorative perimeter light extends 2px beyond the control.
-            readable: textBounds.every(
-              (text) => text.left >= bounds.left && text.right <= bounds.right,
-            ),
-            height: bounds.height,
-          };
-        }),
-      );
-      expect(links).toHaveLength(4);
-      for (const link of links) {
-        expect(link.inside).toBe(true);
-        expect(link.readable).toBe(true);
-        expect(link.height).toBeGreaterThanOrEqual(44);
+          if (view === 'Resources') {
+            const board = page.locator('.gpu-board-view').first();
+            await board.scrollIntoViewIfNeeded();
+            await expect(board).toHaveAttribute('data-render-mode', 'webgl', {
+              timeout: 20_000,
+            });
+          }
+          if (view === 'Workloads') {
+            await selectWorkloadOwner(page, 'synthetic-owner');
+            await expect(page.locator('.workload-telemetry-chart')).toHaveCount(
+              7,
+            );
+            // This legacy fixture has GPU readings but no owner cgroup measurements.
+            await expect(
+              page.locator('.workload-telemetry-chart .recharts-wrapper'),
+            ).toHaveCount(4);
+          }
+          if (view === 'Status') {
+            await expect(page.locator('.health-day')).toHaveCount(270);
+          }
+          const navigation = page.getByRole('navigation', {
+            name: 'Mobile workbench views',
+          });
+          await expect(navigation).toBeVisible();
+          await page.evaluate(async () => {
+            await document.fonts.ready;
+            // Enlarge text only: changing layout rem units would mask cramped controls.
+            const fonts = [
+              ...document.body.querySelectorAll<HTMLElement | SVGElement>('*'),
+            ].map(
+              (element) =>
+                [
+                  element,
+                  parseFloat(getComputedStyle(element).fontSize),
+                ] as const,
+            );
+            for (const [element, size] of fonts) {
+              element.style?.setProperty(
+                'font-size',
+                `${size * 2}px`,
+                'important',
+              );
+            }
+          });
+          await expect
+            .poll(
+              () =>
+                page.evaluate(
+                  () => document.documentElement.scrollWidth - innerWidth,
+                ),
+              {
+                message: `${view} at ${width}px must fit with 200% text`,
+              },
+            )
+            .toBeLessThanOrEqual(0);
+          const links = await navigation
+            .getByRole('link')
+            .evaluateAll((elements) =>
+              elements.map((element) => {
+                const bounds = element.getBoundingClientRect();
+                const walker = document.createTreeWalker(
+                  element,
+                  NodeFilter.SHOW_TEXT,
+                );
+                const textBounds: DOMRect[] = [];
+                for (
+                  let node = walker.nextNode();
+                  node;
+                  node = walker.nextNode()
+                ) {
+                  if (!node.textContent?.trim()) continue;
+                  const range = document.createRange();
+                  range.selectNodeContents(node);
+                  textBounds.push(range.getBoundingClientRect());
+                }
+                return {
+                  inside: bounds.left >= 0 && bounds.right <= innerWidth,
+                  // Decorative perimeter light extends 2px beyond the control.
+                  readable: textBounds.every(
+                    (text) =>
+                      text.left >= bounds.left && text.right <= bounds.right,
+                  ),
+                  height: bounds.height,
+                };
+              }),
+            );
+          expect(links).toHaveLength(4);
+          for (const link of links) {
+            expect(link.inside).toBe(true);
+            expect(link.readable).toBe(true);
+            expect(link.height).toBeGreaterThanOrEqual(44);
+          }
+          // Perimeter light extends past the control; visible text must still fit.
+          const clipped = await page
+            .locator(
+              '.host-capacity-card, .assignment-status, [data-testid="process-card"] dl, .health-history-heading',
+            )
+            .evaluateAll((elements) =>
+              elements.flatMap((element) => {
+                const bounds = element.getBoundingClientRect();
+                const walker = document.createTreeWalker(
+                  element,
+                  NodeFilter.SHOW_TEXT,
+                );
+                const clippedText: string[] = [];
+                for (
+                  let node = walker.nextNode();
+                  node;
+                  node = walker.nextNode()
+                ) {
+                  if (
+                    !node.textContent?.trim() ||
+                    node.parentElement?.closest('.sr-only')
+                  ) {
+                    continue;
+                  }
+                  const range = document.createRange();
+                  range.selectNodeContents(node);
+                  if (
+                    [...range.getClientRects()].some(
+                      (text) =>
+                        text.width > 0 &&
+                        (text.left < bounds.left || text.right > bounds.right),
+                    )
+                  ) {
+                    clippedText.push(node.textContent.trim());
+                  }
+                }
+                return clippedText.length
+                  ? [{ control: element.getAttribute('class'), clippedText }]
+                  : [];
+              }),
+            );
+          expect(
+            clipped,
+            `${view} controls must contain enlarged text`,
+          ).toEqual([]);
+          // Tick labels must stay inside the SVG even when the plot becomes narrower.
+          await expect
+            .poll(
+              () =>
+                page
+                  .locator('.recharts-cartesian-axis-tick text')
+                  .evaluateAll((elements) =>
+                    elements
+                      .filter((element) => {
+                        const bounds = element.getBoundingClientRect();
+                        const svg = element
+                          .closest('svg')
+                          ?.getBoundingClientRect();
+                        return (
+                          svg &&
+                          bounds.width > 0 &&
+                          (bounds.left < svg.left - 1 ||
+                            bounds.right > svg.right + 1 ||
+                            bounds.top < svg.top - 1 ||
+                            bounds.bottom > svg.bottom + 1)
+                        );
+                      })
+                      .map((element) => element.textContent),
+                  ),
+              {
+                message: `${view} chart labels must fit at ${width}px`,
+              },
+            )
+            .toEqual([]);
+        });
       }
-      const clipped = await page
-        .locator(
-          '.host-capacity-card, .assignment-status, [data-testid="process-card"] dl, .health-history-heading',
-        )
-        .evaluateAll((elements) =>
-          elements
-            .filter((element) => element.scrollWidth > element.clientWidth)
-            .map((element) => element.getAttribute('class')),
-        );
-      expect(clipped, `${view} controls must contain enlarged text`).toEqual(
-        [],
-      );
-      // Tick labels must stay inside the SVG even when the plot becomes narrower.
-      await expect
-        .poll(
-          () =>
-            page
-              .locator('.recharts-cartesian-axis-tick text')
-              .evaluateAll((elements) =>
-                elements
-                  .filter((element) => {
-                    const bounds = element.getBoundingClientRect();
-                    const svg = element.closest('svg')?.getBoundingClientRect();
-                    return (
-                      svg &&
-                      bounds.width > 0 &&
-                      (bounds.left < svg.left - 1 ||
-                        bounds.right > svg.right + 1 ||
-                        bounds.top < svg.top - 1 ||
-                        bounds.bottom > svg.bottom + 1)
-                    );
-                  })
-                  .map((element) => element.textContent),
-              ),
-          {
-            message: `${view} chart labels must fit at ${width}px`,
-          },
-        )
-        .toEqual([]);
-    }
+    });
   }
 });
 

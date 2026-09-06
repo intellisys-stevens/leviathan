@@ -643,9 +643,8 @@ describe('Leviathan dashboard states', () => {
 
     openView('Resources');
     expect(window.location.hash).toBe('#resources');
-    await waitFor(() =>
-      expect(screen.getByRole('heading', { name: 'Resources' })).toHaveFocus(),
-    );
+    // A committed destination must receive focus before an expensive next frame.
+    expect(screen.getByRole('heading', { name: 'Resources' })).toHaveFocus();
 
     window.history.back();
     await waitFor(() => expect(window.location.hash).toBe('#workloads'));

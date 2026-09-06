@@ -483,38 +483,45 @@ async function expectNoWebGLDraws(page: Page) {
   // Let the bounded appearance/layout transitions finish, then observe an idle
   // interval. This catches runaway render loops even when one view is hidden.
   const clipTop = await hardwareClipTop(page);
-  await expect
-    .poll(
-      () =>
-        page.locator('.hardware-board-view[data-activity]').evaluateAll(
-          (views, top) =>
-            views
-              .filter((view) => {
-                const bounds = view
-                  .querySelector('.hardware-board-viewport')!
-                  .getBoundingClientRect();
-                return bounds.bottom > top && bounds.top < innerHeight;
-              })
-              .every((view) =>
-                (
-                  JSON.parse(
-                    view.getAttribute('data-activity')!,
-                  ) as ChipAppearance[]
-                ).every((region) => !region.transitioning),
-              ),
-          clipTop,
-        ),
-      { timeout: 10_000 },
-    )
-    .toBe(true);
-  await page.waitForTimeout(450);
-  const before = await page.evaluate(
-    () => (window as unknown as FixtureWindow).__gpuDraws,
-  );
-  await page.waitForTimeout(250);
-  expect(
-    await page.evaluate(() => (window as unknown as FixtureWindow).__gpuDraws),
-  ).toBe(before);
+  await expect(async () => {
+    expect(
+      await page.locator('.hardware-board-view[data-activity]').evaluateAll(
+        (views, top) =>
+          views
+            .filter((view) => {
+              const bounds = view
+                .querySelector('.hardware-board-viewport')!
+                .getBoundingClientRect();
+              return bounds.bottom > top && bounds.top < innerHeight;
+            })
+            .every((view) =>
+              (
+                JSON.parse(
+                  view.getAttribute('data-activity')!,
+                ) as ChipAppearance[]
+              ).every((region) => !region.transitioning),
+            ),
+        clipTop,
+      ),
+    ).toBe(true);
+    // A scroll or resize can still have a queued final redraw after appearance
+    // transitions stop. Require a quiet interval instead of assuming it has run.
+    const before = await page.evaluate(
+      () => (window as unknown as FixtureWindow).__gpuDraws,
+    );
+    await page.waitForTimeout(450);
+    expect(
+      await page.evaluate(
+        () => (window as unknown as FixtureWindow).__gpuDraws,
+      ),
+    ).toBe(before);
+    await page.waitForTimeout(250);
+    expect(
+      await page.evaluate(
+        () => (window as unknown as FixtureWindow).__gpuDraws,
+      ),
+    ).toBe(before);
+  }).toPass({ timeout: 10_000 });
 }
 async function captureChipState(view: Locator, path: string) {
   await view.locator('.gpu-board-viewport').evaluate(async (element) => {

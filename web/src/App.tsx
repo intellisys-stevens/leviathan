@@ -475,6 +475,7 @@ export function App() {
   );
   const activeViewRef = useRef(activeView);
   const viewHeadingRef = useRef<HTMLHeadingElement>(null);
+  const destinationFrameRef = useRef<number | null>(null);
   const activeTransitionRef = useRef<BrowserViewTransition | null>(null);
   const [selectedKey, setSelectedKey] = useState<SelectionKey | null>(null);
   const [selectedHostResource, setSelectedHostResource] = useState<
@@ -499,8 +500,16 @@ export function App() {
   const desktopWorkbench = useMediaQuery('(min-width: 768px)', true);
 
   const focusDestination = useCallback(
-    (focus: boolean, operationsFocus?: OperationsFocus | null) => {
-      window.requestAnimationFrame(() => {
+    (
+      focus: boolean,
+      operationsFocus?: OperationsFocus | null,
+      options?: { immediate?: boolean },
+    ) => {
+      if (destinationFrameRef.current != null) {
+        window.cancelAnimationFrame(destinationFrameRef.current);
+        destinationFrameRef.current = null;
+      }
+      const applyFocus = () => {
         if (operationsFocus) {
           const heading = document.getElementById(
             operationsFocus === 'status'
@@ -521,7 +530,13 @@ export function App() {
         pendingOperationsFocusRef.current = null;
         window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
         if (focus) viewHeadingRef.current?.focus({ preventScroll: true });
-      });
+      };
+      if (options?.immediate) applyFocus();
+      else
+        destinationFrameRef.current = window.requestAnimationFrame(() => {
+          destinationFrameRef.current = null;
+          applyFocus();
+        });
     },
     [],
   );
@@ -552,7 +567,10 @@ export function App() {
       const commit = () => {
         flushSync(() => setActiveView(next));
         activeViewRef.current = next;
-        if (!deferDestinationFocus) focusDestination(focus, operationsFocus);
+        // The destination is mounted. Scroll and focus before WebGL work can
+        // occupy the next frame; dialog restoration still uses its deferred path.
+        if (!deferDestinationFocus)
+          focusDestination(focus, operationsFocus, { immediate: true });
       };
       const reducedMotion = window.matchMedia?.(
         '(prefers-reduced-motion: reduce)',
@@ -591,6 +609,10 @@ export function App() {
     window.history.scrollRestoration = 'manual';
     return () => {
       window.history.scrollRestoration = previousScrollRestoration;
+      if (destinationFrameRef.current != null) {
+        window.cancelAnimationFrame(destinationFrameRef.current);
+        destinationFrameRef.current = null;
+      }
     };
   }, []);
 
