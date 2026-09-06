@@ -3419,7 +3419,7 @@ test('matches targeted workbench and frost-dragon visual baselines', async ({
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
     await expect(page).toHaveScreenshot(name, {
       animations: 'disabled',
-      timeout: 20_000,
+      timeout: 30_000,
       fullPage: true,
       maxDiffPixelRatio: 0.002,
     });

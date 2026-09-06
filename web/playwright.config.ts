@@ -10,7 +10,9 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:4173',
     browserName: 'chromium',
     timezoneId: 'America/New_York',
-    trace: 'retain-on-failure',
+    // Avoid continuous filmstrip readbacks competing with SwiftShader captures.
+    // Keep DOM/action traces and each visual assertion's comparison images.
+    trace: { mode: 'retain-on-failure', screenshots: false },
   },
   projects: [
     {
