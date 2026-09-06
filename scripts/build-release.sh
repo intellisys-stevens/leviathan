@@ -8,6 +8,11 @@ architecture="${ARCHITECTURE:-$("${go_command}" env GOARCH)}"
 output_directory="${OUTPUT_DIRECTORY:-dist}"
 native_architecture="$("${go_command}" env GOARCH)"
 glibc_baseline="${GLIBC_BASELINE:-2.34}"
+key_validation=()
+if [[ "${LEVIATHAN_RELEASE_TEST_ONLY:-}" == 1 ]]; then
+  key_validation+=(--allow-test-key)
+fi
+release_public_keys="$(python3 scripts/validate-update-public-keys.py "${key_validation[@]}")"
 
 if [[ "${architecture}" != "${native_architecture}" ]]; then
   echo "release builds use native CGO runners: requested ${architecture}, running ${native_architecture}" >&2
@@ -15,7 +20,7 @@ if [[ "${architecture}" != "${native_architecture}" ]]; then
 fi
 
 source_date_epoch="${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct 2>/dev/null || date +%s)}"
-commit="${COMMIT:-$(git rev-parse --short=12 HEAD 2>/dev/null || printf unknown)}"
+commit="${COMMIT:-$(git rev-parse HEAD 2>/dev/null || printf unknown)}"
 build_date="${BUILD_DATE:-$(date -u -d "@${source_date_epoch}" +%Y-%m-%dT%H:%M:%SZ)}"
 release_version="${version#v}"
 [[ "${release_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
@@ -41,6 +46,11 @@ CGO_CFLAGS="${CGO_CFLAGS:--Wno-deprecated-declarations}" "${go_command}" build \
   -trimpath -buildvcs=false \
   -ldflags "-s -w -X github.com/intellisys-stevens/leviathan/internal/cli.Version=${release_version} -X github.com/intellisys-stevens/leviathan/internal/cli.Commit=${commit} -X github.com/intellisys-stevens/leviathan/internal/cli.BuildDate=${build_date}" \
   -o "${stage}/leviathan" ./cmd/leviathan
+CGO_ENABLED=0 "${go_command}" build -trimpath -buildvcs=false \
+  -ldflags "-s -w -X main.Version=${release_version} -X github.com/intellisys-stevens/leviathan/internal/updater.ReleasePublicKeys=${release_public_keys}" \
+  -o "${stage}/leviathan-updater" ./cmd/leviathan-updater
+cp "${stage}/leviathan-updater" "${output_directory}/leviathan-updater_linux_${architecture}"
+printf '%s\n' "${release_public_keys}" > "${output_directory}/leviathan-update-public-keys_linux_${architecture}.txt"
 
 command -v objdump >/dev/null 2>&1 || {
   echo "objdump is required to verify the glibc baseline" >&2
@@ -72,13 +82,16 @@ cp contrib/systemd/leviathan@root.service.d/20-uplink.example.conf "${stage}/lev
 mkdir -p "${stage}/api" "${stage}/charts" "${stage}/contrib" "${stage}/web/public"
 cp -R charts/leviathan-attribution "${stage}/charts/"
 cp -R contrib/systemd "${stage}/contrib/"
+mkdir -p "${stage}/scripts"
+python3 scripts/sync-managed-installer.py --check
+cp scripts/install.sh scripts/install-managed.py scripts/bootstrap-updater.sh scripts/bootstrap-updater.py "${stage}/scripts/"
 cp -R docs "${stage}/"
 cp -R licenses "${stage}/"
 cp api/openapi.yaml "${stage}/api/openapi.yaml"
 cp web/public/leviathan-mark.svg "${stage}/web/public/leviathan-mark.svg"
 cp api/openapi.yaml "${stage}/openapi.yaml"
 cp licenses/* "${stage}/THIRD_PARTY_LICENSES/assets/"
-CGO_CFLAGS="${CGO_CFLAGS:--Wno-deprecated-declarations}" "${go_command}" run github.com/google/go-licenses/v2@v2.0.1 save ./cmd/leviathan --save_path "${stage}/THIRD_PARTY_LICENSES/go" >&2
+CGO_CFLAGS="${CGO_CFLAGS:--Wno-deprecated-declarations}" "${go_command}" run github.com/google/go-licenses/v2@v2.0.1 save ./cmd/leviathan ./cmd/leviathan-updater --save_path "${stage}/THIRD_PARTY_LICENSES/go" >&2
 # The project license and historical NOTICE are already present at archive root;
 # keep THIRD_PARTY_LICENSES limited to dependencies.
 rm -rf -- "${stage}/THIRD_PARTY_LICENSES/go/github.com/intellisys-stevens/leviathan"

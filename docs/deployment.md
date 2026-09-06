@@ -30,6 +30,12 @@ to Leviathan separately.
 
 ## ⚙️ User-scoped systemd service
 
+For a host managed through Yggdrasil, use the opt-in
+[`install.sh --with-updater` workflow](managed-updates.md#install-leviathan-and-the-updater-together)
+to install and enroll both services in one command. It supports a fresh host and
+preserves an existing active installation. The plain installer remains a
+binary-only installation.
+
 Release archives include a systemd service template. Install it with the binary
 and start an instance named for the GPU workload user:
 
@@ -99,6 +105,12 @@ verification, or when diagnosing NVML GPM, MIG memory, UVM visibility, or
 process permissions.
 
 ## 🧯 Rollback
+
+Hosts that opt into approved Yggdrasil updates use the separate root updater,
+atomic release directories and offline boot recovery described in
+[managed updates](managed-updates.md). Bootstrap is explicit and preserves the
+existing service's permissions. The normal installer refuses to overwrite a
+managed executable link.
 
 Keep the previous binary until the replacement passes health, telemetry, and UI
 checks. Restore it atomically and restart the same service instance if validation

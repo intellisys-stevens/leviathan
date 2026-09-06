@@ -40,13 +40,19 @@ scheduler-authoritative workspace assignments.
 
 ## 🚀 Quick start
 
+### Standalone monitoring
+
+This one-line installer installs Leviathan and its updater for your current user:
+
 ```bash
 curl -fsSL https://github.com/intellisys-stevens/leviathan/releases/latest/download/install.sh | sh
 leviathan serve
 ```
 
 Open [http://127.0.0.1:1397](http://127.0.0.1:1397). The installer uses
-`~/.local/bin` without `sudo` and prints PATH guidance when needed.
+`~/.local/bin` without `sudo` and prints PATH guidance when needed. The updater
+remains unconfigured until this host is connected to Yggdrasil. To install
+only Leviathan, append `-s -- --without-updater` after `sh`.
 
 No GPU is required for host monitoring. To preview GPU/MIG views with fixture
 data:
@@ -54,6 +60,26 @@ data:
 ```bash
 leviathan --fixture blackwell serve
 ```
+
+### Managed through Yggdrasil
+
+1. In Yggdrasil, select the host and open **Install Leviathan and updater**.
+2. Select the initial stable release and choose **Copy install command**.
+3. Run the command on that host within 15 minutes, using root or sudo.
+
+The command installs both components, generates configuration, enrolls the host,
+starts the services, and reports readiness in Yggdrasil. No manual JSON, release
+hashes, signing-key files, network ranges, Python or GitHub CLI are needed on
+the host. A sudo password prompt may still appear.
+
+An existing supported service keeps its version, user and configuration.
+Adopting an existing preview requires the explicit checkbox in Yggdrasil; it
+never downgrades the host. Repeat the same command to resume an interrupted
+setup. Later version updates still require an explicit request in Yggdrasil.
+
+This requires the setup endpoints and a compatible signed stable release.
+See [managed installation](docs/managed-updates.md) for requirements, recovery
+and the retained advanced installer flags.
 
 ## 🧭 Interfaces
 
@@ -116,6 +142,7 @@ credential file.
 | Container and process visibility | [docs/permissions.md](docs/permissions.md) |
 | Optional Kubernetes/Coder attribution | [docs/kubernetes-attribution.md](docs/kubernetes-attribution.md) |
 | Yggdrasil telemetry uplink | [docs/uplink-v1.md](docs/uplink-v1.md) |
+| Install and enroll the managed updater | [docs/managed-updates.md](docs/managed-updates.md) |
 | Security and privacy model | [docs/security-and-privacy.md](docs/security-and-privacy.md) |
 | v0.4.0 changes | [CHANGELOG.md](CHANGELOG.md) |
 | Upgrade from v0.2.1 | [docs/migration-v0.3.md](docs/migration-v0.3.md) |

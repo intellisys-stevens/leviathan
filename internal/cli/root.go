@@ -82,7 +82,7 @@ func (a *application) command() *cobra.Command {
 	flags.StringVar(&a.flags.Fixture, "fixture", a.flags.Fixture, "use a deterministic fixture (see README for scenarios)")
 	flags.StringVar(&a.flags.AttributionSocket, "attribution-socket", a.flags.AttributionSocket, "optional Leviathan attribution bridge Unix socket")
 
-	root.AddCommand(a.tuiCommand(), a.snapshotCommand(), a.watchCommand(), a.serveCommand(), a.doctorCommand(), versionCommand(a.stdout))
+	root.AddCommand(a.tuiCommand(), a.snapshotCommand(), a.watchCommand(), a.serveCommand(), a.doctorCommand(), a.configCheckCommand(), versionCommand(a.stdout))
 	return root
 }
 

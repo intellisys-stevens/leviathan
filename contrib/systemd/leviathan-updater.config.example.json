@@ -1,0 +1,16 @@
+{
+  "schema": "leviathan-updater-config-v1",
+  "controlPlaneURL": "https://yggdrasil.example.com",
+  "machine": {
+    "platformId": "kubernetes",
+    "scopeId": "example-cluster",
+    "machineId": "example-host"
+  },
+  "rootDirectory": "/opt/leviathan",
+  "stateDirectory": "/var/lib/leviathan-updater",
+  "service": "leviathan@root.service",
+  "apiURL": "http://127.0.0.1:1397",
+  "agentConfigFile": "/etc/leviathan/config.toml",
+  "agentEnvironmentFile": "/etc/leviathan/leviathan.env",
+  "trustedReleaseKeyFiles": ["/etc/leviathan-updater/release-public.pem"]
+}

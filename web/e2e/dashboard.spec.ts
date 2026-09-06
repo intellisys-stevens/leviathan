@@ -2804,6 +2804,10 @@ test('removes ambient glass effects for visibility-oriented media preferences', 
 test('covers required responsive widths with a concise header', async ({
   page,
 }, testInfo) => {
+  // This single case runs the full operations/workload interaction sequence
+  // at five widths. Keep every assertion and the normal per-action timeout,
+  // with a total budget equivalent to five independent 30-second cases.
+  test.setTimeout(150_000);
   test.skip(
     testInfo.project.name !== 'chromium-desktop-dark',
     'One dark project exercises the additional layout breakpoints.',

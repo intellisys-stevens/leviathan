@@ -51,6 +51,7 @@ fi
 
 for required_path in \
   "${archive_root}/leviathan" \
+  "${archive_root}/leviathan-updater" \
   "${archive_root}/LICENSE" \
   "${archive_root}/NOTICE" \
   "${archive_root}/README.md" \
@@ -67,6 +68,13 @@ for required_path in \
   "${archive_root}/contrib/systemd/leviathan-attribution.env" \
   "${archive_root}/contrib/systemd/leviathan@root.service.d/10-hardening.conf" \
   "${archive_root}/contrib/systemd/leviathan@root.service.d/20-uplink.example.conf" \
+  "${archive_root}/contrib/systemd/leviathan-updater.service" \
+  "${archive_root}/contrib/systemd/leviathan-updater-recover.service" \
+  "${archive_root}/contrib/systemd/leviathan-updater.config.example.json" \
+  "${archive_root}/scripts/bootstrap-updater.sh" \
+  "${archive_root}/scripts/bootstrap-updater.py" \
+  "${archive_root}/scripts/install.sh" \
+  "${archive_root}/scripts/install-managed.py" \
   "${archive_root}/charts/leviathan-attribution/Chart.yaml" \
   "${archive_root}/charts/leviathan-attribution/values.yaml" \
   "${archive_root}/charts/leviathan-attribution/values.schema.json" \
@@ -83,6 +91,7 @@ for required_path in \
   "${archive_root}/docs/releasing.md" \
   "${archive_root}/docs/security-and-privacy.md" \
   "${archive_root}/docs/uplink-v1.md" \
+  "${archive_root}/docs/managed-updates.md" \
   "${archive_root}/api/openapi.yaml" \
   "${archive_root}/web/public/leviathan-mark.svg" \
   "${archive_root}/openapi.yaml" \
@@ -103,7 +112,9 @@ root="${temporary_directory}/${archive_root}"
 while IFS= read -r -d '' file; do
   relative=${file#"${root}/"}
   case "${relative}" in
-    leviathan | LICENSE | NOTICE | docs/migration-v0.3.md | docs/releasing.md) continue ;;
+    # The installer retains only the deliberate legacy-environment rejection,
+    # matching verify-branding.sh's existing source allowlist.
+    leviathan | leviathan-updater | LICENSE | NOTICE | docs/migration-v0.3.md | docs/releasing.md | scripts/install.sh) continue ;;
   esac
   if grep -In -i -- "${legacy_name}" "${file}" >/dev/null 2>&1; then
     echo "archive contains an unexpected legacy product reference: ${relative}" >&2
@@ -112,6 +123,15 @@ while IFS= read -r -d '' file; do
 done < <(find "${root}" -type f -print0)
 
 [[ -x "${root}/leviathan" ]] || { echo "leviathan is not executable" >&2; exit 1; }
+[[ -x "${root}/leviathan-updater" ]] || { echo "leviathan-updater is not executable" >&2; exit 1; }
+helper="$(dirname "${archive}")/leviathan-updater_linux_${architecture}"
+[[ -s "${helper}" ]] || { echo "separate setup helper is missing" >&2; exit 1; }
+cmp "${root}/leviathan-updater" "${helper}" || { echo "separate setup helper differs from the archived binary" >&2; exit 1; }
+[[ "$("${root}/leviathan-updater" version)" == "${version}" ]] || { echo "updater release version does not match archive" >&2; exit 1; }
+grep -Fx 'ReadWritePaths=/opt/leviathan /var/lib/leviathan-updater' "${root}/contrib/systemd/leviathan-updater.service" >/dev/null
+grep -Fx 'IPAddressDeny=any' "${root}/contrib/systemd/leviathan-updater.service" >/dev/null
+grep -Fx 'ExecStart=/usr/local/bin/leviathan-updater --config /etc/leviathan-updater/config.json recover' "${root}/contrib/systemd/leviathan-updater-recover.service" >/dev/null
+grep -Fx 'PrivateNetwork=true' "${root}/contrib/systemd/leviathan-updater-recover.service" >/dev/null
 grep -Fx 'User=%i' "${root}/leviathan@.service" >/dev/null
 grep -Fx 'ExecStart=/usr/local/bin/leviathan --listen 127.0.0.1:1397 serve' "${root}/leviathan@.service" >/dev/null
 grep -Fx 'EnvironmentFile=-/etc/leviathan/leviathan.env' "${root}/leviathan@.service" >/dev/null

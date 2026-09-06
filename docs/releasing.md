@@ -113,3 +113,87 @@ published. Verify both native archives, checksums, attestations, SBOMs, the
 `leviathan-attribution:0.4.0` OCI chart. Preserve the v0.3.2 binaries,
 configuration, and backups until host telemetry and Yggdrasil receipts have
 been observed in the deployment.
+
+## Managed update signing
+
+Every new GitHub release must include
+`leviathan_linux_amd64.manifest.json` and
+`leviathan_linux_arm64.manifest.json`. Each Ed25519-signed envelope binds the
+stable version, full source commit, operating system, architecture, glibc
+baseline, updater/configuration/state compatibility, archive digest and size,
+and the exact Leviathan executable digest and size. Release binaries now record
+the full source commit. The updater executable, advanced bootstrap and independent
+offline recovery unit are packaged in each native archive.
+
+Before publishing, a repository administrator must configure the
+`managed-release-signing` GitHub environment with required reviewers and
+deployment restrictions allowing only reviewed stable release tags. Put the
+approved Ed25519 key in that environment's `LEVIATHAN_UPDATE_SIGNING_KEY` secret
+as standard base64 of its 32-byte seed or 64-byte private key. Set the environment
+variable `LEVIATHAN_UPDATE_SIGNING_KEY_ID` to the first 32 lowercase hex
+characters of SHA-256 of the raw 32-byte public key. Supply and manage the
+production key through the organization's approved key process; this repository
+does not generate one.
+
+Set the repository or organization Actions variable
+`LEVIATHAN_UPDATE_PUBLIC_KEYS` to a comma-separated list of unpadded standard
+base64 encodings of the approved raw 32-byte Ed25519 public keys. The build
+compiles these independent trust roots into each static updater. Publication
+requires a nonempty key set matching the protected signing key; Yggdrasil never
+supplies replacements in a setup ticket.
+
+The signer is built before the key is exposed. The signing step writes the key
+only to a mode-0600 file under its runner-local `CODEX_SECRETS_DIR`, removes it
+on exit, and checks it against the separately configured public key ID. Missing
+or mismatched key configuration fails the release instead of publishing an
+unsigned managed update. No private signing key belongs in an archive, catalog,
+host configuration, source checkout or test fixture. The test keys are disposable
+and never production credentials.
+
+The protected signing job attests both manifests with GitHub provenance. The
+publish job depends on it, requires both manifest files and includes their
+SHA-256 entries in `checksums.txt`. Existing provenance/SBOM gates still apply
+to both native archives and the other release artifacts. Configuring these
+workflow files alone does not establish that the GitHub environment protections
+or production signing key have been provisioned.
+
+To independently verify either an archive or manifest, select the exact stable
+tag and reviewed full source commit, then use the GitHub CLI's
+[attestation verification policy flags](https://cli.github.com/manual/gh_attestation_verify):
+
+```bash
+gh attestation verify "$ARTIFACT" \
+  --hostname github.com \
+  --repo intellisys-stevens/leviathan \
+  --signer-workflow github.com/intellisys-stevens/leviathan/.github/workflows/release.yml \
+  --source-ref "refs/tags/$REVIEWED_TAG" \
+  --source-digest "$REVIEWED_COMMIT" --signer-digest "$REVIEWED_COMMIT" \
+  --cert-identity "https://github.com/intellisys-stevens/leviathan/.github/workflows/release.yml@refs/tags/$REVIEWED_TAG" \
+  --predicate-type https://slsa.dev/provenance/v1 \
+  --deny-self-hosted-runners
+```
+
+Verify that GitHub marks that tag's release as neither draft nor prerelease.
+Yggdrasil's catalog importer automates these checks for both artifacts before
+mirroring, then verifies the Ed25519 signature against an independently pinned
+PKIX public key and checks the archive and binary digests without extracting
+untrusted paths. Hosts fetch the resulting archive through Yggdrasil's origin.
+Each release publishes `leviathan-updater_linux_amd64` and
+`leviathan-updater_linux_arm64` separately from the native archives. A generated
+`install.sh` embeds the stable version, full source commit and SHA-256 values
+for both static updaters and archives. It is generated after those artifacts
+and is published separately from the archives to avoid circular hashes.
+The installer and static updaters receive the same official GitHub provenance
+checks as the archive and manifest. `checksums.txt` covers all published files.
+
+The default installer verifies and invokes the static updater's `setup`
+command, installing both binaries without Python or gh on the host. With a
+Yggdrasil setup ticket, it also configures and enrolls the host. Without a ticket,
+the updater remains unconfigured. `--without-updater` installs only Leviathan.
+The existing `--with-updater` flags retain the advanced Python verification and
+bootstrap workflow for operator scripts.
+
+Deploy Yggdrasil's setup endpoints first, publish and import this complete
+signed release, validate disposable canaries, then enable individual production
+hosts. Nothing in the build or release workflow deploys to a host. See
+[managed installation](managed-updates.md) for setup and recovery behavior.
