@@ -68,9 +68,15 @@ func TestSystemdAutomaticSetupAcceptance(t *testing.T) {
 	}
 	hostWrite(t, "/usr/local/share/ca-certificates/leviathan-disposable-control.crt", pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: f.server.Certificate().Raw}), 0644)
 	hostCommand(t, "update-ca-certificates")
-	hostWrite(t, "/etc/systemd/system/leviathan-update-unrelated-workload.service", []byte("[Service]\nUser=nobody\nExecStart=/usr/bin/sleep infinity\n"), 0644)
+	hostWrite(t, "/etc/systemd/system/leviathan-update-unrelated-workload.service", []byte("[Service]\nUser=nobody\nExecStart=/usr/bin/sleep infinity\n[Install]\nWantedBy=multi-user.target\n"), 0644)
+	keepForReboot := false
 	t.Cleanup(func() {
-		exec.Command("systemctl", "stop", "leviathan-updater.service", "leviathan@root.service", "leviathan-update-unrelated-workload.service").Run()
+		if !keepForReboot || t.Failed() {
+			exec.Command("systemctl", "stop", "leviathan-updater.service", "leviathan@root.service", "leviathan-update-unrelated-workload.service").Run()
+			if os.Getenv("LEVIATHAN_UPDATER_REBOOT_HOST_UUID") != "" {
+				exec.Command("systemctl", "disable", "--now", rebootControlUnit).Run()
+			}
+		}
 	})
 	hostCommand(t, "systemctl", "daemon-reload")
 	hostCommand(t, "systemctl", "start", "leviathan-update-unrelated-workload.service")
@@ -204,6 +210,13 @@ waitForStart:
 		t.Fatal("normal polling unexpectedly requires static CIDRs", err)
 	}
 	receipt := map[string]any{"architecture": runtime.GOARCH, "version": completed.Installation.Version, "commit": completed.Installation.Commit, "runningPIDPreservedAcrossResume": true, "identityPreserved": true, "renewedCertificatePreserved": true, "unrelatedWorkloadPreserved": true, "expiredLeaseVerificationResume": true, "releasePinnedShellVerifiedRealHelper": true, "helperDownloadFixtureOnly": true, "normalPathPythonOrGH": false}
+	control, updates := automaticSetupUpdates(t, f, completed, nextIdentity.CertificatePEM, key, workloadPID)
+	receipt["generatedInstallerUpdates"] = updates
+	if os.Getenv("LEVIATHAN_UPDATER_REBOOT_HOST_UUID") != "" {
+		prepareRebootAcceptance(t, f, control, completed.Config)
+		keepForReboot = true
+		receipt["rebootFixturePrepared"] = true
+	}
 	data, _ := json.MarshalIndent(receipt, "", "  ")
 	hostWrite(t, "/root/automatic-setup-receipt.json", append(data, '\n'), 0600)
 }

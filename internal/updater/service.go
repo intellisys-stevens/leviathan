@@ -26,11 +26,12 @@ type BuildInfo struct {
 	BuildDate string `json:"buildDate"`
 }
 type Probe struct {
-	Build           BuildInfo
-	SampledAt       time.Time
-	SystemAvailable bool
-	GPUAvailable    bool
-	RunningSHA256   string
+	Build            BuildInfo
+	SampledAt        time.Time
+	SamplingInterval time.Duration `json:"-"`
+	SystemAvailable  bool
+	GPUAvailable     bool
+	RunningSHA256    string
 }
 type Service interface {
 	Build(context.Context, string) (BuildInfo, error)
@@ -223,6 +224,18 @@ func (s *SystemdService) Probe(ctx context.Context) (Probe, error) {
 	if !out.SystemAvailable && !out.GPUAvailable {
 		return out, ErrConfiguration
 	}
+	var settings struct {
+		SamplingIntervalMs int64 `json:"samplingIntervalMs"`
+	}
+	if e = s.getJSON(ctx, "/api/v1/settings", &settings); e != nil {
+		return out, e
+	}
+	// Fail closed rather than guessing a cadence for missing/malformed settings.
+	// GET settings is also supported by the previous v0.3.2 release.
+	if settings.SamplingIntervalMs < 250 || settings.SamplingIntervalMs > 60_000 {
+		return out, ErrConfiguration
+	}
+	out.SamplingInterval = time.Duration(settings.SamplingIntervalMs) * time.Millisecond
 	return out, nil
 }
 func (s *SystemdService) getJSON(ctx context.Context, path string, target any) error {

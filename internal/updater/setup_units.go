@@ -70,7 +70,7 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 	executable := h.path("/usr/local/bin/leviathan-updater")
 	config := h.path("/etc/leviathan-updater/config.json")
 	polling := "[Unit]\nDescription=Leviathan approved host updater\nWants=network-online.target leviathan-updater-recover.service\nAfter=network-online.target leviathan-updater-recover.service\n\n[Service]\nType=simple\n" + common + fmt.Sprintf("ExecStart=%s --config %s run\nRestart=on-failure\nRestartSec=15s\nTimeoutStopSec=360s\n\n[Install]\nWantedBy=multi-user.target\n", executable, config)
-	recovery := "[Unit]\nDescription=Leviathan offline update recovery\nBefore=" + c.Service + "\n\n[Service]\nType=oneshot\n" + common + "PrivateNetwork=true\n" + fmt.Sprintf("ExecStart=%s --config %s recover\n", executable, config)
+	recovery := "[Unit]\nDescription=Leviathan offline update recovery\nAfter=local-fs.target\nBefore=" + c.Service + " leviathan-updater.service\n\n[Service]\nType=oneshot\nRemainAfterExit=true\nTimeoutStartSec=120s\n" + common + "PrivateNetwork=true\n" + fmt.Sprintf("ExecStart=%s --config %s recover\n", executable, config)
 	return map[string]setupFile{
 		h.path("/etc/systemd/system/leviathan-updater.service"):                    {[]byte(polling), 0644},
 		h.path("/etc/systemd/system/leviathan-updater-recover.service"):            {[]byte(recovery), 0644},

@@ -152,7 +152,7 @@ func (s *fakeService) Probe(context.Context) (Probe, error) {
 	if s.frozen {
 		sample = s.initialSample
 	}
-	return Probe{Build: s.builds[s.running], SampledAt: sample, SystemAvailable: true, GPUAvailable: s.gpu && s.running != s.loseGPU, RunningSHA256: s.running}, nil
+	return Probe{Build: s.builds[s.running], SampledAt: sample, SamplingInterval: time.Second, SystemAvailable: true, GPUAvailable: s.gpu && s.running != s.loseGPU, RunningSHA256: s.running}, nil
 }
 
 type fixture struct {

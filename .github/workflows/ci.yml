@@ -96,7 +96,7 @@ jobs:
       matrix:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       CGO_CFLAGS: -Wno-deprecated-declarations
     steps:
@@ -112,12 +112,31 @@ jobs:
           package="$RUNNER_TEMP/automatic-setup-package"
           mkdir -p "$package"
           go build -trimpath -ldflags "-X github.com/intellisys-stevens/leviathan/internal/cli.Version=0.4.1 -X github.com/intellisys-stevens/leviathan/internal/cli.Commit=1111111111111111111111111111111111111111 -X github.com/intellisys-stevens/leviathan/internal/cli.BuildDate=2026-09-05T00:00:00Z" -o "$package/agent-new" ./cmd/leviathan
+          go build -trimpath -ldflags "-X github.com/intellisys-stevens/leviathan/internal/cli.Version=0.4.2 -X github.com/intellisys-stevens/leviathan/internal/cli.Commit=2222222222222222222222222222222222222222 -X github.com/intellisys-stevens/leviathan/internal/cli.BuildDate=2026-09-05T00:00:00Z" -o "$package/agent-next" ./cmd/leviathan
+          go build -trimpath -ldflags "-X github.com/intellisys-stevens/leviathan/internal/cli.Version=0.4.3 -X github.com/intellisys-stevens/leviathan/internal/cli.Commit=3333333333333333333333333333333333333333 -X github.com/intellisys-stevens/leviathan/internal/cli.BuildDate=2026-09-05T00:00:00Z" -o "$package/agent-setup-broken" ./internal/updater/testdata/setup-broken-agent
+          go build -trimpath -ldflags "-X github.com/intellisys-stevens/leviathan/internal/cli.Version=0.4.4 -X github.com/intellisys-stevens/leviathan/internal/cli.Commit=4444444444444444444444444444444444444444 -X github.com/intellisys-stevens/leviathan/internal/cli.BuildDate=2026-09-05T00:00:00Z" -o "$package/agent-setup-future" ./cmd/leviathan
           # Test-only public root. These executables are never published.
           CGO_ENABLED=0 go build -trimpath -ldflags "-X main.Version=0.4.1 -X github.com/intellisys-stevens/leviathan/internal/updater.ReleasePublicKeys=eZRrIVpuolPS/SjQVWmCnGqOZHMZlp/iHGR2Uku9WlI" -o "$package/leviathan-updater" ./cmd/leviathan-updater
           go test -c -o "$package/automatic-setup.test" ./internal/updater
           cp scripts/install.sh "$package/install.sh"
+          # These native fixtures must also run on the separately approved
+          # Ubuntu 22.04 reboot VM. Never infer compatibility from GOARCH alone.
+          for fixture in agent-new agent-next agent-setup-broken agent-setup-future automatic-setup.test; do
+            required="$(objdump -T "$package/$fixture" | sed -n 's/.*(GLIBC_\([0-9][0-9.]*\)).*/\1/p' | sort -Vu | tail -n 1)"
+            test -n "$required"
+            test "$(printf '%s\n%s\n' 2.34 "$required" | sort -V | tail -n 1)" = 2.34
+          done
+          git rev-parse HEAD > "$package/SOURCE_COMMIT"
+          (cd "$package" && sha256sum agent-new agent-next agent-setup-broken agent-setup-future leviathan-updater automatic-setup.test install.sh SOURCE_COMMIT > SHA256SUMS)
           sudo install -d -m 0700 /root/updater-package
           sudo cp "$package/"* /root/updater-package/
+      - name: Retain exact-source native fixtures for approved reboot acceptance
+        uses: actions/upload-artifact@v7
+        with:
+          name: updater-acceptance-fixtures-${{ matrix.runner }}
+          path: ${{ runner.temp }}/automatic-setup-package
+          compression-level: 0
+          retention-days: 3
       - name: Verify generated installer on native systemd
         shell: bash
         run: |
@@ -128,7 +147,7 @@ jobs:
           sudo chown root:root /opt /usr/local/bin
           sudo chmod 0755 /opt /usr/local/bin
           printf 'per-host-update-acceptance\n' | sudo tee /run/leviathan-updater-disposable-test >/dev/null
-          sudo env LEVIATHAN_UPDATER_DISPOSABLE_HOST=1 /root/updater-package/automatic-setup.test -test.run '^TestSystemdAutomaticSetupAcceptance$' -test.v -test.timeout=240s | tee "$RUNNER_TEMP/automatic-setup.log"
+          sudo env LEVIATHAN_UPDATER_DISPOSABLE_HOST=1 /root/updater-package/automatic-setup.test -test.run '^TestSystemdAutomaticSetupAcceptance$' -test.v -test.timeout=720s | tee "$RUNNER_TEMP/automatic-setup.log"
           sudo cat /root/automatic-setup-receipt.json > "$RUNNER_TEMP/automatic-setup-receipt.json"
       - name: Retain public acceptance evidence
         if: always()

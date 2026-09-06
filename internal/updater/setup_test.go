@@ -52,6 +52,7 @@ type setupFixture struct {
 	allowPreview                                                        bool
 	probeGPU                                                            bool
 	beforeProbe                                                         func()
+	updateControl                                                       http.Handler
 }
 
 func newSetupFixture(t *testing.T) *setupFixture {
@@ -74,6 +75,15 @@ func newSetupFixture(t *testing.T) *setupFixture {
 		t.Fatal(err)
 	}
 	f.h = &setupHost{root: root, arch: "arm64", run: f.run, executable: func() (string, error) { return self, nil }, service: func(c Config) Service { return &setupFixtureService{f: f, c: c} }, verifyWindow: time.Millisecond, timeLimit: 3 * time.Second}
+	probeTime := time.Now()
+	f.h.now = func() time.Time { return probeTime }
+	f.h.sleep = func(ctx context.Context, delay time.Duration) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		probeTime = probeTime.Add(delay)
+		return nil
+	}
 	f.server = httptest.NewTLSServer(f)
 	t.Cleanup(f.server.Close)
 	f.opts = SetupOptions{Version: f.manifest.Version, Commit: f.manifest.Commit, ArchiveURL: f.server.URL + "/leviathan_linux_arm64.tar.gz", ArchiveSHA256: f.manifest.ArchiveSHA256, ControlOrigin: f.server.URL, TicketStdin: true, host: f.h, http: f.server.Client(), keys: map[string]ed25519.PublicKey{p.KeyID(keyPublic): keyPublic}}
@@ -136,6 +146,13 @@ func (f *setupFixture) run(ctx context.Context, name string, args ...string) ([]
 func (f *setupFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.updateControl != nil {
+		switch r.URL.Path {
+		case p.ClaimPath, p.HeartbeatPath, p.AuthorizePath, p.ArtifactPath, p.ReportPath:
+			f.updateControl.ServeHTTP(w, r)
+			return
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method == http.MethodGet {
 		if strings.HasSuffix(r.URL.Path, ".manifest.json") {
@@ -301,7 +318,7 @@ func (s *setupFixtureService) Probe(ctx context.Context) (Probe, error) {
 		return Probe{}, err
 	}
 	build := s.f.builds[sum(body)]
-	return Probe{Build: build, RunningSHA256: sum(body), SampledAt: time.Now(), SystemAvailable: true, GPUAvailable: s.f.probeGPU}, nil
+	return Probe{Build: build, RunningSHA256: sum(body), SampledAt: s.f.h.now(), SamplingInterval: time.Second, SystemAvailable: true, GPUAvailable: s.f.probeGPU}, nil
 }
 func TestSetupFreshAuthorizationIdentityAndIdempotentRetry(t *testing.T) {
 	f := newSetupFixture(t)

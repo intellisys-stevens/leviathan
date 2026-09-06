@@ -378,30 +378,30 @@ func (e *Engine) Tick(ctx context.Context) error {
 	return e.finish(ctx, &j, p.Succeeded, "", next)
 }
 func (e *Engine) verify(ctx context.Context, want p.Installation, baseline Probe, jobID string) error {
+	ctx, cancel := context.WithTimeout(ctx, e.timeout)
+	defer cancel()
 	progressSent := false
 	deadline := e.now().Add(e.timeout)
-	var goodSince, timeSample time.Time
+	var health samplingHealth
 	for e.now().Before(deadline) {
 		probe, err := e.service.Probe(ctx)
 		now := e.now()
+		if !now.Before(deadline) {
+			break
+		}
 		fingerprint, fingerprintErr := ConfigurationFingerprint(e.config)
-		valid := fingerprintErr == nil && fingerprint == want.ConfigSHA256 && err == nil && probe.RunningSHA256 == want.BinarySHA256 && probe.Build.Version == want.Version && commitMatches(probe.Build.Commit, want.Commit) && !probe.SampledAt.IsZero() && probe.SampledAt.After(now.Add(-120*time.Second)) && !probe.SampledAt.After(now.Add(5*time.Second)) && (probe.SystemAvailable || probe.GPUAvailable) && (!baseline.SystemAvailable || probe.SystemAvailable) && (!baseline.GPUAvailable || probe.GPUAvailable)
-		if valid {
+		valid := fingerprintErr == nil && fingerprint == want.ConfigSHA256 && err == nil && probe.RunningSHA256 == want.BinarySHA256 && probe.Build.Version == want.Version && commitMatches(probe.Build.Commit, want.Commit) && (probe.SystemAvailable || probe.GPUAvailable) && (!baseline.SystemAvailable || probe.SystemAvailable) && (!baseline.GPUAvailable || probe.GPUAvailable)
+		complete := health.observe(now, probe, valid, e.window)
+		if !health.since.IsZero() {
 			if jobID != "" && !progressSent {
 				progressSent = true
 				reportContext, cancel := context.WithTimeout(ctx, 2*time.Second)
 				_ = e.control.Report(reportContext, p.ReportRequest{JobID: jobID, Status: p.Verifying, Installation: want, InstallationVerified: true})
 				cancel()
 			}
-			if goodSince.IsZero() {
-				goodSince = now
-				timeSample = probe.SampledAt
-			}
-			if now.Sub(goodSince) >= e.window && probe.SampledAt.After(timeSample) {
+			if complete {
 				return nil
 			}
-		} else {
-			goodSince = time.Time{}
 		}
 		if err = e.sleep(ctx, e.interval); err != nil {
 			return err

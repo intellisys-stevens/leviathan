@@ -23,6 +23,8 @@ type setupHost struct {
 	executable              func() (string, error)
 	service                 func(Config) Service
 	verifyWindow, timeLimit time.Duration
+	now                     func() time.Time
+	sleep                   func(context.Context, time.Duration) error
 }
 
 func newSetupHost() *setupHost {
@@ -318,14 +320,28 @@ func setupFingerprint(c Config, files map[string]setupFile) (string, error) {
 }
 
 func (h *setupHost) verify(ctx context.Context, c Config, expected p.Installation, required Probe, onVerified ...func(Probe)) error {
+	ctx, cancel := context.WithTimeout(ctx, h.timeLimit)
+	defer cancel()
 	service := h.service(c)
-	var since, last time.Time
+	var health samplingHealth
 	announced := false
-	started := time.Now()
-	for time.Since(started) < h.timeLimit {
+	nowTime, sleep := h.now, h.sleep
+	if nowTime == nil {
+		nowTime = time.Now
+	}
+	if sleep == nil {
+		sleep = sleepContext
+	}
+	deadline := nowTime().Add(h.timeLimit)
+	for nowTime().Before(deadline) {
 		sample, err := service.Probe(ctx)
-		now := time.Now()
-		if err == nil && sample.RunningSHA256 == expected.BinarySHA256 && sample.Build.Version == expected.Version && commitMatches(sample.Build.Commit, expected.Commit) && (sample.SystemAvailable || sample.GPUAvailable) && (!required.SystemAvailable || sample.SystemAvailable) && (!required.GPUAvailable || sample.GPUAvailable) && sample.SampledAt.After(now.Add(-30*time.Second)) && !sample.SampledAt.After(now.Add(5*time.Second)) {
+		now := nowTime()
+		if !now.Before(deadline) {
+			break
+		}
+		valid := err == nil && sample.RunningSHA256 == expected.BinarySHA256 && sample.Build.Version == expected.Version && commitMatches(sample.Build.Commit, expected.Commit) && (sample.SystemAvailable || sample.GPUAvailable) && (!required.SystemAvailable || sample.SystemAvailable) && (!required.GPUAvailable || sample.GPUAvailable)
+		complete := health.observe(now, sample, valid, h.verifyWindow)
+		if !health.since.IsZero() {
 			if !announced {
 				announced = true
 				required.SystemAvailable = required.SystemAvailable || sample.SystemAvailable
@@ -334,20 +350,11 @@ func (h *setupHost) verify(ctx context.Context, c Config, expected p.Installatio
 					notify(sample)
 				}
 			}
-			if since.IsZero() {
-				since = now
-			}
-			if sample.SampledAt.After(last) && !last.IsZero() && now.Sub(since) >= h.verifyWindow {
+			if complete {
 				return nil
 			}
-			if sample.SampledAt.After(last) {
-				last = sample.SampledAt
-			}
-		} else {
-			since = time.Time{}
-			last = time.Time{}
 		}
-		if err := sleepContext(ctx, time.Second); err != nil {
+		if err := sleep(ctx, time.Second); err != nil {
 			return err
 		}
 	}
