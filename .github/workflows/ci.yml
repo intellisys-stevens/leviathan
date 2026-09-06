@@ -67,7 +67,9 @@ jobs:
           - chromium-narrow-dark
           - chromium-narrow-light
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # The full desktop suite takes about 27 minutes with software graphics.
+    # Leave room for cold runner setup and retaining failure artifacts.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

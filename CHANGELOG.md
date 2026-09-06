@@ -88,6 +88,8 @@
   gaps represented by explicitly unavailable samples, including in detail views.
 - View changes restore scrolling and keyboard focus as soon as the destination
   mounts, before software-rendered GPU scenes can delay the next frame.
+  Interrupting an animation applies the latest navigation immediately and
+  prevents an obsolete transition callback from changing the destination.
 
 ### Security and privacy
 

@@ -477,6 +477,7 @@ export function App() {
   const viewHeadingRef = useRef<HTMLHeadingElement>(null);
   const destinationFrameRef = useRef<number | null>(null);
   const activeTransitionRef = useRef<BrowserViewTransition | null>(null);
+  const navigationRequestRef = useRef(0);
   const [selectedKey, setSelectedKey] = useState<SelectionKey | null>(null);
   const [selectedHostResource, setSelectedHostResource] = useState<
     'cpu' | 'memory' | 'storage'
@@ -547,6 +548,10 @@ export function App() {
       focus = true,
       operationsFocus?: OperationsFocus | null,
     ) => {
+      const request = ++navigationRequestRef.current;
+      const interruptedTransition = activeTransitionRef.current;
+      activeTransitionRef.current = null;
+      interruptedTransition?.skipTransition();
       if (
         operationsFocus === 'cpu' ||
         operationsFocus === 'memory' ||
@@ -560,11 +565,13 @@ export function App() {
       }
       if (activeViewRef.current === next) {
         setDetailOpen(false);
-        if (!deferDestinationFocus) focusDestination(focus, operationsFocus);
+        if (!deferDestinationFocus)
+          focusDestination(focus, operationsFocus, { immediate: true });
         return;
       }
       setDetailOpen(false);
       const commit = () => {
+        if (request !== navigationRequestRef.current) return;
         flushSync(() => setActiveView(next));
         activeViewRef.current = next;
         // The destination is mounted. Scroll and focus before WebGL work can
@@ -576,8 +583,11 @@ export function App() {
         '(prefers-reduced-motion: reduce)',
       ).matches;
       const transitionDocument = document as ViewTransitionDocument;
-      if (!reducedMotion && transitionDocument.startViewTransition) {
-        activeTransitionRef.current?.skipTransition();
+      if (
+        !interruptedTransition &&
+        !reducedMotion &&
+        transitionDocument.startViewTransition
+      ) {
         const transition = transitionDocument.startViewTransition(commit);
         activeTransitionRef.current = transition;
         void transition.ready.catch(() => undefined);
@@ -609,6 +619,9 @@ export function App() {
     window.history.scrollRestoration = 'manual';
     return () => {
       window.history.scrollRestoration = previousScrollRestoration;
+      navigationRequestRef.current += 1;
+      activeTransitionRef.current?.skipTransition();
+      activeTransitionRef.current = null;
       if (destinationFrameRef.current != null) {
         window.cancelAnimationFrame(destinationFrameRef.current);
         destinationFrameRef.current = null;

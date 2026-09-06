@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -466,6 +467,52 @@ describe('Leviathan dashboard states', () => {
   function openView(name: string) {
     fireEvent.click(screen.getByRole('link', { name: new RegExp(`^${name}`) }));
   }
+
+  it.each(['pending', 'committed'] as const)(
+    'keeps the latest destination when a %s view transition is interrupted',
+    (phase) => {
+      const original = Object.getOwnPropertyDescriptor(
+        document,
+        'startViewTransition',
+      );
+      const callbacks: Array<() => void> = [];
+      const skipTransition = vi.fn();
+      const startViewTransition = vi.fn((update: () => void) => {
+        callbacks.push(update);
+        return {
+          skipTransition,
+          ready: new Promise<void>(() => undefined),
+          finished: new Promise<void>(() => undefined),
+          updateCallbackDone: new Promise<void>(() => undefined),
+        };
+      });
+      Object.defineProperty(document, 'startViewTransition', {
+        configurable: true,
+        value: startViewTransition,
+      });
+      mockUseLeviathan.mockReturnValue(result(null, 'connecting'));
+      const view = render(<App />);
+      try {
+        openView('Resources');
+        if (phase === 'committed') act(() => callbacks[0]());
+        const destination = phase === 'pending' ? 'Overview' : 'Status';
+        openView(destination);
+        // Skipping a browser transition does not cancel its queued callback.
+        // A late callback must not replace the most recent destination.
+        if (phase === 'pending') act(() => callbacks[0]());
+        expect(
+          screen.getByRole('heading', { name: destination, level: 1 }),
+        ).toHaveFocus();
+        expect(startViewTransition).toHaveBeenCalledTimes(1);
+        expect(skipTransition).toHaveBeenCalledTimes(1);
+      } finally {
+        view.unmount();
+        if (original)
+          Object.defineProperty(document, 'startViewTransition', original);
+        else Reflect.deleteProperty(document, 'startViewTransition');
+      }
+    },
+  );
 
   it('uses the managed modal sheet for lazy detail loading', async () => {
     const onOpenChange = vi.fn();

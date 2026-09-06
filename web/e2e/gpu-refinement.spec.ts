@@ -1024,7 +1024,8 @@ test('shared GI memory appears once in the focused chip summary with every CI in
     try {
       await expect(view).toHaveScreenshot(
         'gpu-board-webgl-four-chip-focus.png',
-        { animations: 'disabled', timeout: 15_000 },
+        // Two stable compositor frames can exceed 15s on cold SwiftShader.
+        { animations: 'disabled', timeout: 30_000 },
       );
     } finally {
       await style.evaluate((element) =>

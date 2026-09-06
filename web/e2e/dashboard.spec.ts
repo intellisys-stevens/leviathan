@@ -11,6 +11,10 @@ test.use({
   },
 });
 
+// Cold SwiftShader context creation can consume 17s before the test body runs.
+// The whole-case budget includes fixtures; assertions retain their own deadlines.
+test.setTimeout(60_000);
+
 const sampledAt = '2026-08-30T16:00:00.000Z';
 const gpuUUID = 'GPU-synthetic-00000000';
 const secondGPUUUID = 'GPU-synthetic-11111111';
