@@ -19,6 +19,11 @@ local React dashboard. An optional in-process uploader sends a sanitized
 machine observation to Yggdrasil, while an optional Kubernetes bridge adds
 scheduler-authoritative workspace assignments.
 
+This checkout prepares **0.4.0**. The published **0.3.2** release predates the
+whole-machine dashboard and managed updater described below. Its installer
+installs Leviathan only. Managed setup requires a published, signed release
+with installer and updater assets; source support alone does not enable it.
+
 ## ✨ Highlights
 
 - MIG-aware topology, profiles, memory, activity, and parent-GPU telemetry.
@@ -42,7 +47,8 @@ scheduler-authoritative workspace assignments.
   with optional Coder workspace labels and no container-runtime socket.
 - Twelve-hour bounded in-memory host and GPU history: the latest hour stays at
   collector cadence, while older 4h/12h views use gap-preserving compact trends.
-  All dashboard views refresh every 0.5 seconds without changing host sampling.
+  Browser refresh defaults to 0.5 seconds, with optional 1s and 2s display
+  intervals; backend sampling stays at 0.5 seconds.
 - Ninety days of private local health observations that survive restarts,
   with explicit unknown periods, observation coverage, and separate host uptime.
 
@@ -50,20 +56,19 @@ scheduler-authoritative workspace assignments.
 
 ### Standalone monitoring
 
-This one-line installer installs Leviathan and its updater for your current user:
+To install the published 0.3.2 standalone GPU monitor for your current user:
 
 ```bash
-curl -fsSL https://github.com/intellisys-stevens/leviathan/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/intellisys-stevens/leviathan/releases/download/v0.3.2/install.sh | sh -s -- --version v0.3.2
 leviathan serve
 ```
 
 Open [http://127.0.0.1:1397](http://127.0.0.1:1397). The installer uses
-`~/.local/bin` without `sudo` and prints PATH guidance when needed. The updater
-remains unconfigured until this host is connected to Yggdrasil. To install
-only Leviathan, append `-s -- --without-updater` after `sh`.
+`~/.local/bin` without `sudo` and prints PATH guidance when needed. See
+[Development](#development) to build the 0.4.0 source features before release.
 
-No GPU is required for host monitoring. To preview GPU/MIG views with fixture
-data:
+In 0.4.0, no GPU is required for host monitoring. To preview GPU/MIG views with
+fixture data:
 
 ```bash
 leviathan --fixture blackwell serve
@@ -71,23 +76,39 @@ leviathan --fixture blackwell serve
 
 ### Managed through Yggdrasil
 
-1. In Yggdrasil, select the host and open **Install Leviathan and updater**.
-2. Select the initial stable release and choose **Copy install command**.
-3. Run the command on that host within 15 minutes, using root or sudo.
+First, an administrator must enable Yggdrasil's update control plane, pin the
+release verification key, import a verified setup-capable release, and complete
+the canary rollout gates. These are central prerequisites, not files each host
+owner must prepare. See [managed installation](docs/managed-updates.md#prerequisites).
+
+1. Make the host visible in Yggdrasil inventory through its configured Jetstream
+   project or a physical-host `static_host` entry.
+2. As an administrator, select that host, open **Install Leviathan and updater**,
+   select the initial stable release, and choose **Copy install command**.
+3. Run the command on that host within 15 minutes, using root or sudo. Check
+   setup completion and updater readiness in Yggdrasil.
 
 The command installs both components, generates configuration, enrolls the host,
-starts the services, and reports readiness in Yggdrasil. No manual JSON, release
-hashes, signing-key files, network ranges, Python or GitHub CLI are needed on
-the host. A sudo password prompt may still appear.
+starts the services, and reports local monitoring and updater readiness in
+Yggdrasil. No manual JSON, release hashes, signing-key files, network ranges,
+Python or GitHub CLI are needed on the host. A sudo password prompt may still
+appear.
 
 An existing supported service keeps its version, user and configuration.
 Adopting an existing preview requires the explicit checkbox in Yggdrasil; it
 never downgrades the host. Repeat the same command to resume an interrupted
 setup. Later version updates still require an explicit request in Yggdrasil.
 
-This requires the setup endpoints and a compatible signed stable release.
-See [managed installation](docs/managed-updates.md) for requirements, recovery
-and the retained advanced installer flags.
+On a fresh host, the dashboard remains on loopback. Telemetry upload and remote
+viewing need their own configuration and credentials; updater readiness does
+not establish either connection. See [readiness checks](docs/managed-updates.md#check-each-connection)
+and the [uplink guide](docs/uplink-v1.md).
+
+Release catalog imports and later per-host version selection currently need an
+operator. The updater automatically verifies, installs, checks health and rolls
+back an approved update; it does not replace itself. See
+[automation scope](docs/managed-updates.md#automation-scope) for current limits
+and the requirements for further automation.
 
 ## 🧭 Interfaces
 
@@ -238,6 +259,8 @@ credential file.
 | Yggdrasil-owned uplink contract vendor | [api/uplink-v1-openapi.yaml](api/uplink-v1-openapi.yaml) |
 | Development workflow | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Security boundary | [SECURITY.md](SECURITY.md) |
+
+<a id="development"></a>
 
 ## 🧑‍💻 Development
 
