@@ -31,18 +31,17 @@ scheduler-authoritative workspace assignments.
 
 ### Standalone monitoring
 
-To install the published 0.3.2 standalone GPU monitor for your current user:
+To install Leviathan 0.4.0 for your current user:
 
 ```bash
-curl -fsSL https://github.com/intellisys-stevens/leviathan/releases/download/v0.3.2/install.sh | sh -s -- --version v0.3.2
+curl -fsSL https://github.com/intellisys-stevens/leviathan/releases/download/v0.4.0/install.sh | sh -s -- --version v0.4.0 --without-updater
 leviathan serve
 ```
 
 Open [http://127.0.0.1:1397](http://127.0.0.1:1397). The installer uses
-`~/.local/bin` without `sudo` and prints PATH guidance when needed. See
-[Development](#development) to build the 0.4.0 source features before release.
+`~/.local/bin` without `sudo` and prints PATH guidance when needed.
 
-In 0.4.0, no GPU is required for host monitoring. To preview GPU/MIG views with
+No GPU is required for host monitoring. To preview GPU/MIG views with
 fixture data:
 
 ```bash
