@@ -1,6 +1,14 @@
 # Changelog
 
-## 0.4.0 - Unreleased
+## Unreleased
+
+### Fixed
+
+- The advanced `--with-updater` installer accepts current GitHub CLI versions by
+  using one exact certificate identity selector while retaining the release tag,
+  source commit, signer commit, OIDC issuer, and hosted-runner checks.
+
+## 0.4.0 - 2026-09-07
 
 ### Added
 

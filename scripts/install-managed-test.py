@@ -104,9 +104,11 @@ class ManagedInstallTest(unittest.TestCase):
             shutil.copyfile(self.manifest, directory / self.manifest.name)
             return b""
         if command[:3] == ["gh", "attestation", "verify"]:
+            identity_flags = ("--cert-identity", "--cert-identity-regex", "--signer-repo", "--signer-workflow")
+            self.assertEqual(sum(flag in command for flag in identity_flags), 1,
+                             "GitHub CLI accepts only one certificate or signer identity selector")
             required = {
                 "--repo": "intellisys-stevens/leviathan",
-                "--signer-workflow": "github.com/intellisys-stevens/leviathan/.github/workflows/release.yml",
                 "--source-ref": "refs/tags/v1.2.3", "--source-digest": "a" * 40, "--signer-digest": "a" * 40,
                 "--cert-identity": "https://github.com/intellisys-stevens/leviathan/.github/workflows/release.yml@refs/tags/v1.2.3",
             }

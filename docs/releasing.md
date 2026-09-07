@@ -165,7 +165,6 @@ tag and reviewed full source commit, then use the GitHub CLI's
 gh attestation verify "$ARTIFACT" \
   --hostname github.com \
   --repo intellisys-stevens/leviathan \
-  --signer-workflow github.com/intellisys-stevens/leviathan/.github/workflows/release.yml \
   --source-ref "refs/tags/$REVIEWED_TAG" \
   --source-digest "$REVIEWED_COMMIT" --signer-digest "$REVIEWED_COMMIT" \
   --cert-identity "https://github.com/intellisys-stevens/leviathan/.github/workflows/release.yml@refs/tags/$REVIEWED_TAG" \
