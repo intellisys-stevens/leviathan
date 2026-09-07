@@ -1022,11 +1022,26 @@ test('shared GI memory appears once in the focused chip summary with every CI in
         '.workbench-nav,.mobile-workbench-nav,.leviathan-header,canvas.ambient-snow {visibility:hidden!important}',
     });
     try {
-      await expect(view).toHaveScreenshot(
+      await expect(view).toBeInViewport({ ratio: 1 });
+      const bounds = (await view.boundingBox())!;
+      expect(bounds).not.toBeNull();
+      // Match the outward pixel rounding used by element screenshots.
+      const x = Math.floor(bounds.x + 1e-3);
+      const y = Math.floor(bounds.y + 1e-3);
+      const clip = {
+        x,
+        y,
+        width: Math.ceil(bounds.x + bounds.width - 1e-3) - x,
+        height: Math.ceil(bounds.y + bounds.height - 1e-3) - y,
+      };
+      // The panel is already positioned and painted. Capture its exact bounds
+      // without another element scroll/stability wait, which can stall waiting
+      // for compositor frames on SwiftShader after animations are disabled.
+      await expect(page).toHaveScreenshot(
         'gpu-board-webgl-four-chip-focus.png',
-        // Two stable compositor frames can exceed 15s on cold SwiftShader.
-        { animations: 'disabled', timeout: 30_000 },
+        { clip, animations: 'disabled', timeout: 30_000 },
       );
+      expect(await view.boundingBox()).toEqual(bounds);
     } finally {
       await style.evaluate((element) =>
         element.parentNode?.removeChild(element),
