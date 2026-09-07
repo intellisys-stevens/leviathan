@@ -1,6 +1,6 @@
 # Approved host updates
 
-[Leviathan 0.4.0](https://github.com/intellisys-stevens/leviathan/releases/tag/v0.4.0)
+[Leviathan 0.4.1](https://github.com/intellisys-stevens/leviathan/releases/tag/v0.4.1)
 includes the combined installer and signed managed-update assets. Release
 publication does not provision Yggdrasil's update control plane.
 
@@ -140,11 +140,10 @@ authorize a root-level installation or bypass current session/passkey checks.
 
 ## Advanced compatibility paths
 
-The v0.4.0 release's advanced `--with-updater` helper supplies conflicting
-GitHub CLI identity flags and cannot verify artifacts with current `gh`
-versions. Use the native generated setup command above. The source helper
-contains the correction for the next release; published v0.4.0 assets retain
-their original contents.
+The advanced `--with-updater` helper is corrected in v0.4.1 to use one exact
+GitHub CLI certificate identity selector. The original v0.4.0 helper supplies
+conflicting identity flags; use v0.4.1 or the native generated setup command
+above. Published v0.4.0 assets retain their original contents.
 
 The following flags and Python bootstrap remain available for existing
 operator scripts. They are not required by the README installer or the

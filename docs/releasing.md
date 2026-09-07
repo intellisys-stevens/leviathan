@@ -114,6 +114,26 @@ published. Verify both native archives, checksums, attestations, SBOMs, the
 configuration, and backups until host telemetry and Yggdrasil receipts have
 been observed in the deployment.
 
+## v0.4.1 patch release
+
+Prepare the `0.4.1` OpenAPI information version, dashboard and lockfile, Helm
+chart, Kubernetes example, CI dry-run fixtures, changelog, and release-verifier
+metadata together. This patch includes the advanced installer's GitHub CLI
+identity-selector correction and the reviewed frontend and Go build updates.
+Require the complete CI and non-publishing release dry run on the merged
+`main` commit before creating the annotated `v0.4.1` tag.
+
+```bash
+git tag -a v0.4.1 -m "Leviathan v0.4.1"
+git push origin v0.4.1
+```
+
+Never move or reuse a published tag. After the tag workflow succeeds, verify
+both native archives, static updaters, signed manifests, installer, checksums,
+provenance, SBOMs, the `leviathan-kubernetes-bridge:0.4.1` image, and the
+`leviathan-attribution:0.4.1` OCI chart. Exercise the corrected advanced helper
+against the published artifacts. Release publication does not deploy to hosts.
+
 ## Managed update signing
 
 Every new GitHub release must include

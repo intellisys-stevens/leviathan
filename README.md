@@ -31,10 +31,10 @@ scheduler-authoritative workspace assignments.
 
 ### Standalone monitoring
 
-To install Leviathan 0.4.0 for your current user:
+To install Leviathan 0.4.1 for your current user:
 
 ```bash
-curl -fsSL https://github.com/intellisys-stevens/leviathan/releases/download/v0.4.0/install.sh | sh -s -- --version v0.4.0 --without-updater
+curl -fsSL https://github.com/intellisys-stevens/leviathan/releases/download/v0.4.1/install.sh | sh -s -- --version v0.4.1 --without-updater
 leviathan serve
 ```
 
@@ -125,7 +125,7 @@ credential file.
 | Yggdrasil telemetry uplink | [docs/uplink-v1.md](docs/uplink-v1.md) |
 | Install and enroll the managed updater | [docs/managed-updates.md](docs/managed-updates.md) |
 | Security and privacy model | [docs/security-and-privacy.md](docs/security-and-privacy.md) |
-| v0.4.0 changes | [CHANGELOG.md](CHANGELOG.md) |
+| v0.4.1 changes | [CHANGELOG.md](CHANGELOG.md) |
 | Upgrade from v0.2.1 | [docs/migration-v0.3.md](docs/migration-v0.3.md) |
 | OpenAPI 3.1 contract | [api/openapi.yaml](api/openapi.yaml) |
 | Yggdrasil-owned uplink contract vendor | [api/uplink-v1-openapi.yaml](api/uplink-v1-openapi.yaml) |

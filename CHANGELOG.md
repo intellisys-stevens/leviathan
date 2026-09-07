@@ -1,12 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.4.1 - 2026-09-07
 
 ### Fixed
 
 - The advanced `--with-updater` installer accepts current GitHub CLI versions by
   using one exact certificate identity selector while retaining the release tag,
   source commit, signer commit, OIDC issuer, and hosted-runner checks.
+
+- Regenerated the embedded dashboard after updating its dependencies so source
+  builds and published binaries contain the same frontend.
+
+### Changed
+
+- Updated the Kubernetes attribution bridge build image to Go 1.27.1.
+- Updated Lucide icons, React DOM types, Oxfmt, Oxlint, PostCSS, and Vitest.
 
 ## 0.4.0 - 2026-09-07
 
