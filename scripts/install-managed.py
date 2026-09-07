@@ -209,7 +209,7 @@ def inspect_archive(archive, m, destination):
 def verify_provenance(file, args, runner):
     runner([
         "gh", "attestation", "verify", str(file), "--hostname", "github.com", "--repo", REPOSITORY,
-        "--signer-workflow", f"github.com/{REPOSITORY}/{WORKFLOW}", "--source-ref", "refs/tags/" + args.tag,
+        "--source-ref", "refs/tags/" + args.tag,
         "--source-digest", args.commit, "--signer-digest", args.commit,
         "--cert-identity", f"https://github.com/{REPOSITORY}/{WORKFLOW}@refs/tags/{args.tag}",
         "--cert-oidc-issuer", "https://token.actions.githubusercontent.com",

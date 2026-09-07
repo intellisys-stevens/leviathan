@@ -1,16 +1,13 @@
 # Approved host updates
 
-The 0.4.0 source implements the combined installer and managed setup described
-here. The published 0.3.2 installer installs only Leviathan and has no signed
-managed-update manifests or standalone updater assets. Use a completed official
-release with all verified assets before enabling the managed path; merging the
-implementation or passing its tests does not provision a control plane.
+[Leviathan 0.4.0](https://github.com/intellisys-stevens/leviathan/releases/tag/v0.4.0)
+includes the combined installer and signed managed-update assets. Release
+publication does not provision Yggdrasil's update control plane.
 
-Once published in a compatible release, the combined installer includes both
-Leviathan and `leviathan-updater`. Without Yggdrasil setup information it installs
-the binaries in `~/.local/bin`; the updater remains unconfigured. That installer
-also accepts `--without-updater` for standalone installations. These options do
-not apply to the 0.3.2 installer.
+The combined installer includes both Leviathan and `leviathan-updater`. Without
+Yggdrasil setup information it installs the binaries in `~/.local/bin`; the
+updater remains unconfigured. Use `--without-updater` for standalone
+installations.
 
 An enrolled updater polls Yggdrasil over outbound HTTPS every 15 seconds with
 jitter and backoff. Later updates require an explicit request for one host and
@@ -142,6 +139,12 @@ existing settings: inventory discovery or updater polling alone must never
 authorize a root-level installation or bypass current session/passkey checks.
 
 ## Advanced compatibility paths
+
+The v0.4.0 release's advanced `--with-updater` helper supplies conflicting
+GitHub CLI identity flags and cannot verify artifacts with current `gh`
+versions. Use the native generated setup command above. The source helper
+contains the correction for the next release; published v0.4.0 assets retain
+their original contents.
 
 The following flags and Python bootstrap remain available for existing
 operator scripts. They are not required by the README installer or the
