@@ -1,5 +1,7 @@
+/// <reference types="node" />
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import process from 'node:process';
 import type { GPU, Snapshot } from '../src/types';
 import { systemCapability, systemFixture } from '../src/test/system-fixture';
 
@@ -7,11 +9,14 @@ import { systemCapability, systemFixture } from '../src/test/system-fixture';
 // machines without a hardware GPU. Fallback is covered in dedicated cases only.
 test.use({
   launchOptions: {
-    args: [
-      '--use-gl=angle',
-      '--use-angle=swiftshader',
-      '--enable-unsafe-swiftshader',
-    ],
+    args:
+      process.env.PLAYWRIGHT_HARDWARE_GPU === '1'
+        ? ['--enable-gpu', '--use-gl=angle', '--use-angle=gl']
+        : [
+            '--use-gl=angle',
+            '--use-angle=swiftshader',
+            '--enable-unsafe-swiftshader',
+          ],
   },
 });
 test.setTimeout(90_000);

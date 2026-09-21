@@ -1,0 +1,60 @@
+name: Brokkr GPU experiment
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hardware-browser:
+    # Additional, manual coverage. Required software-rendered CI stays unchanged.
+    if: vars.BROKKR_ENABLED == 'true' && vars.BROKKR_GPU_ENABLED == 'true' && github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        project:
+          - chromium-desktop-dark
+          - chromium-desktop-light
+          - chromium-narrow-dark
+          - chromium-narrow-light
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - brokkr
+      - brokkr-gpu
+      - brokkr-${{ github.run_id }}-${{ github.run_attempt }}-hardware-browser-${{ matrix.project }}
+    timeout-minutes: 60
+    env:
+      PLAYWRIGHT_HARDWARE_GPU: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: npx playwright install chromium
+        working-directory: web
+      - name: Verify NVIDIA WebGL rendering and GPU activity
+        run: node scripts/check-hardware-gpu.mjs
+        working-directory: web
+      - name: Run unchanged browser assertions
+        run: npm run test:e2e -- --project="${{ matrix.project }}" --workers=1
+        working-directory: web
+      - name: Retain experiment evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: hardware-browser-${{ matrix.project }}-${{ github.run_attempt }}
+          path: |
+            web/test-results
+            web/hardware-gpu.json
+          if-no-files-found: ignore
+          retention-days: 7

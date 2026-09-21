@@ -1,4 +1,6 @@
+/// <reference types="node" />
 import { defineConfig } from '@playwright/test';
+import process from 'node:process';
 
 export default defineConfig({
   testDir: './e2e',
@@ -9,6 +11,13 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:4173',
     browserName: 'chromium',
+    ...(process.env.PLAYWRIGHT_HARDWARE_GPU === '1'
+      ? {
+          launchOptions: {
+            args: ['--enable-gpu', '--use-gl=angle', '--use-angle=gl'],
+          },
+        }
+      : {}),
     timezoneId: 'America/New_York',
     // Avoid continuous filmstrip readbacks competing with SwiftShader captures.
     // Keep DOM/action traces and each visual assertion's comparison images.
