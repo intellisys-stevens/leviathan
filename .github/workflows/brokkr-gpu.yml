@@ -19,6 +19,7 @@ jobs:
           - chromium-desktop-light
           - chromium-narrow-dark
           - chromium-narrow-light
+    # Hardware reruns still require Brokkr's GPU; never substitute hosted CPU tests.
     runs-on:
       - self-hosted
       - linux
