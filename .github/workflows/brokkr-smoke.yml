@@ -1,43 +1,459 @@
-name: Brokkr smoke
-
-on:
-  workflow_dispatch:
-    inputs:
-      validate_runner:
-        description: Run only this smoke job on Brokkr before enabling CI routing
-        type: boolean
-        required: false
-        default: false
-
-permissions:
-  contents: read
-
-jobs:
-  smoke:
-    # Explicit pilot input keeps ordinary CI hosted while validation runs.
-    # Host admission checks still apply; this input never authorizes a runner.
-    if: github.event_name == 'workflow_dispatch' && (vars.BROKKR_ENABLED == 'true' || inputs.validate_runner == true)
-    # A rerun exercises the hosted fallback instead of waiting for Brokkr.
-    runs-on: ${{ github.run_attempt == '1' && fromJSON(format('["self-hosted","linux","x64","brokkr","brokkr-{0}-{1}-smoke"]', github.run_id, github.run_attempt)) || 'ubuntu-latest' }}
-    timeout-minutes: 10
-    steps:
-      - name: Show selected runner
-        env:
-          RUNNER_LOCATION: ${{ runner.environment }}
-        run: |
-          printf 'Runner environment: %s\n' "$RUNNER_LOCATION"
-      - name: Check disposable guest
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(id -u)" -ne 0
-          test "$(uname -m)" = x86_64
-          test -z "$(find "$RUNNER_TEMP" -name brokkr-previous-job -print -quit)"
-          python3 --version
-          node --version
-          printf '%s\n' "$GITHUB_RUN_ID/$GITHUB_RUN_ATTEMPT" > "$RUNNER_TEMP/brokkr-previous-job"
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - name: Verify checked-out source
-        run: git diff --exit-code
+{
+  "name": "CI workload validation",
+  "on": {
+    "workflow_dispatch": {
+      "inputs": {
+        "target": {
+          "description": "Execution target for the reviewed candidate only",
+          "required": true,
+          "type": "choice",
+          "options": [
+            "hosted",
+            "local"
+          ],
+          "default": "hosted"
+        },
+        "trial": {
+          "description": "Trial identifier for evidence only",
+          "required": true,
+          "type": "string"
+        }
+      }
+    }
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "jobs": {
+    "secrets": {
+      "runs-on": "${{ false && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && fromJSON(format('[\"self-hosted\",\"linux\",\"x64\",\"brokkr\",\"brokkr-{0}-{1}-ci-secrets\"]', github.run_id, github.run_attempt)) || 'ubuntu-24.04' }}",
+      "steps": [
+        {
+          "uses": "actions/checkout@v7",
+          "with": {
+            "fetch-depth": 0,
+            "ref": "60cb66b952ab34ac12eae5c691be5e57cbf156a7"
+          }
+        },
+        {
+          "name": "Scan Git history for secrets",
+          "shell": "bash",
+          "run": "set -euo pipefail\nversion=8.30.1\narchive=\"gitleaks_${version}_linux_x64.tar.gz\"\ncurl --proto '=https' --tlsv1.2 -fsSLO \\\n  \"https://github.com/gitleaks/gitleaks/releases/download/v${version}/${archive}\"\necho \"551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  ${archive}\" | sha256sum --check --strict\ntar -xzf \"${archive}\" gitleaks\n./gitleaks git --no-banner --redact=100 --log-opts='--all' .\n"
+        }
+      ]
+    },
+    "frontend": {
+      "runs-on": "${{ false && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && fromJSON(format('[\"self-hosted\",\"linux\",\"x64\",\"brokkr\",\"brokkr-{0}-{1}-ci-frontend\"]', github.run_id, github.run_attempt)) || 'ubuntu-24.04' }}",
+      "steps": [
+        {
+          "uses": "actions/checkout@v7",
+          "with": {
+            "ref": "60cb66b952ab34ac12eae5c691be5e57cbf156a7"
+          }
+        },
+        {
+          "uses": "actions/setup-node@v7",
+          "with": {
+            "node-version": "24",
+            "cache": "npm",
+            "cache-dependency-path": "web/package-lock.json"
+          }
+        },
+        {
+          "run": "npm ci",
+          "working-directory": "web"
+        },
+        {
+          "run": "npm audit",
+          "working-directory": "web"
+        },
+        {
+          "run": "npm run license:check",
+          "working-directory": "web"
+        },
+        {
+          "run": "npm run lint",
+          "working-directory": "web"
+        },
+        {
+          "run": "npm run format -- --check",
+          "working-directory": "web"
+        },
+        {
+          "run": "npm test",
+          "working-directory": "web"
+        },
+        {
+          "run": "npm run generate:api",
+          "working-directory": "web"
+        },
+        {
+          "run": "git diff --exit-code -- web/src/api.gen.ts"
+        },
+        {
+          "run": "npm run build",
+          "working-directory": "web"
+        },
+        {
+          "run": "git diff --exit-code -- internal/webui/dist"
+        }
+      ]
+    },
+    "frontend-browser": {
+      "needs": "frontend",
+      "strategy": {
+        "fail-fast": false,
+        "matrix": {
+          "project": [
+            "chromium-desktop-dark",
+            "chromium-desktop-light",
+            "chromium-narrow-dark",
+            "chromium-narrow-light"
+          ]
+        }
+      },
+      "runs-on": "${{ inputs.target == 'local' && ((matrix.project == 'chromium-desktop-dark')) && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && fromJSON(format('[\"self-hosted\",\"linux\",\"x64\",\"brokkr\",\"brokkr-{0}-{1}-ci-frontend-browser-{2}\"]', github.run_id, github.run_attempt, matrix.project)) || 'ubuntu-24.04' }}",
+      "timeout-minutes": 45,
+      "steps": [
+        {
+          "uses": "actions/checkout@v7",
+          "with": {
+            "ref": "60cb66b952ab34ac12eae5c691be5e57cbf156a7"
+          }
+        },
+        {
+          "uses": "actions/setup-node@v7",
+          "with": {
+            "node-version": "24",
+            "cache": "npm",
+            "cache-dependency-path": "web/package-lock.json"
+          }
+        },
+        {
+          "run": "npm ci",
+          "working-directory": "web"
+        },
+        {
+          "name": "Install Chromium for dashboard regressions",
+          "if": "runner.environment != 'self-hosted'",
+          "run": "npx playwright install --with-deps chromium",
+          "working-directory": "web"
+        },
+        {
+          "name": "Install Chromium in the prepared guest",
+          "if": "runner.environment == 'self-hosted'",
+          "run": "npx playwright install chromium",
+          "working-directory": "web"
+        },
+        {
+          "name": "Run dashboard browser regressions",
+          "run": "npm run test:e2e -- --project=\"${{ matrix.project }}\" --workers=1",
+          "working-directory": "web"
+        },
+        {
+          "name": "Retain failed browser traces and screenshots",
+          "if": "failure()",
+          "uses": "actions/upload-artifact@v7",
+          "with": {
+            "name": "browser-failures-${{ matrix.project }}",
+            "path": "web/test-results",
+            "if-no-files-found": "ignore",
+            "retention-days": 7
+          }
+        }
+      ]
+    },
+    "go": {
+      "runs-on": "${{ false && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && fromJSON(format('[\"self-hosted\",\"linux\",\"x64\",\"brokkr\",\"brokkr-{0}-{1}-ci-go\"]', github.run_id, github.run_attempt)) || 'ubuntu-24.04' }}",
+      "env": {
+        "CGO_CFLAGS": "-Wno-deprecated-declarations"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@v7",
+          "with": {
+            "ref": "60cb66b952ab34ac12eae5c691be5e57cbf156a7"
+          }
+        },
+        {
+          "uses": "actions/setup-go@v7",
+          "with": {
+            "go-version-file": "go.mod",
+            "cache-dependency-path": "go.sum"
+          }
+        },
+        {
+          "name": "Verify vendored uplink contract and generated Go DTOs",
+          "run": "scripts/verify-uplink-contract.sh"
+        },
+        {
+          "run": "go generate ./internal/api"
+        },
+        {
+          "run": "git diff --exit-code -- internal/api/wire.gen.go"
+        },
+        {
+          "name": "Verify managed update contract and signature vectors",
+          "run": "scripts/verify-update-contract.sh"
+        },
+        {
+          "run": "go test ./..."
+        },
+        {
+          "run": "go test -race ./..."
+        },
+        {
+          "run": "go vet ./..."
+        },
+        {
+          "name": "Build Kubernetes attribution bridge",
+          "run": "make build-bridge VERSION=0.4.1"
+        },
+        {
+          "name": "Check Go dependency licenses",
+          "run": "go run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/leviathan --disallowed_types=forbidden,restricted,unknown\ngo run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/leviathan-kubernetes-bridge --disallowed_types=forbidden,restricted,unknown\n"
+        },
+        {
+          "name": "Check reachable Go vulnerabilities",
+          "run": "go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./..."
+        }
+      ]
+    },
+    "automatic-setup-systemd": {
+      "strategy": {
+        "fail-fast": false,
+        "matrix": {
+          "runner": [
+            "ubuntu-24.04",
+            "ubuntu-24.04-arm"
+          ]
+        }
+      },
+      "runs-on": "${{ matrix.runner }}",
+      "timeout-minutes": 20,
+      "env": {
+        "CGO_CFLAGS": "-Wno-deprecated-declarations"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@v7",
+          "with": {
+            "ref": "60cb66b952ab34ac12eae5c691be5e57cbf156a7"
+          }
+        },
+        {
+          "uses": "actions/setup-go@v7",
+          "with": {
+            "go-version-file": "go.mod",
+            "cache-dependency-path": "go.sum"
+          }
+        },
+        {
+          "name": "Build disposable setup fixtures",
+          "shell": "bash",
+          "run": "set -euo pipefail\npackage=\"$RUNNER_TEMP/automatic-setup-package\"\nmkdir -p \"$package\"\ngo build -trimpath -ldflags \"-X github.com/intellisys-stevens/leviathan/internal/cli.Version=0.4.1 -X github.com/intellisys-stevens/leviathan/internal/cli.Commit=1111111111111111111111111111111111111111 -X github.com/intellisys-stevens/leviathan/internal/cli.BuildDate=2026-09-05T00:00:00Z\" -o \"$package/agent-new\" ./cmd/leviathan\ngo build -trimpath -ldflags \"-X github.com/intellisys-stevens/leviathan/internal/cli.Version=0.4.2 -X github.com/intellisys-stevens/leviathan/internal/cli.Commit=2222222222222222222222222222222222222222 -X github.com/intellisys-stevens/leviathan/internal/cli.BuildDate=2026-09-05T00:00:00Z\" -o \"$package/agent-next\" ./cmd/leviathan\ngo build -trimpath -ldflags \"-X github.com/intellisys-stevens/leviathan/internal/cli.Version=0.4.3 -X github.com/intellisys-stevens/leviathan/internal/cli.Commit=3333333333333333333333333333333333333333 -X github.com/intellisys-stevens/leviathan/internal/cli.BuildDate=2026-09-05T00:00:00Z\" -o \"$package/agent-setup-broken\" ./internal/updater/testdata/setup-broken-agent\ngo build -trimpath -ldflags \"-X github.com/intellisys-stevens/leviathan/internal/cli.Version=0.4.4 -X github.com/intellisys-stevens/leviathan/internal/cli.Commit=4444444444444444444444444444444444444444 -X github.com/intellisys-stevens/leviathan/internal/cli.BuildDate=2026-09-05T00:00:00Z\" -o \"$package/agent-setup-future\" ./cmd/leviathan\n# Test-only public root. These executables are never published.\nCGO_ENABLED=0 go build -trimpath -ldflags \"-X main.Version=0.4.1 -X github.com/intellisys-stevens/leviathan/internal/updater.ReleasePublicKeys=eZRrIVpuolPS/SjQVWmCnGqOZHMZlp/iHGR2Uku9WlI\" -o \"$package/leviathan-updater\" ./cmd/leviathan-updater\ngo test -c -o \"$package/automatic-setup.test\" ./internal/updater\ncp scripts/install.sh \"$package/install.sh\"\n# These native fixtures must also run on the separately approved\n# Ubuntu 22.04 reboot VM. Never infer compatibility from GOARCH alone.\nfor fixture in agent-new agent-next agent-setup-broken agent-setup-future automatic-setup.test; do\n  required=\"$(objdump -T \"$package/$fixture\" | sed -n 's/.*(GLIBC_\\([0-9][0-9.]*\\)).*/\\1/p' | sort -Vu | tail -n 1)\"\n  test -n \"$required\"\n  test \"$(printf '%s\\n%s\\n' 2.34 \"$required\" | sort -V | tail -n 1)\" = 2.34\ndone\ngit rev-parse HEAD > \"$package/SOURCE_COMMIT\"\n(cd \"$package\" && sha256sum agent-new agent-next agent-setup-broken agent-setup-future leviathan-updater automatic-setup.test install.sh SOURCE_COMMIT > SHA256SUMS)\nsudo install -d -m 0700 /root/updater-package\nsudo cp \"$package/\"* /root/updater-package/\n"
+        },
+        {
+          "name": "Retain exact-source native fixtures for approved reboot acceptance",
+          "uses": "actions/upload-artifact@v7",
+          "with": {
+            "name": "updater-acceptance-fixtures-${{ matrix.runner }}",
+            "path": "${{ runner.temp }}/automatic-setup-package",
+            "compression-level": 0,
+            "retention-days": 3
+          }
+        },
+        {
+          "name": "Verify generated installer on native systemd",
+          "shell": "bash",
+          "run": "set -euo pipefail\ntest \"$(cat /proc/1/comm)\" = systemd\n# runner-images makes /opt and /usr/local/bin world-writable.\n# Restore normal system-directory boundaries on this disposable VM.\nsudo chown root:root /opt /usr/local/bin\nsudo chmod 0755 /opt /usr/local/bin\n# Exercise the normal noexec /run boundary found on the approved\n# Ubuntu 22.04 host; never relax that host's mount permissions.\nsudo mount -o remount,noexec /run\nfindmnt -no OPTIONS /run | grep -q '\\bnoexec\\b'\nprintf 'per-host-update-acceptance\\n' | sudo tee /run/leviathan-updater-disposable-test >/dev/null\nsudo env LEVIATHAN_UPDATER_DISPOSABLE_HOST=1 /root/updater-package/automatic-setup.test -test.run '^TestSystemdAutomaticSetupAcceptance$' -test.v -test.timeout=720s | tee \"$RUNNER_TEMP/automatic-setup.log\"\nsudo cat /root/automatic-setup-receipt.json > \"$RUNNER_TEMP/automatic-setup-receipt.json\"\n"
+        },
+        {
+          "name": "Retain public acceptance evidence",
+          "if": "always()",
+          "uses": "actions/upload-artifact@v7",
+          "with": {
+            "name": "automatic-setup-${{ matrix.runner }}",
+            "path": "${{ runner.temp }}/automatic-setup.log\n${{ runner.temp }}/automatic-setup-receipt.json\n",
+            "if-no-files-found": "ignore"
+          }
+        }
+      ]
+    },
+    "bridge-image": {
+      "runs-on": "ubuntu-24.04",
+      "steps": [
+        {
+          "uses": "actions/checkout@v7",
+          "with": {
+            "ref": "60cb66b952ab34ac12eae5c691be5e57cbf156a7"
+          }
+        },
+        {
+          "uses": "docker/setup-buildx-action@v4"
+        },
+        {
+          "name": "Dry-run multi-architecture bridge image",
+          "uses": "docker/build-push-action@v7",
+          "with": {
+            "context": ".",
+            "file": "contrib/container/leviathan-kubernetes-bridge.Dockerfile",
+            "platforms": "linux/amd64,linux/arm64",
+            "push": false,
+            "outputs": "type=cacheonly",
+            "provenance": "mode=max",
+            "sbom": true,
+            "tags": "leviathan-kubernetes-bridge:ci",
+            "build-args": "VERSION=0.4.1\nCOMMIT=${{ github.sha }}\nBUILD_DATE=1970-01-01T00:00:00Z\n",
+            "cache-from": "type=gha,scope=bridge-ci",
+            "cache-to": "type=gha,mode=max,scope=bridge-ci"
+          }
+        },
+        {
+          "name": "Load native bridge image for metadata checks",
+          "uses": "docker/build-push-action@v7",
+          "with": {
+            "context": ".",
+            "file": "contrib/container/leviathan-kubernetes-bridge.Dockerfile",
+            "platforms": "linux/amd64",
+            "load": true,
+            "push": false,
+            "provenance": false,
+            "tags": "leviathan-kubernetes-bridge:ci",
+            "build-args": "VERSION=0.4.1\nCOMMIT=${{ github.sha }}\nBUILD_DATE=1970-01-01T00:00:00Z\n",
+            "cache-from": "type=gha,scope=bridge-ci"
+          }
+        },
+        {
+          "name": "Verify bridge image runtime metadata",
+          "run": "test \"$(docker image inspect --format '{{json .Config.Entrypoint}}' leviathan-kubernetes-bridge:ci)\" = '[\"/leviathan-kubernetes-bridge\"]'\ntest \"$(docker image inspect --format '{{.Config.User}}' leviathan-kubernetes-bridge:ci)\" = '0:0'\ntest \"$(docker image inspect --format '{{index .Config.Labels \"org.opencontainers.image.title\"}}' leviathan-kubernetes-bridge:ci)\" = 'Leviathan Kubernetes attribution bridge'\ntest \"$(docker image inspect --format '{{index .Config.Labels \"org.opencontainers.image.source\"}}' leviathan-kubernetes-bridge:ci)\" = 'https://github.com/intellisys-stevens/leviathan'\ntest \"$(docker image inspect --format '{{index .Config.Labels \"org.opencontainers.image.version\"}}' leviathan-kubernetes-bridge:ci)\" = '0.4.1'\n"
+        }
+      ]
+    },
+    "distribution-validation": {
+      "runs-on": "${{ false && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && fromJSON(format('[\"self-hosted\",\"linux\",\"x64\",\"brokkr\",\"brokkr-{0}-{1}-ci-distribution-validation\"]', github.run_id, github.run_attempt)) || 'ubuntu-24.04' }}",
+      "steps": [
+        {
+          "uses": "actions/checkout@v7",
+          "with": {
+            "ref": "60cb66b952ab34ac12eae5c691be5e57cbf156a7"
+          }
+        },
+        {
+          "uses": "azure/setup-helm@v5",
+          "with": {
+            "version": "v3.18.6"
+          }
+        },
+        {
+          "name": "Install ShellCheck outside the prepared Brokkr guest",
+          "if": "runner.environment != 'self-hosted' || !startsWith(runner.name, 'brokkr-')",
+          "run": "sudo apt-get update\nsudo apt-get install --yes shellcheck\n"
+        },
+        {
+          "name": "Check shell scripts",
+          "run": "shellcheck scripts/*.sh"
+        },
+        {
+          "name": "Verify clean product rename and release metadata",
+          "run": "scripts/verify-branding.sh\nscripts/verify-release-metadata.sh 0.4.1\n"
+        },
+        {
+          "name": "Test installer",
+          "run": "scripts/install_test.sh\npython3 scripts/release-installer-test.py\npython3 scripts/sync-managed-installer.py --check\npython3 scripts/install-managed-test.py\npython3 scripts/bootstrap-updater-test.py\n"
+        },
+        {
+          "name": "Dry-run Helm chart package",
+          "id": "chart",
+          "run": "scripts/verify-helm-chart.sh\nmkdir -p dist\nhelm package charts/leviathan-attribution --destination dist\ntest -f dist/leviathan-attribution-0.4.1.tgz\ntest \"$(helm show chart dist/leviathan-attribution-0.4.1.tgz | awk '$1 == \"version:\" { print $2 }')\" = 0.4.1\ntest \"$(helm show chart dist/leviathan-attribution-0.4.1.tgz | awk '$1 == \"appVersion:\" { print $2 }')\" = 0.4.1\necho 'package=dist/leviathan-attribution-0.4.1.tgz' >> \"$GITHUB_OUTPUT\"\n"
+        },
+        {
+          "name": "Dry-run chart SPDX SBOM",
+          "uses": "anchore/sbom-action@v0",
+          "with": {
+            "file": "${{ steps.chart.outputs.package }}",
+            "format": "spdx-json",
+            "output-file": "dist/leviathan-attribution_0.4.1.spdx.json",
+            "upload-artifact": false,
+            "upload-release-assets": false
+          }
+        }
+      ]
+    },
+    "release-archive-dry-run": {
+      "needs": "distribution-validation",
+      "strategy": {
+        "fail-fast": false,
+        "matrix": {
+          "include": [
+            {
+              "runner": "ubuntu-24.04",
+              "architecture": "amd64"
+            },
+            {
+              "runner": "ubuntu-24.04-arm",
+              "architecture": "arm64"
+            }
+          ]
+        }
+      },
+      "runs-on": "${{ false && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && matrix.runner == 'ubuntu-24.04' && matrix.architecture == 'amd64' && fromJSON(format('[\"self-hosted\",\"linux\",\"x64\",\"brokkr\",\"brokkr-{0}-{1}-ci-release-archive-dry-run-amd64\"]', github.run_id, github.run_attempt)) || matrix.runner }}",
+      "env": {
+        "CGO_CFLAGS": "-Wno-deprecated-declarations"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@v7",
+          "with": {
+            "fetch-depth": 0,
+            "ref": "60cb66b952ab34ac12eae5c691be5e57cbf156a7"
+          }
+        },
+        {
+          "uses": "actions/setup-node@v7",
+          "with": {
+            "node-version": "24",
+            "cache": "npm",
+            "cache-dependency-path": "web/package-lock.json"
+          }
+        },
+        {
+          "uses": "actions/setup-go@v7",
+          "with": {
+            "go-version-file": "go.mod",
+            "cache-dependency-path": "go.sum"
+          }
+        },
+        {
+          "name": "Build embedded dashboard",
+          "working-directory": "web",
+          "run": "npm ci && npm run build"
+        },
+        {
+          "name": "Build and verify release archive",
+          "id": "archive",
+          "env": {
+            "ARCHITECTURE": "${{ matrix.architecture }}",
+            "OUTPUT_DIRECTORY": "${{ runner.temp }}/leviathan-package",
+            "VERSION": "v0.4.1",
+            "LEVIATHAN_RELEASE_TEST_ONLY": "1",
+            "LEVIATHAN_UPDATE_PUBLIC_KEYS": "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo"
+          },
+          "run": "archive=$(scripts/build-release.sh)\nscripts/verify-release-archive.sh \"$archive\" \"$VERSION\" \"$ARCHITECTURE\"\necho \"package=$archive\" >> \"$GITHUB_OUTPUT\"\n"
+        },
+        {
+          "name": "Dry-run archive SPDX SBOM",
+          "uses": "anchore/sbom-action@v0",
+          "with": {
+            "file": "${{ steps.archive.outputs.package }}",
+            "format": "spdx-json",
+            "output-file": "${{ runner.temp }}/leviathan-package/leviathan_linux_${{ matrix.architecture }}.spdx.json",
+            "upload-artifact": false,
+            "upload-release-assets": false
+          }
+        }
+      ]
+    }
+  },
+  "run-name": "Brokkr workload / ${{ inputs.target }} / ${{ inputs.trial }}"
+}
