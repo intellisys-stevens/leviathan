@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   secrets:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.BROKKR_ENABLED == 'true' && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && fromJSON(format('["self-hosted","linux","x64","brokkr","brokkr-{0}-{1}-ci-secrets"]', github.run_id, github.run_attempt)) || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -29,7 +29,7 @@ jobs:
           ./gitleaks git --no-banner --redact=100 --log-opts='--all' .
 
   frontend:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.BROKKR_ENABLED == 'true' && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && fromJSON(format('["self-hosted","linux","x64","brokkr","brokkr-{0}-{1}-ci-frontend"]', github.run_id, github.run_attempt)) || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -66,8 +66,8 @@ jobs:
           - chromium-desktop-light
           - chromium-narrow-dark
           - chromium-narrow-light
-    # Only desktop-dark moves; retain the remaining parallel hosted projects.
-    runs-on: ${{ vars.BROKKR_ENABLED == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && matrix.project == 'chromium-desktop-dark' && fromJSON(format('["self-hosted","linux","x64","brokkr","brokkr-{0}-{1}-frontend-browser-chromium-desktop-dark"]', github.run_id, github.run_attempt)) || 'ubuntu-24.04' }}
+    # Brokkr is primary for trusted first attempts; every rerun uses GitHub.
+    runs-on: ${{ vars.BROKKR_ENABLED == 'true' && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && fromJSON(format('["self-hosted","linux","x64","brokkr","brokkr-{0}-{1}-ci-frontend-browser-{2}"]', github.run_id, github.run_attempt, matrix.project)) || 'ubuntu-24.04' }}
     # The full desktop suite takes about 27 minutes with software graphics.
     # Leave room for cold runner setup and retaining failure artifacts.
     timeout-minutes: 45
@@ -103,7 +103,7 @@ jobs:
           retention-days: 7
 
   go:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.BROKKR_ENABLED == 'true' && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && fromJSON(format('["self-hosted","linux","x64","brokkr","brokkr-{0}-{1}-ci-go"]', github.run_id, github.run_attempt)) || 'ubuntu-24.04' }}
     env:
       CGO_CFLAGS: -Wno-deprecated-declarations
     steps:
@@ -249,17 +249,19 @@ jobs:
           test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' leviathan-kubernetes-bridge:ci)" = '0.4.1'
 
   distribution-validation:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.BROKKR_ENABLED == 'true' && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && fromJSON(format('["self-hosted","linux","x64","brokkr","brokkr-{0}-{1}-ci-distribution-validation"]', github.run_id, github.run_attempt)) || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v7
       - uses: azure/setup-helm@v5
         with:
           version: v3.18.6
-      - name: Check shell scripts
+      - name: Install ShellCheck outside the prepared Brokkr guest
+        if: runner.environment != 'self-hosted' || !startsWith(runner.name, 'brokkr-')
         run: |
           sudo apt-get update
           sudo apt-get install --yes shellcheck
-          shellcheck scripts/*.sh
+      - name: Check shell scripts
+        run: shellcheck scripts/*.sh
       - name: Verify clean product rename and release metadata
         run: |
           scripts/verify-branding.sh
@@ -300,7 +302,7 @@ jobs:
             architecture: amd64
           - runner: ubuntu-24.04-arm
             architecture: arm64
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ vars.BROKKR_ENABLED == 'true' && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && matrix.runner == 'ubuntu-24.04' && matrix.architecture == 'amd64' && fromJSON(format('["self-hosted","linux","x64","brokkr","brokkr-{0}-{1}-ci-release-archive-dry-run-amd64"]', github.run_id, github.run_attempt)) || matrix.runner }}
     env:
       CGO_CFLAGS: -Wno-deprecated-declarations
     steps:
