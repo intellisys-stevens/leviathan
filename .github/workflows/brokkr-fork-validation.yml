@@ -1,37 +1,34 @@
 {
-  "name": "Brokkr fork validation control",
+  "name": "Brokkr fork-origin marker",
   "on": {
-    "workflow_dispatch": {
-      "inputs": {
-        "case": {
-          "type": "choice",
-          "options": [
-            "positive",
-            "fork-denied"
-          ],
-          "required": true
-        },
-        "marker_nonce": {
-          "type": "string",
-          "required": true
-        }
-      }
+    "pull_request": {
+      "branches": [
+        "codex/brokkr-fork-validation"
+      ],
+      "types": [
+        "opened",
+        "synchronize",
+        "reopened"
+      ],
+      "paths": [
+        ".github/workflows/brokkr-fork-validation.yml",
+        "fixtures/fork-validation/trigger.txt"
+      ]
     }
   },
   "permissions": {},
   "jobs": {
-    "smoke": {
+    "fork-marker": {
       "runs-on": [
         "self-hosted",
         "linux",
         "x64",
         "brokkr",
-        "brokkr-${{ github.run_id }}-${{ github.run_attempt }}-smoke",
-        "${{ inputs.case == 'fork-denied' && format('brokkr-never-{0}', inputs.marker_nonce) || 'brokkr' }}"
+        "brokkr-REPLACE_TRUSTED_RUN_ID-REPLACE_TRUSTED_ATTEMPT-smoke"
       ],
       "timeout-minutes": 10,
       "env": {
-        "MARKER_NONCE": "${{ inputs.marker_nonce }}"
+        "MARKER_NONCE": "REPLACE_NONCE_64_HEX"
       },
       "steps": [
         {
