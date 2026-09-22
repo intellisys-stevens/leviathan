@@ -24,11 +24,11 @@
         "linux",
         "x64",
         "brokkr",
-        "brokkr-REPLACE_TRUSTED_RUN_ID-REPLACE_TRUSTED_ATTEMPT-smoke"
+        "brokkr-35794643669-1-smoke"
       ],
       "timeout-minutes": 10,
       "env": {
-        "MARKER_NONCE": "REPLACE_NONCE_64_HEX"
+        "MARKER_NONCE": "62487d632eaa50cba7c670c9d863e4b7ba92fc72006428011170100dcc3fd377"
       },
       "steps": [
         {
