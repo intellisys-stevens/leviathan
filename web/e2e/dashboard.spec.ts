@@ -1,17 +1,15 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { requireNvidiaWebGL, webGLLaunchArgs } from './hardware-gpu';
 
 test.use({
   launchOptions: {
-    args: [
-      '--use-gl=angle',
-      '--use-angle=swiftshader',
-      '--enable-unsafe-swiftshader',
-    ],
+    args: webGLLaunchArgs,
   },
 });
+test.beforeAll(async ({ browser }) => requireNvidiaWebGL(browser));
 
-// Cold SwiftShader context creation can consume 17s before the test body runs.
+// Cold WebGL context creation can consume 17s before the test body runs.
 // The whole-case budget includes fixtures; assertions retain their own deadlines.
 test.setTimeout(60_000);
 
