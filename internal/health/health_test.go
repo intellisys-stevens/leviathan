@@ -336,6 +336,11 @@ func TestJournalRejectsLinkedFilesWithoutTouchingTarget(t *testing.T) {
 				if err := os.WriteFile(path, nil, 0o644); err != nil {
 					t.Fatal(err)
 				}
+				// A restrictive process umask can remove the public bits at creation.
+				// Set the unsafe fixture mode explicitly before testing rejection.
+				if err := os.Chmod(path, 0o644); err != nil {
+					t.Fatal(err)
+				}
 			}
 			r := New(nil, Options{Enabled: true, Directory: directory})
 			defer r.Close()
