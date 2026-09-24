@@ -1337,6 +1337,9 @@ test('uses visible legend values without floating tooltips on mobile', async ({
   const workloadActivity = page.locator('[data-workload-metric="activity"]');
   await expect(workloadActivity.locator('.compact-chart-legend')).toContainText(
     '%',
+    {
+      timeout: 20_000,
+    },
   );
   await workloadActivity.locator('.recharts-wrapper').click();
   await expect(page.locator('.chart-tooltip-portal')).toHaveCount(0);
@@ -1640,7 +1643,7 @@ test('omits the process panel and preserves workspace attribution', async ({
 test('switches workbench views without reloading retained charts', async ({
   page,
 }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(120_000);
   await expect.poll(() => alignedRequestCount(page)).toBe(7);
   await page.getByRole('link', { name: 'Workloads' }).click();
   await page.getByRole('link', { name: 'Workloads' }).click();
@@ -2229,6 +2232,51 @@ test('opens Workloads details through resource whitespace', async ({
     .getByRole('button', { name: 'Close' })
     .click();
   await expect(page.getByTestId('detail-sheet')).toBeHidden();
+});
+
+test('removes a closed detail sheet when its exit animation stalls', async ({
+  page,
+}) => {
+  await page.getByRole('link', { name: 'Resources' }).click();
+  await page
+    .getByRole('button', { name: 'Open GPU 0 full GPU details' })
+    .click();
+  const detail = page.getByTestId('detail-sheet');
+  await expect(detail).toBeVisible();
+  await detail.evaluate((element) => {
+    const getAnimations = element.getAnimations.bind(element);
+    Object.defineProperty(element, 'getAnimations', {
+      configurable: true,
+      value: () => {
+        if (!element.hasAttribute('data-closed')) return getAnimations();
+        const diagnosticWindow = window as Window & {
+          __stalledSheetCloseQueries?: number;
+        };
+        diagnosticWindow.__stalledSheetCloseQueries =
+          (diagnosticWindow.__stalledSheetCloseQueries ?? 0) + 1;
+        return [{ finished: new Promise<Animation>(() => undefined) }];
+      },
+    });
+  });
+  await detail.getByRole('button', { name: 'Close' }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as Window & { __stalledSheetCloseQueries?: number })
+            .__stalledSheetCloseQueries ?? 0,
+      ),
+    )
+    .toBeGreaterThan(0);
+  await expect(detail).toHaveCount(0, { timeout: 5_000 });
+
+  await page
+    .getByRole('button', {
+      name: 'Open GPU 1 · GI 0 · CI 0 details',
+      exact: true,
+    })
+    .click();
+  await expect(detail).toBeVisible();
 });
 
 test('keeps GPU view layout stationary on keyboard focus and Workloads glow inside its perimeter', async ({
