@@ -585,6 +585,9 @@ export function App() {
       const transitionDocument = document as ViewTransitionDocument;
       if (
         !interruptedTransition &&
+        // WebGL scene setup and teardown can stall the native snapshot phase.
+        activeViewRef.current !== 'resources' &&
+        next !== 'resources' &&
         !reducedMotion &&
         transitionDocument.startViewTransition
       ) {

@@ -493,7 +493,7 @@ describe('Leviathan dashboard states', () => {
       mockUseLeviathan.mockReturnValue(result(null, 'connecting'));
       const view = render(<App />);
       try {
-        openView('Resources');
+        openView('Workloads');
         if (phase === 'committed') act(() => callbacks[0]());
         const destination = phase === 'pending' ? 'Overview' : 'Status';
         openView(destination);
@@ -513,6 +513,43 @@ describe('Leviathan dashboard states', () => {
       }
     },
   );
+
+  it('commits navigation through Resources without waiting for a native view transition', () => {
+    const original = Object.getOwnPropertyDescriptor(
+      document,
+      'startViewTransition',
+    );
+    const startViewTransition = vi.fn(() => ({
+      skipTransition: vi.fn(),
+      ready: new Promise<void>(() => undefined),
+      finished: new Promise<void>(() => undefined),
+      updateCallbackDone: new Promise<void>(() => undefined),
+    }));
+    Object.defineProperty(document, 'startViewTransition', {
+      configurable: true,
+      value: startViewTransition,
+    });
+    mockUseLeviathan.mockReturnValue(result(null, 'connecting'));
+    const view = render(<App />);
+    try {
+      for (const destination of ['Resources', 'Workloads']) {
+        openView(destination);
+        expect(
+          screen.getByRole('heading', { name: destination, level: 1 }),
+        ).toHaveFocus();
+        expect(
+          screen.getByRole('link', { name: new RegExp(`^${destination}`) }),
+        ).toHaveAttribute('aria-current', 'page');
+        expect(window.location.hash).toBe(`#${destination.toLowerCase()}`);
+      }
+      expect(startViewTransition).not.toHaveBeenCalled();
+    } finally {
+      view.unmount();
+      if (original)
+        Object.defineProperty(document, 'startViewTransition', original);
+      else Reflect.deleteProperty(document, 'startViewTransition');
+    }
+  });
 
   it('uses the managed modal sheet for lazy detail loading', async () => {
     const onOpenChange = vi.fn();
