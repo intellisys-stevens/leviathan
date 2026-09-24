@@ -14,7 +14,12 @@ export default defineConfig({
     ...(process.env.PLAYWRIGHT_HARDWARE_GPU === '1'
       ? {
           launchOptions: {
-            args: ['--enable-gpu', '--use-gl=angle', '--use-angle=gl'],
+            args: [
+              '--enable-gpu',
+              '--use-angle=vulkan',
+              '--enable-features=Vulkan',
+              '--disable-vulkan-surface',
+            ],
           },
         }
       : {}),

@@ -54,6 +54,7 @@ jobs:
     timeout-minutes: 60
     env:
       PLAYWRIGHT_HARDWARE_GPU: "1"
+      VK_DRIVER_FILES: /usr/share/vulkan/icd.d/nvidia_icd.json
     steps:
       - uses: actions/checkout@v7
         with:
@@ -67,6 +68,8 @@ jobs:
         working-directory: web
       - run: npx playwright install chromium
         working-directory: web
+      - name: Check NVIDIA Vulkan ICD
+        run: test -r "$VK_DRIVER_FILES"
       - name: Verify NVIDIA WebGL rendering and GPU activity
         run: node scripts/check-hardware-gpu.mjs
         working-directory: web

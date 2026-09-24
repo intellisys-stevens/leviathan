@@ -4,7 +4,12 @@ import process from 'node:process';
 const hardwareGPU = process.env.PLAYWRIGHT_HARDWARE_GPU === '1';
 
 export const webGLLaunchArgs = hardwareGPU
-  ? ['--enable-gpu', '--use-gl=angle', '--use-angle=gl']
+  ? [
+      '--enable-gpu',
+      '--use-angle=vulkan',
+      '--enable-features=Vulkan',
+      '--disable-vulkan-surface',
+    ]
   : [
       '--use-gl=angle',
       '--use-angle=swiftshader',
@@ -26,9 +31,12 @@ export async function requireNvidiaWebGL(browser: Browser): Promise<void> {
     });
     if (
       !/NVIDIA/i.test(renderer) ||
+      !/Vulkan/i.test(renderer) ||
       /SwiftShader|llvmpipe|software/i.test(renderer)
     ) {
-      throw new Error(`Hardware GPU mode requires NVIDIA WebGL: ${renderer}`);
+      throw new Error(
+        `Hardware GPU mode requires NVIDIA Vulkan WebGL: ${renderer}`,
+      );
     }
     console.log(`Suite WebGL renderer: ${renderer}`);
   } finally {

@@ -8,7 +8,12 @@ if (process.env.PLAYWRIGHT_HARDWARE_GPU !== '1') {
   throw new Error('Hardware validation requires PLAYWRIGHT_HARDWARE_GPU=1');
 }
 const browser = await chromium.launch({
-  args: ['--enable-gpu', '--use-gl=angle', '--use-angle=gl'],
+  args: [
+    '--enable-gpu',
+    '--use-angle=vulkan',
+    '--enable-features=Vulkan',
+    '--disable-vulkan-surface',
+  ],
 });
 try {
   const page = await browser.newPage();
@@ -65,9 +70,12 @@ try {
   });
   if (
     !/NVIDIA/i.test(renderer) ||
+    !/Vulkan/i.test(renderer) ||
     /SwiftShader|llvmpipe|software/i.test(renderer)
   ) {
-    throw new Error('Hardware NVIDIA WebGL renderer required: ' + renderer);
+    throw new Error(
+      'Hardware NVIDIA Vulkan WebGL renderer required: ' + renderer,
+    );
   }
   const samples = [];
   for (let i = 0; i < 8; i++) {
