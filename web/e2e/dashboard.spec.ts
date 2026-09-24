@@ -2250,30 +2250,15 @@ test('removes a closed detail sheet when its exit animation stalls', async ({
     )?.value as Element['getAnimations'];
     if (typeof getAnimations !== 'function')
       throw new Error('Browser animation inspection is unavailable');
-    let closing = false;
-    // Keep the probe attached if the popup or Close button is replaced between
-    // arming it and clicking; only Base UI's closing popup query is stalled.
-    document.addEventListener(
-      'click',
-      (event) => {
-        if (
-          event.target instanceof Element &&
-          event.target.closest(
-            '[data-testid="detail-sheet"] [data-slot="sheet-close"]',
-          )
-        ) {
-          closing = true;
-        }
-      },
-      { capture: true },
-    );
+    // Keep the probe attached if the popup is replaced. The ending-style
+    // attribute is set before Base UI inspects the closing popup's animations.
     Object.defineProperty(Element.prototype, 'getAnimations', {
       configurable: true,
       value: function (
         this: Element,
         ...args: Parameters<Element['getAnimations']>
       ) {
-        if (!closing || !this.matches('[data-testid="detail-sheet"]'))
+        if (!this.matches('[data-testid="detail-sheet"][data-ending-style]'))
           return getAnimations.apply(this, args);
         const diagnosticWindow = window as Window & {
           __stalledSheetCloseQueries?: number;
@@ -2284,6 +2269,13 @@ test('removes a closed detail sheet when its exit animation stalls', async ({
       },
     });
   });
+  expect(
+    await page.evaluate(
+      () =>
+        (window as Window & { __stalledSheetCloseQueries?: number })
+          .__stalledSheetCloseQueries ?? 0,
+    ),
+  ).toBe(0);
   await detail.getByRole('button', { name: 'Close' }).click();
   await expect
     .poll(() =>
