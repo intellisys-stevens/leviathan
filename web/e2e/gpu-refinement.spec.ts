@@ -1,24 +1,18 @@
 /// <reference types="node" />
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import process from 'node:process';
 import type { GPU, Snapshot } from '../src/types';
 import { systemCapability, systemFixture } from '../src/test/system-fixture';
+import { requireNvidiaWebGL, webGLLaunchArgs } from './hardware-gpu';
 
 // Exercise real Three/WebGL scenes on the Linux browser platform, including CI
 // machines without a hardware GPU. Fallback is covered in dedicated cases only.
 test.use({
   launchOptions: {
-    args:
-      process.env.PLAYWRIGHT_HARDWARE_GPU === '1'
-        ? ['--enable-gpu', '--use-gl=angle', '--use-angle=gl']
-        : [
-            '--use-gl=angle',
-            '--use-angle=swiftshader',
-            '--enable-unsafe-swiftshader',
-          ],
+    args: webGLLaunchArgs,
   },
 });
+test.beforeAll(async ({ browser }) => requireNvidiaWebGL(browser));
 test.setTimeout(90_000);
 
 const sampledAt = '2026-09-05T06:00:00.000Z';
@@ -1038,12 +1032,12 @@ test('shared GI memory appears once in the focused chip summary with every CI in
         width: Math.ceil(bounds.x + bounds.width - 1e-3) - x,
         height: Math.ceil(bounds.y + bounds.height - 1e-3) - y,
       };
-      // The panel is already positioned and painted. Capture its exact bounds
-      // without another element scroll/stability wait, which can stall waiting
-      // for compositor frames on SwiftShader after animations are disabled.
+      // The panel is already positioned and painted. Keep its reduced-motion
+      // CSS state: disabling animations during capture can stall SwiftShader
+      // before a compositor frame is delivered.
       await expect(page).toHaveScreenshot(
         'gpu-board-webgl-four-chip-focus.png',
-        { clip, animations: 'disabled', timeout: 30_000 },
+        { clip, animations: 'allow', timeout: 30_000 },
       );
       expect(await view.boundingBox()).toEqual(bounds);
     } finally {

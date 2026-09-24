@@ -1,17 +1,15 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { requireNvidiaWebGL, webGLLaunchArgs } from './hardware-gpu';
 
 test.use({
   launchOptions: {
-    args: [
-      '--use-gl=angle',
-      '--use-angle=swiftshader',
-      '--enable-unsafe-swiftshader',
-    ],
+    args: webGLLaunchArgs,
   },
 });
+test.beforeAll(async ({ browser }) => requireNvidiaWebGL(browser));
 
-// Cold SwiftShader context creation can consume 17s before the test body runs.
+// Cold WebGL context creation can consume 17s before the test body runs.
 // The whole-case budget includes fixtures; assertions retain their own deadlines.
 test.setTimeout(60_000);
 
@@ -2244,23 +2242,24 @@ test('removes a closed detail sheet when its exit animation stalls', async ({
     .getByRole('button', { name: 'Open GPU 0 full GPU details' })
     .click();
   const detail = page.getByTestId('detail-sheet');
-  await expect(detail).toBeVisible();
-  await detail.evaluate((element) => {
-    const getAnimations = element.getAnimations.bind(element);
-    const close = element.querySelector('[data-slot="sheet-close"]');
-    if (!close) throw new Error('Detail sheet close button is missing');
-    let closing = false;
-    close.addEventListener(
-      'click',
-      () => {
-        closing = true;
-      },
-      { capture: true },
-    );
-    Object.defineProperty(element, 'getAnimations', {
+  await expect(detail).toBeVisible({ timeout: 20_000 });
+  await detail.evaluate(() => {
+    const getAnimations = Object.getOwnPropertyDescriptor(
+      Element.prototype,
+      'getAnimations',
+    )?.value as Element['getAnimations'];
+    if (typeof getAnimations !== 'function')
+      throw new Error('Browser animation inspection is unavailable');
+    // Keep the probe attached if the popup is replaced. The ending-style
+    // attribute is set before Base UI inspects the closing popup's animations.
+    Object.defineProperty(Element.prototype, 'getAnimations', {
       configurable: true,
-      value: () => {
-        if (!closing) return getAnimations();
+      value: function (
+        this: Element,
+        ...args: Parameters<Element['getAnimations']>
+      ) {
+        if (!this.matches('[data-testid="detail-sheet"][data-ending-style]'))
+          return getAnimations.apply(this, args);
         const diagnosticWindow = window as Window & {
           __stalledSheetCloseQueries?: number;
         };
@@ -2270,6 +2269,13 @@ test('removes a closed detail sheet when its exit animation stalls', async ({
       },
     });
   });
+  expect(
+    await page.evaluate(
+      () =>
+        (window as Window & { __stalledSheetCloseQueries?: number })
+          .__stalledSheetCloseQueries ?? 0,
+    ),
+  ).toBe(0);
   await detail.getByRole('button', { name: 'Close' }).click();
   await expect
     .poll(() =>
