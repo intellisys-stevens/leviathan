@@ -2838,11 +2838,15 @@ test('removes spatial motion when reduced motion is requested', async ({
   await workloadResource.hover();
   await expect(workloadResource).toHaveCSS('transform', 'none');
   await expect
-    .poll(() =>
-      workloadResource.evaluate(
-        (element) => getComputedStyle(element).boxShadow,
-      ),
-    )
+    .poll(async () => {
+      // Streaming layout updates can scroll a narrow card away after hover.
+      await workloadResource.hover();
+      return workloadResource.evaluate((element) =>
+        element.matches(':hover')
+          ? getComputedStyle(element).boxShadow
+          : 'none',
+      );
+    })
     .toContain(light ? '0px 20px 52px' : '0px 0px 52px');
 });
 
