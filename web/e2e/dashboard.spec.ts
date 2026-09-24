@@ -2028,10 +2028,12 @@ test('canonical and fallback hashes always land at the view top', async ({
       exact: true,
       level: 1,
     });
-    // Software-rendered Linux transitions may take longer to mount the view.
+    // Software-rendered Linux can delay mounting or the scroll-position probe.
     await expect(destination).toBeVisible({ timeout: 15_000 });
     await expect(destination).toBeFocused();
-    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+    await expect
+      .poll(() => page.evaluate(() => window.scrollY), { timeout: 15_000 })
+      .toBe(0);
   };
 
   await scrollOverview();
@@ -2245,10 +2247,20 @@ test('removes a closed detail sheet when its exit animation stalls', async ({
   await expect(detail).toBeVisible();
   await detail.evaluate((element) => {
     const getAnimations = element.getAnimations.bind(element);
+    const close = element.querySelector('[data-slot="sheet-close"]');
+    if (!close) throw new Error('Detail sheet close button is missing');
+    let closing = false;
+    close.addEventListener(
+      'click',
+      () => {
+        closing = true;
+      },
+      { capture: true },
+    );
     Object.defineProperty(element, 'getAnimations', {
       configurable: true,
       value: () => {
-        if (!element.hasAttribute('data-closed')) return getAnimations();
+        if (!closing) return getAnimations();
         const diagnosticWindow = window as Window & {
           __stalledSheetCloseQueries?: number;
         };
@@ -2828,11 +2840,15 @@ test('removes spatial motion when reduced motion is requested', async ({
   await workloadResource.hover();
   await expect(workloadResource).toHaveCSS('transform', 'none');
   await expect
-    .poll(() =>
-      workloadResource.evaluate(
-        (element) => getComputedStyle(element).boxShadow,
-      ),
-    )
+    .poll(async () => {
+      // Streaming layout updates can scroll a narrow card away after hover.
+      await workloadResource.hover();
+      return workloadResource.evaluate((element) =>
+        element.matches(':hover')
+          ? getComputedStyle(element).boxShadow
+          : 'none',
+      );
+    })
     .toContain(light ? '0px 20px 52px' : '0px 0px 52px');
 });
 
@@ -3698,6 +3714,7 @@ test('whole-machine overview and persistent health remain useful on every theme'
   await timeline.focus();
   await page.keyboard.press('Home');
   await expect(timeline).toHaveAttribute('aria-valuetext', /No data/);
+  await expect(page.locator('.workbench-view')).toHaveCSS('opacity', '1');
   const blocking = (await new AxeBuilder({ page }).analyze()).violations.filter(
     ({ impact }) => impact === 'serious' || impact === 'critical',
   );
