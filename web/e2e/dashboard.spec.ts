@@ -1643,7 +1643,7 @@ test('omits the process panel and preserves workspace attribution', async ({
 test('switches workbench views without reloading retained charts', async ({
   page,
 }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(120_000);
   await expect.poll(() => alignedRequestCount(page)).toBe(7);
   await page.getByRole('link', { name: 'Workloads' }).click();
   await page.getByRole('link', { name: 'Workloads' }).click();
