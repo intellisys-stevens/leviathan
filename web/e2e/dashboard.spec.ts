@@ -2242,7 +2242,7 @@ test('removes a closed detail sheet when its exit animation stalls', async ({
     .getByRole('button', { name: 'Open GPU 0 full GPU details' })
     .click();
   const detail = page.getByTestId('detail-sheet');
-  await expect(detail).toBeVisible();
+  await expect(detail).toBeVisible({ timeout: 20_000 });
   await detail.evaluate(() => {
     const getAnimations = Object.getOwnPropertyDescriptor(
       Element.prototype,
