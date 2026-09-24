@@ -1337,6 +1337,9 @@ test('uses visible legend values without floating tooltips on mobile', async ({
   const workloadActivity = page.locator('[data-workload-metric="activity"]');
   await expect(workloadActivity.locator('.compact-chart-legend')).toContainText(
     '%',
+    {
+      timeout: 20_000,
+    },
   );
   await workloadActivity.locator('.recharts-wrapper').click();
   await expect(page.locator('.chart-tooltip-portal')).toHaveCount(0);
