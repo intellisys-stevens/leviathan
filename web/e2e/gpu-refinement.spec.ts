@@ -154,7 +154,6 @@ type FixtureWindow = Window & {
   __gpuOriginalCI?: Element;
   __gpuContexts: unknown[];
   __gpuLostExtension?: WEBGL_lose_context;
-  __gpuCanvasHiddenOnRemoval?: boolean | null;
   __gpuScissors: number[][];
   __gpuViewports: number[][];
   __gpuHoldFrames: boolean;
@@ -1359,26 +1358,12 @@ test('wheel zoom belongs to the viewer with focused controls and leaves the neig
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
-async function observeLastViewRemoval(page: Page) {
-  await page.evaluate(() => {
-    const state = window as unknown as FixtureWindow;
-    state.__gpuCanvasHiddenOnRemoval = null;
-    const observer = new MutationObserver(() => {
-      if (document.querySelector('.hardware-board-view, .gpu-board-view'))
-        return;
-      const canvas = document.querySelector<HTMLCanvasElement>(
-        'canvas.gpu-board-canvas',
-      );
-      const style = canvas ? getComputedStyle(canvas) : null;
-      state.__gpuCanvasHiddenOnRemoval =
-        !canvas ||
-        style?.display === 'none' ||
-        style?.visibility === 'hidden' ||
-        style?.opacity === '0';
-      observer.disconnect();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-  });
+async function expectOverviewClearsBoard(page: Page) {
+  await expect(
+    page.getByRole('heading', { name: 'Overview', exact: true, level: 1 }),
+  ).toBeVisible();
+  await expect(page.locator('.hardware-board-view')).toHaveCount(0);
+  await expect(page.locator('canvas.gpu-board-canvas')).toBeHidden();
 }
 
 test('the shared canvas retains the motherboard after GPU removal and clears its final scene on navigation', async ({
@@ -1404,18 +1389,10 @@ test('the shared canvas retains the motherboard after GPU removal and clears its
   );
   await openResources(page);
   await readyBoard(page, 0);
-  await observeLastViewRemoval(page);
   await page.getByRole('link', { name: 'Overview', exact: true }).click();
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () => (window as unknown as FixtureWindow).__gpuCanvasHiddenOnRemoval,
-      ),
-    )
-    .toBe(true);
+  await expectOverviewClearsBoard(page);
   await page.getByRole('link', { name: 'Resources', exact: true }).click();
   await readyBoard(page, 0);
-  await observeLastViewRemoval(page);
   const empty = structuredClone(allocated);
   empty.sequence++;
   empty.gpus = [];
@@ -1426,13 +1403,7 @@ test('the shared canvas retains the motherboard after GPU removal and clears its
   ).toHaveAttribute('data-render-mode', 'webgl');
   await expect(page.locator('canvas.gpu-board-canvas')).toHaveCount(1);
   await page.getByRole('link', { name: 'Overview', exact: true }).click();
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () => (window as unknown as FixtureWindow).__gpuCanvasHiddenOnRemoval,
-      ),
-    )
-    .toBe(true);
+  await expectOverviewClearsBoard(page);
 });
 
 test('pending graphics retain native chip geometry and allow the first touch activation', async ({
