@@ -2028,10 +2028,12 @@ test('canonical and fallback hashes always land at the view top', async ({
       exact: true,
       level: 1,
     });
-    // Software-rendered Linux transitions may take longer to mount the view.
+    // Software-rendered Linux can delay mounting or the scroll-position probe.
     await expect(destination).toBeVisible({ timeout: 15_000 });
     await expect(destination).toBeFocused();
-    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+    await expect
+      .poll(() => page.evaluate(() => window.scrollY), { timeout: 15_000 })
+      .toBe(0);
   };
 
   await scrollOverview();
