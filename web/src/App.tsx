@@ -76,6 +76,7 @@ const GPUActivityChart = lazy(() =>
 );
 const themeKey = 'leviathan.theme.v1';
 const legacyDashboardViewKey = 'leviathan.dashboardView.v1';
+const detailCloseFallbackMs = 1_500;
 
 function isWorkspaceDiagnostic(
   diagnostic: Snapshot['diagnostics'][number],
@@ -749,6 +750,17 @@ export function App() {
   }, []);
 
   const selection = snapshot ? selectedEntity(snapshot, selectedKey) : null;
+  const hasSelection = selection !== null;
+  useEffect(() => {
+    if (detailOpen || !hasSelection) return;
+    // An overloaded renderer can leave the sheet's CSS exit transition pending.
+    // Base UI waits for that transition before calling onOpenChangeComplete.
+    const timeout = window.setTimeout(
+      () => handleDetailOpenChangeComplete(false),
+      detailCloseFallbackMs,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [detailOpen, hasSelection, handleDetailOpenChangeComplete]);
   useEffect(() => {
     if (!selectedKey || selection) return;
     const frame = window.requestAnimationFrame(() => {

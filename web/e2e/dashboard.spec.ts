@@ -2234,6 +2234,51 @@ test('opens Workloads details through resource whitespace', async ({
   await expect(page.getByTestId('detail-sheet')).toBeHidden();
 });
 
+test('removes a closed detail sheet when its exit animation stalls', async ({
+  page,
+}) => {
+  await page.getByRole('link', { name: 'Resources' }).click();
+  await page
+    .getByRole('button', { name: 'Open GPU 0 full GPU details' })
+    .click();
+  const detail = page.getByTestId('detail-sheet');
+  await expect(detail).toBeVisible();
+  await detail.evaluate((element) => {
+    const getAnimations = element.getAnimations.bind(element);
+    Object.defineProperty(element, 'getAnimations', {
+      configurable: true,
+      value: () => {
+        if (!element.hasAttribute('data-closed')) return getAnimations();
+        const diagnosticWindow = window as Window & {
+          __stalledSheetCloseQueries?: number;
+        };
+        diagnosticWindow.__stalledSheetCloseQueries =
+          (diagnosticWindow.__stalledSheetCloseQueries ?? 0) + 1;
+        return [{ finished: new Promise<Animation>(() => undefined) }];
+      },
+    });
+  });
+  await detail.getByRole('button', { name: 'Close' }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as Window & { __stalledSheetCloseQueries?: number })
+            .__stalledSheetCloseQueries ?? 0,
+      ),
+    )
+    .toBeGreaterThan(0);
+  await expect(detail).toHaveCount(0, { timeout: 5_000 });
+
+  await page
+    .getByRole('button', {
+      name: 'Open GPU 1 · GI 0 · CI 0 details',
+      exact: true,
+    })
+    .click();
+  await expect(detail).toBeVisible();
+});
+
 test('keeps GPU view layout stationary on keyboard focus and Workloads glow inside its perimeter', async ({
   page,
 }, testInfo) => {
