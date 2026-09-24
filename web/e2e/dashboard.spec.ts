@@ -2245,10 +2245,20 @@ test('removes a closed detail sheet when its exit animation stalls', async ({
   await expect(detail).toBeVisible();
   await detail.evaluate((element) => {
     const getAnimations = element.getAnimations.bind(element);
+    const close = element.querySelector('[data-slot="sheet-close"]');
+    if (!close) throw new Error('Detail sheet close button is missing');
+    let closing = false;
+    close.addEventListener(
+      'click',
+      () => {
+        closing = true;
+      },
+      { capture: true },
+    );
     Object.defineProperty(element, 'getAnimations', {
       configurable: true,
       value: () => {
-        if (!element.hasAttribute('data-closed')) return getAnimations();
+        if (!closing) return getAnimations();
         const diagnosticWindow = window as Window & {
           __stalledSheetCloseQueries?: number;
         };
@@ -3698,6 +3708,7 @@ test('whole-machine overview and persistent health remain useful on every theme'
   await timeline.focus();
   await page.keyboard.press('Home');
   await expect(timeline).toHaveAttribute('aria-valuetext', /No data/);
+  await expect(page.locator('.workbench-view')).toHaveCSS('opacity', '1');
   const blocking = (await new AxeBuilder({ page }).analyze()).violations.filter(
     ({ impact }) => impact === 'serious' || impact === 'critical',
   );
