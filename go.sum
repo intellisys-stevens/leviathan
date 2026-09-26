@@ -1,7 +1,7 @@
-github.com/NVIDIA/go-dcgm v1.4611.1 h1:ZXdyWmVdS+GFeGysEeILKJY1M5p2cXlka8CdpzM7+Zo=
-github.com/NVIDIA/go-dcgm v1.4611.1/go.mod h1:XXuxXUmG6SCUrbh1wOytmTWPPuHCS1KxwOeMHQnnHUE=
-github.com/NVIDIA/go-nvml v0.13.3-1 h1:P76U2h88OZSiMtdhRsJjSF5DXyXUqHIXKeDicVAaae0=
-github.com/NVIDIA/go-nvml v0.13.3-1/go.mod h1:ahi2psRYoa+wYUBIrZPRO+wJs9lcvMhxSSkjjvsJJNQ=
+github.com/NVIDIA/go-dcgm v1.4611.2 h1:e1ZB2I7ElT3/Kcz4IanYRkMhhQnl5QlP0LA0a3XW0AQ=
+github.com/NVIDIA/go-dcgm v1.4611.2/go.mod h1:XXuxXUmG6SCUrbh1wOytmTWPPuHCS1KxwOeMHQnnHUE=
+github.com/NVIDIA/go-nvml v0.13.4-0 h1:o3jp9u2x1R9ShFE3v+Aesp55XOSIQFMJz/VGNUcJaNE=
+github.com/NVIDIA/go-nvml v0.13.4-0/go.mod h1:id63qwpoDWpFXwnwM6psDCSqW4BmNu6mWpr4YeQtPGo=
 github.com/atotto/clipboard v0.1.4 h1:EH0zSVneZPSuFR11BlR9YppQTVDbh5+16AmcJi4g1z4=
 github.com/atotto/clipboard v0.1.4/go.mod h1:ZY9tmq7sm5xIbd9bOK4onWV4S6X0u6GY7Vn0Yu86PYI=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=
