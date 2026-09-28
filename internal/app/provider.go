@@ -13,9 +13,8 @@ import (
 	"github.com/intellisys-stevens/leviathan/internal/provider/workspace"
 )
 
-func Provider(cfg config.Config) (provider.Provider, error) {
+func HardwareProvider(cfg config.Config) (provider.Provider, error) {
 	profileInterval := effectiveInterval(cfg.ProfileInterval, cfg.Interval)
-	processInterval := effectiveInterval(cfg.ProcessInterval, cfg.Interval)
 	var source provider.Provider
 	if cfg.Provider == "fake" || cfg.Fixture != "" {
 		fixture, err := fake.NewFixture(cfg.Fixture, fake.Options{ShowCommandLine: cfg.ShowCommandLine})
@@ -36,7 +35,18 @@ func Provider(cfg config.Config) (provider.Provider, error) {
 				Interval: profileInterval, StaleAfter: 2*profileInterval + cfg.Interval, RescanInterval: cfg.TopologyInterval,
 			})
 		}
-		source = workspace.New(source, workspaceprocess.NewScannerWithAttribution(cfg.ShowCommandLine, cfg.AttributionSocket != ""), workspace.Options{InventoryInterval: processInterval})
+	}
+	return source, nil
+}
+
+// Provider retains the legacy composite constructor for existing embedders.
+func Provider(cfg config.Config) (provider.Provider, error) {
+	source, err := HardwareProvider(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Provider != "fake" && cfg.Fixture == "" {
+		source = workspace.New(source, workspaceprocess.NewScannerWithAttribution(cfg.ShowCommandLine, cfg.AttributionSocket != ""), workspace.Options{InventoryInterval: effectiveInterval(cfg.ProcessInterval, cfg.Interval)})
 	}
 	if cfg.AttributionSocket == "" {
 		return source, nil

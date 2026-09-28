@@ -38,6 +38,7 @@ type GPUCapacityConfig struct {
 }
 
 type Config struct {
+	Plugins                   []PluginConfig    `toml:"plugins"`
 	Interval                  time.Duration     `toml:"interval"`
 	ProfileInterval           time.Duration     `toml:"profile_interval"`
 	ProcessInterval           time.Duration     `toml:"process_interval"`
@@ -72,6 +73,7 @@ func (d *fileDuration) UnmarshalText(text []byte) error {
 }
 
 type fileConfig struct {
+	Plugins                   []PluginConfig    `toml:"plugins"`
 	Interval                  fileDuration      `toml:"interval"`
 	ProfileInterval           fileDuration      `toml:"profile_interval"`
 	ProcessInterval           fileDuration      `toml:"process_interval"`
@@ -220,6 +222,7 @@ func LoadFile(path string, cfg *Config) error {
 		return err
 	}
 	decoded := fileConfig{
+		Plugins:  cfg.Plugins,
 		Interval: fileDuration(cfg.Interval), ProfileInterval: fileDuration(cfg.ProfileInterval), ProcessInterval: fileDuration(cfg.ProcessInterval),
 		HistoryWindow: fileDuration(cfg.HistoryWindow), TopologyInterval: fileDuration(cfg.TopologyInterval),
 		Provider: cfg.Provider, DCGMAddress: cfg.DCGMAddress, ShowCommandLine: cfg.ShowCommandLine, NoProfile: cfg.NoProfile,
@@ -245,11 +248,15 @@ func LoadFile(path string, cfg *Config) error {
 	cfg.WorkloadTelemetry = decoded.WorkloadTelemetry
 	cfg.Health = decoded.Health
 	cfg.GPUCapacity = decoded.GPUCapacity
+	cfg.Plugins = decoded.Plugins
 	cfg.ConfigFile = path
 	return nil
 }
 
 func Validate(cfg Config) error {
+	if err := validatePlugins(cfg); err != nil {
+		return err
+	}
 	if path := cfg.AttributionCheckpointPath; path != "" {
 		if cfg.AttributionSocket == "" {
 			return fmt.Errorf("attribution checkpoint requires an attribution socket")

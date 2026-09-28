@@ -190,6 +190,27 @@ func TestHealthReflectsIndependentTelemetryDomains(t *testing.T) {
 	}
 }
 
+func TestHealthUsesGenericGPUCapability(t *testing.T) {
+	source := newStubSource()
+	source.snapshot.Capabilities.System = model.ProviderState{Available: true, Status: model.StatusAvailable}
+	source.snapshot.Capabilities.NVML = model.ProviderState{Status: model.StatusUnsupported}
+	source.snapshot.Capabilities.GPU = &model.ProviderState{Name: "external GPU", Available: true, Status: model.StatusAvailable}
+	response := httptest.NewRecorder()
+	newTestServer(source, nil).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	var body struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || response.Code != http.StatusOK || body.Status != "ok" {
+		t.Fatalf("external GPU health: code=%d body=%s err=%v", response.Code, response.Body.String(), err)
+	}
+	source.snapshot.Capabilities.GPU.Status = model.StatusStale
+	response = httptest.NewRecorder()
+	newTestServer(source, nil).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body.Status != "degraded" {
+		t.Fatalf("stale external GPU health: body=%s err=%v", response.Body.String(), err)
+	}
+}
+
 func TestHealthWithoutSnapshotUsesTypedUnavailableResponse(t *testing.T) {
 	response := httptest.NewRecorder()
 	newTestServer(unavailableSource{newStubSource()}, nil).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/healthz", nil))

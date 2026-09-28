@@ -91,6 +91,9 @@ func Project(snapshot model.Snapshot, build model.BuildInfo, streamID string, se
 	if snapshot.SampledAt.IsZero() {
 		return Envelope{}, ErrInvalidSnapshot
 	}
+	if !systemRepresentable(snapshot.System) {
+		return Envelope{}, ErrUnsupportedObservation
+	}
 
 	envelope := Envelope{
 		Schema:    Schema,
@@ -117,6 +120,9 @@ func Project(snapshot model.Snapshot, build model.BuildInfo, streamID string, se
 func projectSystem(system model.System) System {
 	filesystems := make([]Filesystem, 0, min(len(system.Storage.Filesystems), maximumFilesystems))
 	for _, filesystem := range system.Storage.Filesystems {
+		if safeMetricSource(filesystem.Source) == "" {
+			continue
+		}
 		if len(filesystems) == maximumFilesystems {
 			break
 		}
@@ -135,7 +141,7 @@ func projectSystem(system model.System) System {
 			TotalBytes:     copyUint64(filesystem.TotalBytes),
 			UsedBytes:      copyUint64(filesystem.UsedBytes),
 			AvailableBytes: copyUint64(filesystem.AvailableBytes),
-			Source:         string(model.SourceStatFS),
+			Source:         string(filesystem.Source),
 			Scope:          string(model.ScopeHost),
 			SampledAt:      filesystem.SampledAt.UTC(),
 			Status:         MetricStatus(filesystem.Status),
@@ -171,7 +177,7 @@ func projectSystem(system model.System) System {
 			ReadBytesPerSecond:  projectMetric(system.Storage.ReadBytesPerSecond),
 			WriteBytesPerSecond: projectMetric(system.Storage.WriteBytesPerSecond),
 			Filesystems:         filesystems,
-			Source:              string(model.SourceStatFS),
+			Source:              string(system.Storage.Source),
 			Scope:               string(model.ScopeHost),
 			SampledAt:           system.Storage.SampledAt.UTC(),
 			Status:              MetricStatus(system.Storage.Status),
@@ -184,13 +190,22 @@ func projectSystem(system model.System) System {
 func projectGPUs(source []model.GPU) []GPU {
 	result := make([]GPU, 0, min(len(source), maximumGPUs))
 	for _, gpu := range source {
+		if safeMetricSource(gpu.Memory.Source) == "" {
+			continue
+		}
 		if len(result) == maximumGPUs {
 			break
 		}
 		instances := make([]GPUInstance, 0, len(gpu.GPUInstances))
 		for _, instance := range gpu.GPUInstances {
+			if safeMetricSource(instance.Memory.Source) == "" {
+				continue
+			}
 			computeInstances := make([]ComputeInstance, 0, len(instance.ComputeInstances))
 			for _, compute := range instance.ComputeInstances {
+				if safeMetricSource(compute.Memory.Source) == "" {
+					continue
+				}
 				computeInstances = append(computeInstances, ComputeInstance{
 					UUID:    boundedPrintable(compute.UUID, maximumIdentityFieldBytes),
 					ID:      compute.ID,
@@ -245,7 +260,7 @@ var safeGPUMetrics = map[string]struct{}{
 func projectMetricSet(source model.MetricSet, scope model.MetricScope) MetricSet {
 	result := make(MetricSet)
 	for name, metric := range source {
-		if _, ok := safeGPUMetrics[name]; ok {
+		if _, ok := safeGPUMetrics[name]; ok && metricRepresentable(metric) {
 			projected := projectMetric(metric)
 			projected.Scope = safeMetricScope(scope)
 			result[name] = projected

@@ -9,6 +9,16 @@ info:
 servers:
   - url: http://127.0.0.1:1397
 paths:
+  /api/v1/plugins:
+    get:
+      operationId: getPlugins
+      summary: List configured plugin capabilities and independent observation health.
+      responses:
+        "200":
+          description: Plugin state; source timestamps do not advance on cached responses.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PluginReport" }
   /api/v1/gpu-capacity:
     get:
       operationId: getGPUCapacity
@@ -277,12 +287,42 @@ components:
           minItems: 30
           maxItems: 90
           items: { $ref: "#/components/schemas/HealthDay" }
+    PluginReport:
+      type: object
+      required: [plugins]
+      properties:
+        plugins: { type: array, items: { $ref: "#/components/schemas/PluginHealth" } }
+    PluginHealth:
+      type: object
+      required: [id, implementation, transport, capabilities, status, dependencies, intervalMs]
+      properties:
+        id: { type: string }
+        implementation: { type: string }
+        transport: { type: string, enum: [builtin, unix] }
+        capabilities: { type: array, items: { $ref: "#/components/schemas/PluginCapabilityHealth" } }
+        status: { type: string }
+        message: { type: string }
+        dependencies: { type: array, items: { type: string } }
+        intervalMs: { type: integer, format: int64 }
+    PluginCapabilityHealth:
+      type: object
+      required: [capability, revision, enabled, status]
+      properties:
+        capability: { type: string }
+        revision: { type: string }
+        enabled: { type: boolean }
+        status: { type: string }
+        observedAt: { type: string, format: date-time }
+        lastSuccess: { type: string, format: date-time }
+        message: { type: string }
     MetricStatus:
       type: string
       enum: [available, unsupported, permission_denied, estimated, stale, error]
     MetricSource:
       type: string
-      enum: [nvml, nvml_gpm, dcgm, proc, procfs, statfs, cgroupfs, synthetic]
+      minLength: 1
+      maxLength: 128
+      description: Open identifier supplied by the source. Built-in values include nvml, nvml_gpm, dcgm, proc, procfs, statfs, cgroupfs, synthetic.
     MetricScope:
       type: string
       enum: [host, physical_gpu, gpu_instance, compute_instance, workload_owner]
@@ -330,10 +370,14 @@ components:
         message: { type: string }
     WorkloadPlatform:
       type: string
-      enum: [coder]
+      minLength: 1
+      maxLength: 128
+      description: Open identifier supplied by the source. Built-in values include coder.
     WorkloadKind:
       type: string
-      enum: [workspace]
+      minLength: 1
+      maxLength: 128
+      description: Open identifier supplied by the source. Built-in values include workspace.
     AllocationEntityType:
       type: string
       enum: [physical_gpu, compute_instance]
@@ -454,6 +498,7 @@ components:
       type: object
       required: [uuid, index, name, migEnabled, maxMigDevices, memory, metrics, gpuInstances]
       properties:
+        generation: { type: string, description: Optional source resource generation for replacement identity and history. }
         uuid: { type: string }
         index: { type: integer, minimum: 0 }
         name: { type: string }
@@ -475,6 +520,7 @@ components:
       type: object
       required: [system, nvml, gpm, dcgm, proc, profileMetrics]
       properties:
+        gpu: { $ref: "#/components/schemas/ProviderState" }
         system: { $ref: "#/components/schemas/ProviderState" }
         nvml: { $ref: "#/components/schemas/ProviderState" }
         gpm: { $ref: "#/components/schemas/ProviderState" }

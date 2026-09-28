@@ -386,7 +386,11 @@ func ProviderComponent(id, label string, provider model.ProviderState, at time.T
 // GPUComponent distinguishes a working NVML library from readable GPU
 // telemetry. Unsupported optional profiling never makes a healthy GPU fail.
 func GPUComponent(snapshot model.Snapshot) Component {
-	component := ProviderComponent("gpu", "GPU telemetry", snapshot.Capabilities.NVML, snapshot.SampledAt)
+	state := snapshot.Capabilities.NVML
+	if snapshot.Capabilities.GPU != nil {
+		state = *snapshot.Capabilities.GPU
+	}
+	component := ProviderComponent("gpu", "GPU telemetry", state, snapshot.SampledAt)
 	if component.State != Operational {
 		return component
 	}

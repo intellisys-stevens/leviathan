@@ -18,6 +18,7 @@ import (
 	"github.com/intellisys-stevens/leviathan/internal/gpucapacity"
 	"github.com/intellisys-stevens/leviathan/internal/health"
 	"github.com/intellisys-stevens/leviathan/internal/history"
+	"github.com/intellisys-stevens/leviathan/internal/plugins"
 	"github.com/intellisys-stevens/leviathan/model"
 )
 
@@ -59,6 +60,7 @@ func NewServer(source DataSource, assets fs.FS, buildInfo model.BuildInfo, statu
 		server.statusSource = statusSources[0]
 	}
 	server.mux.HandleFunc("GET /api/v1/status", server.status)
+	server.mux.HandleFunc("GET /api/v1/plugins", server.plugins)
 	server.mux.HandleFunc("GET /api/v1/gpu-capacity", server.gpuCapacity)
 	server.mux.HandleFunc("GET /api/v1/snapshot", server.snapshot)
 	server.mux.HandleFunc("GET /api/v1/history", server.history)
@@ -76,8 +78,18 @@ func NewServer(source DataSource, assets fs.FS, buildInfo model.BuildInfo, statu
 	return server
 }
 
-// WithGPUCapacity attaches the optional private bridge client without adding
-// Kubernetes data to immutable snapshots or the versioned uplink contract.
+func (s *Server) plugins(writer http.ResponseWriter, _ *http.Request) {
+	states := []plugins.Health{}
+	if source, ok := s.source.(interface{ Plugins() []plugins.Health }); ok {
+		states = source.Plugins()
+	}
+	writeJSON(writer, http.StatusOK, struct {
+		Plugins []plugins.Health `json:"plugins"`
+	}{states})
+}
+
+// WithGPUCapacity attaches independent allocation-capacity observations without
+// adding non-additive alternatives to snapshots or the versioned uplink contract.
 func (s *Server) WithGPUCapacity(source interface {
 	Read(context.Context, time.Time) (gpucapacity.Document, error)
 }) *Server {
@@ -86,12 +98,12 @@ func (s *Server) WithGPUCapacity(source interface {
 }
 
 func (s *Server) gpuCapacity(writer http.ResponseWriter, request *http.Request) {
-	document := gpucapacity.Unavailable("Live GPU capacity is unavailable; configure the local DRA bridge")
+	document := gpucapacity.Unavailable("Live GPU capacity is unavailable; configure a capacity plugin")
 	if s.capacitySource != nil {
 		if current, err := s.capacitySource.Read(request.Context(), time.Now().UTC()); err == nil && current.Validate() == nil {
 			document = current.At(time.Now().UTC())
 		} else {
-			document = gpucapacity.Unavailable("Live GPU capacity is unavailable; check bridge support and read permissions")
+			document = gpucapacity.Unavailable("Live GPU capacity is unavailable; check the capacity plugin and read permissions")
 		}
 	}
 	writer.Header().Set("Cache-Control", "no-store")
@@ -122,66 +134,15 @@ func (s *Server) snapshot(writer http.ResponseWriter, _ *http.Request) {
 		writeError(writer, http.StatusServiceUnavailable, "snapshot not available")
 		return
 	}
-	writeJSON(writer, http.StatusOK, snapshotForWire(snapshot))
-}
-
-func snapshotForWire(snapshot model.Snapshot) model.Snapshot {
-	if snapshot.System.Storage.Filesystems == nil {
-		snapshot.System.Storage.Filesystems = []model.Filesystem{}
+	data, err := json.Marshal(model.NormalizeSnapshot(snapshot))
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "snapshot encoding failed")
+		return
 	}
-	if snapshot.GPUs == nil {
-		snapshot.GPUs = []model.GPU{}
-	}
-	if snapshot.Processes == nil {
-		snapshot.Processes = []model.Process{}
-	}
-	if snapshot.Diagnostics == nil {
-		snapshot.Diagnostics = []model.Diagnostic{}
-	}
-	if snapshot.Attribution != nil {
-		attribution := *snapshot.Attribution
-		if attribution.Workloads == nil {
-			attribution.Workloads = []model.WorkloadAttribution{}
-		}
-		if attribution.Assignments == nil {
-			attribution.Assignments = []model.ResourceAssignment{}
-		}
-		snapshot.Attribution = &attribution
-	}
-	if snapshot.WorkloadTelemetry != nil {
-		telemetry := *snapshot.WorkloadTelemetry
-		telemetry.Owners = append([]model.WorkloadOwnerTelemetry{}, telemetry.Owners...)
-		for index := range telemetry.Owners {
-			if telemetry.Owners[index].Workspaces == nil {
-				telemetry.Owners[index].Workspaces = []model.WorkloadAttribution{}
-			}
-			if telemetry.Owners[index].Metrics == nil {
-				telemetry.Owners[index].Metrics = model.MetricSet{}
-			}
-		}
-		snapshot.WorkloadTelemetry = &telemetry
-	}
-	validWorkloads := map[string]struct{}{}
-	if snapshot.Attribution != nil {
-		for _, workload := range snapshot.Attribution.Workloads {
-			validWorkloads[workload.Ref] = struct{}{}
-		}
-	}
-	processesCloned := false
-	for index := range snapshot.Processes {
-		if snapshot.Processes[index].WorkloadRef == "" {
-			continue
-		}
-		if _, exists := validWorkloads[snapshot.Processes[index].WorkloadRef]; exists {
-			continue
-		}
-		if !processesCloned {
-			snapshot.Processes = append([]model.Process{}, snapshot.Processes...)
-			processesCloned = true
-		}
-		snapshot.Processes[index].WorkloadRef = ""
-	}
-	return snapshot
+	writer.Header().Set("Content-Type", "application/json")
+	writer.WriteHeader(http.StatusOK)
+	_, _ = writer.Write(data)
+	_, _ = writer.Write([]byte("\n"))
 }
 
 func (s *Server) history(writer http.ResponseWriter, request *http.Request) {
@@ -306,7 +267,7 @@ func (s *Server) validateAlignedHistory(input history.AlignedRequest) (time.Dura
 }
 
 func (s *Server) capabilities(writer http.ResponseWriter, _ *http.Request) {
-	writeJSON(writer, http.StatusOK, s.source.Capabilities())
+	writeJSON(writer, http.StatusOK, model.NormalizeCapabilities(s.source.Capabilities()))
 }
 
 func (s *Server) getSettings(writer http.ResponseWriter, _ *http.Request) {
@@ -381,7 +342,11 @@ func (s *Server) health(writer http.ResponseWriter, _ *http.Request) {
 	}
 	systemCurrent := snapshot.Capabilities.System.Available && (snapshot.Capabilities.System.Status == model.StatusAvailable || snapshot.Capabilities.System.Status == model.StatusEstimated)
 	systemUsable := snapshot.Capabilities.System.Available
-	gpuCurrent := snapshot.Capabilities.NVML.Available && snapshot.Capabilities.NVML.Status == model.StatusAvailable
+	gpu := snapshot.Capabilities.NVML
+	if snapshot.Capabilities.GPU != nil {
+		gpu = *snapshot.Capabilities.GPU
+	}
+	gpuCurrent := gpu.Available && (gpu.Status == model.StatusAvailable || gpu.Status == model.StatusEstimated)
 	status := "degraded"
 	code := http.StatusOK
 	if systemCurrent && gpuCurrent {
@@ -394,7 +359,7 @@ func (s *Server) health(writer http.ResponseWriter, _ *http.Request) {
 		"status": status, "sampledAt": snapshot.SampledAt,
 		"domains": map[string]any{
 			"system": map[string]any{"available": systemUsable, "status": snapshot.Capabilities.System.Status},
-			"gpu":    map[string]any{"available": gpuCurrent, "status": snapshot.Capabilities.NVML.Status},
+			"gpu":    map[string]any{"available": gpuCurrent, "status": gpu.Status},
 		},
 	})
 }
@@ -426,8 +391,7 @@ func (s *Server) events(writer http.ResponseWriter, request *http.Request) {
 			if !open {
 				return
 			}
-			snapshot = snapshotForWire(snapshot)
-			data, err := json.Marshal(snapshot)
+			data, err := json.Marshal(model.NormalizeSnapshot(snapshot))
 			if err != nil {
 				return
 			}

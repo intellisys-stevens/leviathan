@@ -289,42 +289,6 @@ func (e MetricScope) Valid() bool {
 	}
 }
 
-// Defines values for MetricSource.
-const (
-	Cgroupfs  MetricSource = "cgroupfs"
-	Dcgm      MetricSource = "dcgm"
-	Nvml      MetricSource = "nvml"
-	NvmlGpm   MetricSource = "nvml_gpm"
-	Proc      MetricSource = "proc"
-	Procfs    MetricSource = "procfs"
-	Statfs    MetricSource = "statfs"
-	Synthetic MetricSource = "synthetic"
-)
-
-// Valid indicates whether the value is a known member of the MetricSource enum.
-func (e MetricSource) Valid() bool {
-	switch e {
-	case Cgroupfs:
-		return true
-	case Dcgm:
-		return true
-	case Nvml:
-		return true
-	case NvmlGpm:
-		return true
-	case Proc:
-		return true
-	case Procfs:
-		return true
-	case Statfs:
-		return true
-	case Synthetic:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for MetricStatus.
 const (
 	MetricStatusAvailable        MetricStatus = "available"
@@ -349,6 +313,24 @@ func (e MetricStatus) Valid() bool {
 	case MetricStatusStale:
 		return true
 	case MetricStatusUnsupported:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PluginHealthTransport.
+const (
+	Builtin PluginHealthTransport = "builtin"
+	Unix    PluginHealthTransport = "unix"
+)
+
+// Valid indicates whether the value is a known member of the PluginHealthTransport enum.
+func (e PluginHealthTransport) Valid() bool {
+	switch e {
+	case Builtin:
+		return true
+	case Unix:
 		return true
 	default:
 		return false
@@ -406,36 +388,6 @@ const (
 func (e SnapshotSchemaVersion) Valid() bool {
 	switch e {
 	case V1:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for WorkloadKind.
-const (
-	Workspace WorkloadKind = "workspace"
-)
-
-// Valid indicates whether the value is a known member of the WorkloadKind enum.
-func (e WorkloadKind) Valid() bool {
-	switch e {
-	case Workspace:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for WorkloadPlatform.
-const (
-	Coder WorkloadPlatform = "coder"
-)
-
-// Valid indicates whether the value is a known member of the WorkloadPlatform enum.
-func (e WorkloadPlatform) Valid() bool {
-	switch e {
-	case Coder:
 		return true
 	default:
 		return false
@@ -543,26 +495,29 @@ type BuildInfo struct {
 
 // CPU defines model for CPU.
 type CPU struct {
-	Load1             Metric       `json:"load1"`
-	Load15            Metric       `json:"load15"`
-	Load5             Metric       `json:"load5"`
-	LogicalProcessors int          `json:"logicalProcessors"`
-	Message           *string      `json:"message,omitempty"`
-	Model             string       `json:"model"`
-	SampledAt         time.Time    `json:"sampledAt"`
-	Source            MetricSource `json:"source"`
-	Status            MetricStatus `json:"status"`
-	Utilization       Metric       `json:"utilization"`
+	Load1             Metric    `json:"load1"`
+	Load15            Metric    `json:"load15"`
+	Load5             Metric    `json:"load5"`
+	LogicalProcessors int       `json:"logicalProcessors"`
+	Message           *string   `json:"message,omitempty"`
+	Model             string    `json:"model"`
+	SampledAt         time.Time `json:"sampledAt"`
+
+	// Source Open identifier supplied by the source. Built-in values include nvml, nvml_gpm, dcgm, proc, procfs, statfs, cgroupfs, synthetic.
+	Source      MetricSource `json:"source"`
+	Status      MetricStatus `json:"status"`
+	Utilization Metric       `json:"utilization"`
 }
 
 // Capabilities defines model for Capabilities.
 type Capabilities struct {
-	Dcgm           ProviderState `json:"dcgm"`
-	Gpm            ProviderState `json:"gpm"`
-	Nvml           ProviderState `json:"nvml"`
-	Proc           ProviderState `json:"proc"`
-	ProfileMetrics bool          `json:"profileMetrics"`
-	System         ProviderState `json:"system"`
+	Dcgm           ProviderState  `json:"dcgm"`
+	Gpm            ProviderState  `json:"gpm"`
+	Gpu            *ProviderState `json:"gpu,omitempty"`
+	Nvml           ProviderState  `json:"nvml"`
+	Proc           ProviderState  `json:"proc"`
+	ProfileMetrics bool           `json:"profileMetrics"`
+	System         ProviderState  `json:"system"`
 }
 
 // ComputeInstance defines model for ComputeInstance.
@@ -599,21 +554,25 @@ type Error struct {
 
 // Filesystem Sanitized persistent local filesystem capacity. The opaque ID is not a device path or filesystem UUID.
 type Filesystem struct {
-	AvailableBytes *uint64      `json:"availableBytes"`
-	FsType         string       `json:"fsType"`
-	Id             string       `json:"id"`
-	Message        *string      `json:"message,omitempty"`
-	MountPoint     string       `json:"mountPoint"`
-	SampledAt      time.Time    `json:"sampledAt"`
-	Scope          MetricScope  `json:"scope"`
-	Source         MetricSource `json:"source"`
-	Status         MetricStatus `json:"status"`
-	TotalBytes     *uint64      `json:"totalBytes"`
-	UsedBytes      *uint64      `json:"usedBytes"`
+	AvailableBytes *uint64     `json:"availableBytes"`
+	FsType         string      `json:"fsType"`
+	Id             string      `json:"id"`
+	Message        *string     `json:"message,omitempty"`
+	MountPoint     string      `json:"mountPoint"`
+	SampledAt      time.Time   `json:"sampledAt"`
+	Scope          MetricScope `json:"scope"`
+
+	// Source Open identifier supplied by the source. Built-in values include nvml, nvml_gpm, dcgm, proc, procfs, statfs, cgroupfs, synthetic.
+	Source     MetricSource `json:"source"`
+	Status     MetricStatus `json:"status"`
+	TotalBytes *uint64      `json:"totalBytes"`
+	UsedBytes  *uint64      `json:"usedBytes"`
 }
 
 // GPU defines model for GPU.
 type GPU struct {
+	// Generation Optional source resource generation for replacement identity and history.
+	Generation    *string       `json:"generation,omitempty"`
 	GpuInstances  []GpuInstance `json:"gpuInstances"`
 	Index         int           `json:"index"`
 	MaxMigDevices int           `json:"maxMigDevices"`
@@ -773,10 +732,12 @@ type Host struct {
 
 // Memory defines model for Memory.
 type Memory struct {
-	FreeBytes  *uint64      `json:"freeBytes"`
-	Message    *string      `json:"message,omitempty"`
-	SampledAt  time.Time    `json:"sampledAt"`
-	Scope      MetricScope  `json:"scope"`
+	FreeBytes *uint64     `json:"freeBytes"`
+	Message   *string     `json:"message,omitempty"`
+	SampledAt time.Time   `json:"sampledAt"`
+	Scope     MetricScope `json:"scope"`
+
+	// Source Open identifier supplied by the source. Built-in values include nvml, nvml_gpm, dcgm, proc, procfs, statfs, cgroupfs, synthetic.
 	Source     MetricSource `json:"source"`
 	Status     MetricStatus `json:"status"`
 	TotalBytes *uint64      `json:"totalBytes"`
@@ -785,13 +746,15 @@ type Memory struct {
 
 // Metric defines model for Metric.
 type Metric struct {
-	Message   *string      `json:"message,omitempty"`
-	SampledAt time.Time    `json:"sampledAt"`
-	Scope     MetricScope  `json:"scope"`
-	Source    MetricSource `json:"source"`
-	Status    MetricStatus `json:"status"`
-	Unit      string       `json:"unit"`
-	Value     *float32     `json:"value"`
+	Message   *string     `json:"message,omitempty"`
+	SampledAt time.Time   `json:"sampledAt"`
+	Scope     MetricScope `json:"scope"`
+
+	// Source Open identifier supplied by the source. Built-in values include nvml, nvml_gpm, dcgm, proc, procfs, statfs, cgroupfs, synthetic.
+	Source MetricSource `json:"source"`
+	Status MetricStatus `json:"status"`
+	Unit   string       `json:"unit"`
+	Value  *float32     `json:"value"`
 }
 
 // MetricScope defines model for MetricScope.
@@ -800,11 +763,42 @@ type MetricScope string
 // MetricSet Canonical metrics keyed by name. gpu_activity is time with any compute or graphics workload active; sm_activity is the percentage of SMs busy; pcie_rx_bytes_per_second and pcie_tx_bytes_per_second are PCIe bandwidth rates; power_limit is the enforced power ceiling in watts.
 type MetricSet map[string]Metric
 
-// MetricSource defines model for MetricSource.
-type MetricSource string
+// MetricSource Open identifier supplied by the source. Built-in values include nvml, nvml_gpm, dcgm, proc, procfs, statfs, cgroupfs, synthetic.
+type MetricSource = string
 
 // MetricStatus defines model for MetricStatus.
 type MetricStatus string
+
+// PluginCapabilityHealth defines model for PluginCapabilityHealth.
+type PluginCapabilityHealth struct {
+	Capability  string     `json:"capability"`
+	Enabled     bool       `json:"enabled"`
+	LastSuccess *time.Time `json:"lastSuccess,omitempty"`
+	Message     *string    `json:"message,omitempty"`
+	ObservedAt  *time.Time `json:"observedAt,omitempty"`
+	Revision    string     `json:"revision"`
+	Status      string     `json:"status"`
+}
+
+// PluginHealth defines model for PluginHealth.
+type PluginHealth struct {
+	Capabilities   []PluginCapabilityHealth `json:"capabilities"`
+	Dependencies   []string                 `json:"dependencies"`
+	Id             string                   `json:"id"`
+	Implementation string                   `json:"implementation"`
+	IntervalMs     int64                    `json:"intervalMs"`
+	Message        *string                  `json:"message,omitempty"`
+	Status         string                   `json:"status"`
+	Transport      PluginHealthTransport    `json:"transport"`
+}
+
+// PluginHealthTransport defines model for PluginHealth.Transport.
+type PluginHealthTransport string
+
+// PluginReport defines model for PluginReport.
+type PluginReport struct {
+	Plugins []PluginHealth `json:"plugins"`
+}
 
 // Process A GPU-connected process visible in Leviathan's current PID namespace. An open NVIDIA UVM handle includes idle CUDA contexts and does not imply active kernels, GPU memory use, or GI/CI ownership.
 type Process struct {
@@ -891,12 +885,14 @@ type SnapshotSchemaVersion string
 
 // Storage defines model for Storage.
 type Storage struct {
-	AvailableBytes      *uint64      `json:"availableBytes"`
-	Filesystems         []Filesystem `json:"filesystems"`
-	Message             *string      `json:"message,omitempty"`
-	ReadBytesPerSecond  Metric       `json:"readBytesPerSecond"`
-	SampledAt           time.Time    `json:"sampledAt"`
-	Scope               MetricScope  `json:"scope"`
+	AvailableBytes     *uint64      `json:"availableBytes"`
+	Filesystems        []Filesystem `json:"filesystems"`
+	Message            *string      `json:"message,omitempty"`
+	ReadBytesPerSecond Metric       `json:"readBytesPerSecond"`
+	SampledAt          time.Time    `json:"sampledAt"`
+	Scope              MetricScope  `json:"scope"`
+
+	// Source Open identifier supplied by the source. Built-in values include nvml, nvml_gpm, dcgm, proc, procfs, statfs, cgroupfs, synthetic.
 	Source              MetricSource `json:"source"`
 	Status              MetricStatus `json:"status"`
 	TotalBytes          *uint64      `json:"totalBytes"`
@@ -919,15 +915,17 @@ type System struct {
 
 // SystemMemory defines model for SystemMemory.
 type SystemMemory struct {
-	AvailableBytes *uint64      `json:"availableBytes"`
-	Message        *string      `json:"message,omitempty"`
-	SampledAt      time.Time    `json:"sampledAt"`
-	Scope          MetricScope  `json:"scope"`
-	Source         MetricSource `json:"source"`
-	Status         MetricStatus `json:"status"`
-	TotalBytes     *uint64      `json:"totalBytes"`
-	UsedBytes      *uint64      `json:"usedBytes"`
-	Utilization    Metric       `json:"utilization"`
+	AvailableBytes *uint64     `json:"availableBytes"`
+	Message        *string     `json:"message,omitempty"`
+	SampledAt      time.Time   `json:"sampledAt"`
+	Scope          MetricScope `json:"scope"`
+
+	// Source Open identifier supplied by the source. Built-in values include nvml, nvml_gpm, dcgm, proc, procfs, statfs, cgroupfs, synthetic.
+	Source      MetricSource `json:"source"`
+	Status      MetricStatus `json:"status"`
+	TotalBytes  *uint64      `json:"totalBytes"`
+	UsedBytes   *uint64      `json:"usedBytes"`
+	Utilization Metric       `json:"utilization"`
 }
 
 // WorkloadAssignmentResolution defines model for WorkloadAssignmentResolution.
@@ -939,23 +937,28 @@ type WorkloadAssignmentResolution struct {
 
 // WorkloadAttribution Sanitized workload display identity from an optional attribution source. The reference is opaque and source-scoped.
 type WorkloadAttribution struct {
-	Kind      WorkloadKind     `json:"kind"`
-	Name      string           `json:"name"`
-	OwnerName string           `json:"ownerName"`
-	Platform  WorkloadPlatform `json:"platform"`
-	Ref       string           `json:"ref"`
+	// Kind Open identifier supplied by the source. Built-in values include workspace.
+	Kind      WorkloadKind `json:"kind"`
+	Name      string       `json:"name"`
+	OwnerName string       `json:"ownerName"`
+
+	// Platform Open identifier supplied by the source. Built-in values include coder.
+	Platform WorkloadPlatform `json:"platform"`
+	Ref      string           `json:"ref"`
 }
 
-// WorkloadKind defines model for WorkloadKind.
-type WorkloadKind string
+// WorkloadKind Open identifier supplied by the source. Built-in values include workspace.
+type WorkloadKind = string
 
 // WorkloadOwnerTelemetry Absolute cgroup v2 usage aggregated once per observed Pod and then by stable Coder owner identity. Missing members invalidate only the affected aggregate metrics.
 type WorkloadOwnerTelemetry struct {
 	Message *string `json:"message,omitempty"`
 
 	// Metrics cpu_cores is CPU-time increase divided by elapsed time (logical-CPU equivalents). memory_used_bytes is memory.current, including charged cache. storage_read_bps and storage_write_bps are deduplicated kernel-accounted physical backing-device byte rates. Partial aggregates use null, never inferred zero.
-	Metrics    MetricSet               `json:"metrics"`
-	Name       string                  `json:"name"`
+	Metrics MetricSet `json:"metrics"`
+	Name    string    `json:"name"`
+
+	// Platform Open identifier supplied by the source. Built-in values include coder.
 	Platform   WorkloadPlatform        `json:"platform"`
 	Ref        string                  `json:"ref"`
 	SampledAt  time.Time               `json:"sampledAt"`
@@ -963,8 +966,8 @@ type WorkloadOwnerTelemetry struct {
 	Workspaces []WorkloadAttribution   `json:"workspaces"`
 }
 
-// WorkloadPlatform defines model for WorkloadPlatform.
-type WorkloadPlatform string
+// WorkloadPlatform Open identifier supplied by the source. Built-in values include coder.
+type WorkloadPlatform = string
 
 // WorkloadTelemetry Optional host-local workspace owner telemetry, collected independently of GPU collection. Not included in the locked Yggdrasil upload contract.
 type WorkloadTelemetry struct {

@@ -14,13 +14,17 @@ import (
 
 	"github.com/intellisys-stevens/leviathan/internal/health"
 	"github.com/intellisys-stevens/leviathan/internal/history"
+	"github.com/intellisys-stevens/leviathan/internal/plugins"
 	"github.com/intellisys-stevens/leviathan/internal/provider"
 	systemtelemetry "github.com/intellisys-stevens/leviathan/internal/system"
+	"github.com/intellisys-stevens/leviathan/internal/uplink"
 	"github.com/intellisys-stevens/leviathan/internal/workload"
 	"github.com/intellisys-stevens/leviathan/model"
 )
 
 type Engine struct {
+	plugins         *plugins.Runtime
+	observations    map[string]pluginObservation
 	provider        provider.Provider
 	system          systemtelemetry.Sampler
 	workload        workload.Sampler
@@ -69,6 +73,7 @@ const (
 	domainSystem telemetryDomain = iota
 	domainGPU
 	domainWorkload
+	domainMetadata
 )
 
 func New(source provider.Provider, interval, window time.Duration) *Engine {
@@ -106,6 +111,9 @@ func NewWithOptions(source provider.Provider, options Options) *Engine {
 }
 
 func (e *Engine) Start(parent context.Context) error {
+	if e.plugins != nil {
+		return e.startPlugins(parent)
+	}
 	ctx, cancel := context.WithCancel(parent)
 	at := time.Now().UTC()
 	var systemErr error
@@ -344,6 +352,9 @@ func (e *Engine) SetSamplingInterval(interval time.Duration) error {
 	}
 	e.history.EnsureCapacity(interval)
 	e.interval.Store(int64(interval))
+	if e.plugins != nil {
+		e.plugins.SetSamplingInterval(interval)
+	}
 	select {
 	case e.reschedule <- struct{}{}:
 	default:
@@ -414,32 +425,43 @@ func (e *Engine) pollSystem(ctx context.Context, at time.Time) error {
 	return nil
 }
 
-func (e *Engine) storeSnapshot(snapshot model.Snapshot, topologyChanged bool, domain telemetryDomain) {
-	snapshot.Attribution = retainedAttribution(snapshot.Attribution, snapshot.SampledAt, false)
-	if domain != domainWorkload {
+func (e *Engine) storeSnapshot(snapshot model.Snapshot, topologyChanged bool, domain telemetryDomain, events ...plugins.Event) {
+	if e.plugins == nil {
+		snapshot.Attribution = retainedAttribution(snapshot.Attribution, snapshot.SampledAt, false)
+	}
+	if e.plugins == nil && domain != domainWorkload {
 		snapshot.WorkloadTelemetry = retainedWorkloadTelemetry(snapshot.WorkloadTelemetry, snapshot.SampledAt)
+	}
+	if e.plugins != nil {
+		snapshot.Diagnostics = append(snapshot.Diagnostics, uplink.CompatibilityDiagnostics(snapshot)...)
 	}
 	snapshot.Sequence = e.seq.Add(1)
 	snapshot.SchemaVersion = "v1"
 	if topologyChanged {
 		e.applyGenerations(&snapshot)
 	}
-	if domain == domainWorkload {
-		e.history.AddWorkload(snapshot)
+	historySnapshot := snapshot
+	if len(events) > 0 {
+		historySnapshot = e.pluginHistorySnapshot(snapshot, events[0])
+	}
+	if domain == domainMetadata {
+		// Metadata and cached observations do not manufacture measurement history.
+	} else if domain == domainWorkload {
+		e.history.AddWorkload(historySnapshot)
 	} else if domain == domainSystem {
-		e.history.AddSystem(snapshot)
-	} else if e.system == nil {
+		e.history.AddSystem(historySnapshot)
+	} else if e.system == nil && e.plugins == nil {
 		// Fixture and compatibility providers may still supply both domains in
 		// one observation. Preserve their host history without affecting the
 		// independent-worker path used by real Linux collection.
 		e.history.Add(snapshot)
 	} else {
-		e.history.AddGPU(snapshot)
+		e.history.AddGPU(historySnapshot)
 	}
 	immutable := snapshot
 	e.current.Store(&immutable)
 	observation := e.HealthObservation()
-	if domain == domainSystem || (domain == domainGPU && e.system == nil) {
+	if domain == domainSystem || (domain == domainGPU && e.system == nil && e.plugins == nil) {
 		observation.System = health.ProviderComponent("system", "Host telemetry", snapshot.Capabilities.System, snapshot.System.SampledAt)
 	}
 	if domain == domainGPU {
@@ -747,12 +769,16 @@ func (e *Engine) applyGenerations(snapshot *model.Snapshot) {
 			gi := &snapshot.GPUs[gpuIndex].GPUInstances[giIndex]
 			giKey := "gi:" + gi.UUID
 			active[giKey] = true
-			gi.Generation = generationValue(gi.UUID, e.generations, giKey, gpuInstanceSignature(*gi), snapshot.SampledAt)
+			if e.plugins == nil || gi.Generation == "" {
+				gi.Generation = generationValue(gi.UUID, e.generations, giKey, gpuInstanceSignature(*gi), snapshot.SampledAt)
+			}
 			for ciIndex := range snapshot.GPUs[gpuIndex].GPUInstances[giIndex].ComputeInstances {
 				ci := &snapshot.GPUs[gpuIndex].GPUInstances[giIndex].ComputeInstances[ciIndex]
 				ciKey := "ci:" + ci.UUID
 				active[ciKey] = true
-				ci.Generation = generationValue(ci.UUID, e.generations, ciKey, computeInstanceSignature(*ci), snapshot.SampledAt)
+				if e.plugins == nil || ci.Generation == "" {
+					ci.Generation = generationValue(ci.UUID, e.generations, ciKey, computeInstanceSignature(*ci), snapshot.SampledAt)
+				}
 			}
 		}
 	}
@@ -860,6 +886,9 @@ func (e *Engine) AlignedHistory(descriptors []history.SeriesDescriptor, window t
 
 func resolveHistoryEntity(snapshot model.Snapshot, entity string) string {
 	for _, gpu := range snapshot.GPUs {
+		if gpu.UUID == entity && gpu.Generation != "" {
+			return gpu.Generation
+		}
 		for _, gi := range gpu.GPUInstances {
 			if entity == gi.UUID && gi.Generation != "" {
 				return gi.Generation
@@ -906,6 +935,9 @@ func (e *Engine) Subscribe() (<-chan model.Snapshot, func()) {
 func (e *Engine) Capabilities() model.Capabilities {
 	if snapshot, ok := e.Current(); ok {
 		return snapshot.Capabilities
+	}
+	if e.provider == nil {
+		return model.Capabilities{}
 	}
 	return e.provider.Capabilities()
 }
