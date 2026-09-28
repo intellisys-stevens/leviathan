@@ -113,7 +113,7 @@ func Project(snapshot model.Snapshot, build model.BuildInfo, streamID string, se
 		System: projectSystem(snapshot.System),
 		GPUs:   projectGPUs(snapshot.GPUs),
 	}
-	envelope.Health = projectHealth(snapshot)
+	envelope.Health = projectHealth(snapshot, len(envelope.GPUs))
 	return envelope, nil
 }
 
@@ -311,13 +311,13 @@ func safeMetricScope(scope model.MetricScope) string {
 	}
 }
 
-func projectHealth(snapshot model.Snapshot) Health {
+func projectHealth(snapshot model.Snapshot, representedGPUs int) Health {
 	system := DomainHealth{Status: healthForMetricStatus(snapshot.System.Status), SampledAt: snapshot.System.SampledAt.UTC()}
 	if system.SampledAt.IsZero() {
 		system.SampledAt = snapshot.SampledAt.UTC()
 	}
 	gpu := DomainHealth{Status: HealthUnavailable, SampledAt: snapshot.SampledAt.UTC()}
-	if len(snapshot.GPUs) > 0 {
+	if representedGPUs > 0 {
 		gpu.Status = HealthOK
 		state := snapshot.Capabilities.NVML
 		if snapshot.Capabilities.GPU != nil {

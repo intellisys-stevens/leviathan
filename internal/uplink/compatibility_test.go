@@ -3,6 +3,7 @@ package uplink
 import (
 	"errors"
 	"github.com/intellisys-stevens/leviathan/model"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -149,5 +150,40 @@ func TestUplinkHealthUsesGenericGPUCapability(t *testing.T) {
 	}
 	if envelope.Health.GPU.Status != HealthOK {
 		t.Fatal("unrelated NVML status overrode generic GPU availability")
+	}
+}
+
+func TestOmittedGPUDevicesCannotReportHealthyUplinkGPU(t *testing.T) {
+	for _, change := range []struct {
+		name  string
+		apply func(*model.Memory)
+	}{
+		{"custom source", func(memory *model.Memory) { memory.Source = "custom_gpu_sensor" }},
+		{"unsupported scope", func(memory *model.Memory) { memory.Scope = model.ScopeWorkloadOwner }},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			snapshot := projectionSnapshot()
+			delete(snapshot.GPUs[0].Metrics, "secret_metric_canary")
+			snapshot.Capabilities.GPU = &model.ProviderState{Name: "generic GPU", Available: true, Status: model.StatusAvailable}
+			original, err := Project(snapshot, model.BuildInfo{}, testStreamID, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			change.apply(&snapshot.GPUs[0].Memory)
+			projected, err := Project(snapshot, model.BuildInfo{}, testStreamID, 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(projected.GPUs) != 0 || projected.Health.GPU.Status != HealthUnavailable {
+				t.Fatalf("omitted GPU remained healthy: devices=%d health=%+v", len(projected.GPUs), projected.Health.GPU)
+			}
+			if !reflect.DeepEqual(projected.Health.System, original.Health.System) || !reflect.DeepEqual(projected.Health.Diagnostics, original.Health.Diagnostics) {
+				t.Fatal("GPU omission changed unrelated host health or safe diagnostics")
+			}
+			diagnostics := CompatibilityDiagnostics(snapshot)
+			if len(diagnostics) != 1 || diagnostics[0].Code != "uplink_omitted_observations" {
+				t.Fatalf("missing local omission diagnostic: %+v", diagnostics)
+			}
+		})
 	}
 }
