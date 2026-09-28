@@ -146,6 +146,7 @@ type Buffer struct {
 	capacity                  int
 	aggregateCapacity         int
 	series                    map[string]*ring
+	domains                   map[string]entityDomain
 	timeline                  timelineRing
 	systemTimeline            timelineRing
 	workloadTimeline          timelineRing
@@ -239,6 +240,7 @@ func New(window, interval time.Duration) *Buffer {
 		capacity:          capacity,
 		aggregateCapacity: aggregateCapacity,
 		series:            make(map[string]*ring),
+		domains:           make(map[string]entityDomain),
 		aggregates:        make(map[string]*aggregateRing),
 	}
 }
@@ -259,25 +261,30 @@ func (b *Buffer) AddWorkload(snapshot model.Snapshot) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	telemetry := snapshot.WorkloadTelemetry
-	at := telemetry.SampledAt
-	if at.IsZero() {
+	if telemetry.SampledAt.IsZero() {
 		return
 	}
-	if !b.lastWorkloadTimeline.sampledAt.IsZero() && !at.After(b.lastWorkloadTimeline.sampledAt) {
-		return
-	}
-	sample := timelineSample{sampledAt: at, interval: 2 * time.Second}
-	b.addTimelineTo(&b.workloadTimeline, sample)
-	b.addAggregateTimelineTo(&b.workloadAggregateTimeline, &b.lastWorkloadTimeline, sample)
-	// With no aggregate tier, still remember the last publication timestamp.
-	if b.aggregateCapacity == 0 {
-		b.lastWorkloadTimeline = sample
-	}
-	b.prune(at)
+	b.recordWorkloadTime(telemetry.SampledAt)
+	b.prune(b.lastWorkloadTimeline.sampledAt)
 	for _, owner := range telemetry.Owners {
-		if !owner.SampledAt.Equal(at) {
+		at := owner.SampledAt
+		if at.IsZero() {
 			continue
 		}
+		entity := "owner:" + owner.Ref
+		if series := b.series[entity]; series != nil && !at.After(series.last) {
+			duplicate := false
+			for _, point := range series.points {
+				if point.SampledAt.Equal(at) {
+					duplicate = true
+					break
+				}
+			}
+			if duplicate {
+				continue
+			}
+		}
+		b.recordWorkloadTime(at)
 		values := map[string]float64{}
 		for _, name := range []string{"cpu_cores", "memory_used_bytes", "storage_read_bps", "storage_write_bps"} {
 			metric := owner.Metrics[name]
@@ -285,20 +292,19 @@ func (b *Buffer) AddWorkload(snapshot model.Snapshot) {
 				values[name] = *metric.Value
 			}
 		}
-		entity := "owner:" + owner.Ref
-		b.add(entity, at, values)
+		b.add(entity, at, values, workloadDomain)
 		b.addAggregate(entity, at, values)
 	}
 	// Bound churn as well as per-owner point counts. Recent owners displace the
 	// oldest retained owner histories; GPU and host retention are unaffected.
 	owners := map[string]time.Time{}
 	for entity, series := range b.series {
-		if strings.HasPrefix(entity, "owner:") {
+		if b.domains[entity].kind == workloadDomain {
 			owners[entity] = series.last
 		}
 	}
 	for entity, series := range b.aggregates {
-		if strings.HasPrefix(entity, "owner:") && series.last.After(owners[entity]) {
+		if b.domains[entity].kind == workloadDomain && series.last.After(owners[entity]) {
 			owners[entity] = series.last
 		}
 	}
@@ -316,6 +322,7 @@ func (b *Buffer) AddWorkload(snapshot model.Snapshot) {
 		for _, key := range keys[:len(keys)-256] {
 			delete(b.series, key)
 			delete(b.aggregates, key)
+			delete(b.domains, key)
 		}
 	}
 }
@@ -330,6 +337,38 @@ func (b *Buffer) AddSystem(snapshot model.Snapshot) {
 // observation forward to the new timestamp.
 func (b *Buffer) AddGPU(snapshot model.Snapshot) {
 	b.addSnapshot(snapshot, false, true, true)
+}
+
+// Independent workload sources can publish in either order or at the same
+// timestamp. The shared timeline is their union, not a global monotone stream.
+func (b *Buffer) recordWorkloadTime(at time.Time) {
+	previous := b.lastWorkloadTimeline
+	if !at.After(previous.sampledAt) {
+		for _, sample := range b.workloadTimeline.samples {
+			if sample.sampledAt.Equal(at) {
+				return
+			}
+		}
+	}
+	sample := timelineSample{sampledAt: at, interval: 2 * time.Second}
+	b.addTimelineTo(&b.workloadTimeline, sample)
+	b.addAggregateTimelineTo(&b.workloadAggregateTimeline, &b.lastWorkloadTimeline, sample)
+	if at.After(previous.sampledAt) {
+		b.lastWorkloadTimeline = sample
+	} else {
+		b.lastWorkloadTimeline = previous
+	}
+}
+
+func (b *Buffer) recordDomain(entity string, kind historyDomain, at time.Time) {
+	if entity == "" {
+		return
+	}
+	previous := b.domains[entity]
+	if at.Before(previous.last) {
+		at = previous.last
+	}
+	b.domains[entity] = entityDomain{kind: kind, last: at}
 }
 
 func (b *Buffer) addSnapshot(snapshot model.Snapshot, includeSystem, includeGPU, includeTimeline bool) {
@@ -360,30 +399,35 @@ func (b *Buffer) addSnapshot(snapshot model.Snapshot, includeSystem, includeGPU,
 	if includeSystem {
 		hostValues := valuesForSystem(snapshot.System)
 		if len(hostValues) > 0 {
-			b.add("@host", snapshot.SampledAt, hostValues)
+			b.add("@host", snapshot.SampledAt, hostValues, systemDomain)
 			b.addAggregate("@host", snapshot.SampledAt, hostValues)
 		}
 		for _, filesystem := range snapshot.System.Storage.Filesystems {
 			values := valuesForFilesystem(filesystem)
 			if len(values) == 0 {
+				b.recordDomain(filesystem.ID, systemDomain, snapshot.SampledAt)
 				continue
 			}
-			b.add(filesystem.ID, snapshot.SampledAt, values)
+			b.add(filesystem.ID, snapshot.SampledAt, values, systemDomain)
 			b.addAggregate(filesystem.ID, snapshot.SampledAt, values)
 		}
 	}
 	if includeGPU {
 		for _, gpu := range snapshot.GPUs {
 			values := valuesFor(gpu.Metrics, gpu.Memory)
-			b.add(gpu.UUID, snapshot.SampledAt, values)
-			b.addAggregate(gpu.UUID, snapshot.SampledAt, values)
+			entity := gpu.UUID
+			if gpu.Generation != "" {
+				entity = gpu.Generation
+			}
+			b.add(entity, snapshot.SampledAt, values, gpuDomain)
+			b.addAggregate(entity, snapshot.SampledAt, values)
 			for _, gi := range gpu.GPUInstances {
 				entity := gi.Generation
 				if entity == "" {
 					entity = gi.UUID
 				}
 				values := valuesFor(gi.Metrics, gi.Memory)
-				b.add(entity, snapshot.SampledAt, values)
+				b.add(entity, snapshot.SampledAt, values, gpuDomain)
 				b.addAggregate(entity, snapshot.SampledAt, values)
 				for _, ci := range gi.ComputeInstances {
 					entity := ci.Generation
@@ -391,7 +435,7 @@ func (b *Buffer) addSnapshot(snapshot model.Snapshot, includeSystem, includeGPU,
 						entity = ci.UUID
 					}
 					values := valuesFor(ci.Metrics, ci.Memory)
-					b.add(entity, snapshot.SampledAt, values)
+					b.add(entity, snapshot.SampledAt, values, gpuDomain)
 					b.addAggregate(entity, snapshot.SampledAt, values)
 				}
 			}
@@ -473,6 +517,13 @@ func (b *Buffer) prune(at time.Time) {
 			delete(b.aggregates, entity)
 		}
 	}
+	if len(b.domains) > len(b.series) {
+		for entity, domain := range b.domains {
+			if domain.last.Before(aggregateCutoff) && b.series[entity] == nil && b.aggregates[entity] == nil {
+				delete(b.domains, entity)
+			}
+		}
+	}
 }
 
 func valuesFor(metrics model.MetricSet, memory model.Memory) map[string]float64 {
@@ -493,18 +544,19 @@ func valuesFor(metrics model.MetricSet, memory model.Memory) map[string]float64 
 	return values
 }
 
-func (b *Buffer) add(entity string, at time.Time, values map[string]float64) {
+func (b *Buffer) add(entity string, at time.Time, values map[string]float64, domain historyDomain) {
 	if entity == "" {
 		return
 	}
 	r := b.series[entity]
 	if r == nil {
+		b.recordDomain(entity, domain, at)
 		r = &ring{points: []Point{}}
 		b.series[entity] = r
 	}
 	point := Point{SampledAt: at, Values: values}
 	capacity := b.capacity
-	if strings.HasPrefix(entity, "owner:") {
+	if domain == workloadDomain {
 		capacity = b.workloadCapacity()
 	}
 	if len(r.points) < capacity {
@@ -518,7 +570,9 @@ func (b *Buffer) add(entity string, at time.Time, values map[string]float64) {
 		r.next = (r.next + 1) % capacity
 		r.full = true
 	}
-	r.last = at
+	if at.After(r.last) {
+		r.last = at
+	}
 }
 
 func (b *Buffer) addTimeline(sample timelineSample) {
@@ -601,12 +655,19 @@ func (b *Buffer) addAggregate(entity string, at time.Time, values map[string]flo
 		}
 		point.values[name] = metric
 	}
-	r.last = at
+	if at.After(r.last) {
+		r.last = at
+	}
 }
 
 func (r *aggregateRing) current(start time.Time, capacity int) *aggregatePoint {
 	if point := r.latest(); point != nil && point.start.Equal(start) {
 		return point
+	}
+	for i := range r.points {
+		if r.points[i].start.Equal(start) {
+			return &r.points[i]
+		}
 	}
 	point := aggregatePoint{start: start, values: make(map[string]aggregateMetric)}
 	if len(r.points) < capacity {
@@ -638,18 +699,14 @@ func (r *aggregateRing) latest() *aggregatePoint {
 	return &r.points[index]
 }
 
-func (r *aggregateRing) ordered() []aggregatePoint {
-	if !r.full {
-		return append([]aggregatePoint(nil), r.points...)
-	}
-	out := append([]aggregatePoint(nil), r.points[r.next:]...)
-	out = append(out, r.points[:r.next]...)
-	return out
-}
-
 func (r *aggregateTimelineRing) current(start time.Time, capacity int) *aggregateTimelinePoint {
 	if point := r.latest(); point != nil && point.start.Equal(start) {
 		return point
+	}
+	for i := range r.points {
+		if r.points[i].start.Equal(start) {
+			return &r.points[i]
+		}
 	}
 	point := aggregateTimelinePoint{start: start}
 	if len(r.points) < capacity {
@@ -681,22 +738,13 @@ func (r *aggregateTimelineRing) latest() *aggregateTimelinePoint {
 	return &r.points[index]
 }
 
-func (r *aggregateTimelineRing) ordered() []aggregateTimelinePoint {
-	if !r.full {
-		return append([]aggregateTimelinePoint(nil), r.points...)
-	}
-	out := append([]aggregateTimelinePoint(nil), r.points[r.next:]...)
-	out = append(out, r.points[:r.next]...)
-	return out
+func (b *Buffer) Query(entity string, metrics []string, window time.Duration, now time.Time) Series {
+	view, window := b.copyForQuery([]string{entity}, window, false)
+	return view.query(entity, metrics, window, now)
 }
 
-func (b *Buffer) Query(entity string, metrics []string, window time.Duration, now time.Time) Series {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	if window <= 0 || window > b.window {
-		window = b.window
-	}
-	if window > b.rawWindow && b.aggregateCapacity > 0 {
+func (b *queryView) query(entity string, metrics []string, window time.Duration, now time.Time) Series {
+	if b.aggregated {
 		return b.queryAggregate(entity, metrics, window, now)
 	}
 	result := Series{Entity: entity, Metrics: append([]string(nil), metrics...), Window: window.String(), Points: []Point{}}
@@ -704,25 +752,14 @@ func (b *Buffer) Query(entity string, metrics []string, window time.Duration, no
 	if r == nil {
 		return result
 	}
-	ordered := r.ordered()
+	ordered := orderPoints(r)
 	cutoff := now.Add(-window)
-	allow := make(map[string]bool, len(metrics))
-	for _, metric := range metrics {
-		allow[metric] = true
-	}
+	result.Points = make([]Point, 0, len(ordered))
 	for _, point := range ordered {
 		if point.SampledAt.Before(cutoff) {
 			continue
 		}
-		values := point.Values
-		if len(allow) > 0 {
-			values = make(map[string]float64)
-			for name, value := range point.Values {
-				if allow[name] {
-					values[name] = value
-				}
-			}
-		}
+		values := selectValues(point.Values, metrics)
 		result.Points = append(result.Points, Point{SampledAt: point.SampledAt, Values: values})
 	}
 	return result
@@ -766,21 +803,21 @@ func mergeAggregateMetric(current aggregateMetric, incoming aggregateMetric) agg
 
 // aggregateQueryBuckets returns epoch-aligned buckets ending at the next
 // resolution boundary. Long-range queries therefore have a stable geometry:
-// closed buckets never move, while only the newest partial bucket can change.
-// The caller must hold b.mu for reading.
-func (b *Buffer) aggregateQueryBuckets(entities []string, window time.Duration, now time.Time) []aggregateQueryBucket {
+// bucket boundaries never move; delayed source observations can update their values.
+// The receiver is an isolated query view; aggregation never holds the writer lock.
+func (b *queryView) aggregateQueryBuckets(entities []string, window time.Duration, now time.Time) []aggregateQueryBucket {
 	resolution := aggregateQueryResolution(window)
 	end := now.Truncate(resolution).Add(resolution)
 	start := end.Add(-window)
 
-	pointsByEntity := make(map[string]map[int64]aggregatePoint, len(entities))
+	pointsByEntity := make(map[string]map[int64]aggregateSample, len(entities))
 	for _, entity := range entities {
 		if _, exists := pointsByEntity[entity]; exists {
 			continue
 		}
-		points := make(map[int64]aggregatePoint)
+		points := make(map[int64]aggregateSample, len(b.aggregates[entity]))
 		if series := b.aggregates[entity]; series != nil {
-			for _, point := range series.ordered() {
+			for _, point := range series {
 				points[point.start.UnixNano()] = point
 			}
 		}
@@ -814,8 +851,8 @@ func (b *Buffer) aggregateQueryBuckets(entities []string, window time.Duration, 
 			}
 			value.buckets++
 			value.samples += point.samples
-			for name, metric := range point.values {
-				value.values[name] = mergeAggregateMetric(value.values[name], metric)
+			for _, metric := range point.values {
+				value.values[metric.name] = mergeAggregateMetric(value.values[metric.name], metric.metric)
 			}
 		}
 	}
@@ -844,7 +881,7 @@ func aggregateValues(entity *aggregateQueryEntity, bucketCount int, metrics []st
 	return values
 }
 
-func (b *Buffer) queryAggregate(entity string, metrics []string, window time.Duration, now time.Time) Series {
+func (b *queryView) queryAggregate(entity string, metrics []string, window time.Duration, now time.Time) Series {
 	result := Series{Entity: entity, Metrics: append([]string(nil), metrics...), Window: window.String(), Points: []Point{}}
 	buckets := b.aggregateQueryBuckets([]string{entity}, window, now)
 	first, last := -1, -1
@@ -873,32 +910,23 @@ func (b *Buffer) queryAggregate(entity string, metrics []string, window time.Dur
 // only shared timestamps recorded by the collector. A series or metric missing
 // from a row remains absent; values are never carried forward or interpolated.
 func (b *Buffer) QueryAligned(descriptors []SeriesDescriptor, window time.Duration, maxPoints int, now time.Time) AlignedSeries {
-	b.mu.RLock()
-	if window <= 0 || window > b.window {
-		window = b.window
-	}
-	if window > b.rawWindow && b.aggregateCapacity > 0 {
-		result := b.queryAlignedAggregate(descriptors, window, now)
-		b.mu.RUnlock()
-		return LimitAligned(result, maxPoints)
-	}
 	entities := make([]string, 0, len(descriptors))
 	for _, descriptor := range descriptors {
 		entities = append(entities, descriptor.Entity)
 	}
-	timeline := b.timelineForEntities(entities)
-	entityPoints := make(map[string][]Point, len(descriptors))
-	for _, descriptor := range descriptors {
-		if _, exists := entityPoints[descriptor.Entity]; exists {
-			continue
-		}
-		if entitySeries := b.series[descriptor.Entity]; entitySeries != nil {
-			entityPoints[descriptor.Entity] = entitySeries.ordered()
-		} else {
-			entityPoints[descriptor.Entity] = nil
-		}
+	view, window := b.copyForQuery(entities, window, true)
+	return view.queryAligned(descriptors, entities, window, maxPoints, now)
+}
+
+func (b *queryView) queryAligned(descriptors []SeriesDescriptor, entities []string, window time.Duration, maxPoints int, now time.Time) AlignedSeries {
+	if b.aggregated {
+		return LimitAligned(b.queryAlignedAggregate(descriptors, window, now), maxPoints)
 	}
-	b.mu.RUnlock()
+	timeline := b.timelineForEntities(entities)
+	streams := make(map[string]*pointCursor, len(b.series))
+	for entity, points := range b.series {
+		streams[entity] = &pointCursor{points: orderPoints(points)}
+	}
 
 	result := AlignedSeries{
 		Window: window.String(),
@@ -916,20 +944,6 @@ func (b *Buffer) QueryAligned(descriptors []SeriesDescriptor, window time.Durati
 		return result
 	}
 
-	byEntity := make(map[string]map[int64]Point, len(descriptors))
-	for _, descriptor := range descriptors {
-		if _, exists := byEntity[descriptor.Entity]; exists {
-			continue
-		}
-		points := make(map[int64]Point)
-		for _, point := range entityPoints[descriptor.Entity] {
-			if !point.SampledAt.Before(cutoff) && !point.SampledAt.After(now) {
-				points[point.SampledAt.UnixNano()] = point
-			}
-		}
-		byEntity[descriptor.Entity] = points
-	}
-
 	result.Points = make([]AlignedPoint, 0, len(retained))
 	for _, sample := range retained {
 		row := AlignedPoint{
@@ -941,22 +955,34 @@ func (b *Buffer) QueryAligned(descriptors []SeriesDescriptor, window time.Durati
 			continue
 		}
 		for _, descriptor := range descriptors {
-			point, exists := byEntity[descriptor.Entity][sample.sampledAt.UnixNano()]
+			point, exists := streams[descriptor.Entity].at(sample.sampledAt)
 			if !exists {
 				continue
 			}
-			row.Values[descriptor.Key] = selectValues(point.Values, descriptor.Metrics)
+			// The limiter reads only descriptor metrics. Keep immutable stored
+			// values until it selects rows, then copy just the returned maps.
+			row.Values[descriptor.Key] = point.Values
 		}
 		result.Points = append(result.Points, row)
 	}
-	return limitAligned(result, retained, maxPoints)
+	result = limitAligned(result, retained, maxPoints)
+	filters := make(map[string][]string, len(descriptors))
+	for _, descriptor := range descriptors {
+		filters[descriptor.Key] = descriptor.Metrics
+	}
+	for _, point := range result.Points {
+		for key, values := range point.Values {
+			point.Values[key] = selectValues(values, filters[key])
+		}
+	}
+	return result
 }
 
 // queryAlignedAggregate emits the same wire shape as raw aligned history, but
 // values are deterministic means over compact long-range buckets. Missing
 // values and collector gaps remain absent, so clients cannot accidentally
 // bridge unavailable telemetry.
-func (b *Buffer) queryAlignedAggregate(descriptors []SeriesDescriptor, window time.Duration, now time.Time) AlignedSeries {
+func (b *queryView) queryAlignedAggregate(descriptors []SeriesDescriptor, window time.Duration, now time.Time) AlignedSeries {
 	entities := make([]string, 0, len(descriptors))
 	for _, descriptor := range descriptors {
 		entities = append(entities, descriptor.Entity)
@@ -1277,11 +1303,12 @@ func (b *Buffer) workloadCapacity() int {
 	return capacity
 }
 
-func historyDomains(entities []string) (system, gpu, workload bool) {
+func (b *Buffer) historyDomains(entities []string) (system, gpu, workload bool) {
 	for _, entity := range entities {
-		if strings.HasPrefix(entity, "owner:") {
+		domain := b.domains[entity].kind
+		if domain == workloadDomain || domain == 0 && strings.HasPrefix(entity, "owner:") {
 			workload = true
-		} else if systemHistoryEntity(entity) {
+		} else if domain == systemDomain || domain == 0 && systemHistoryEntity(entity) {
 			system = true
 		} else {
 			gpu = true
@@ -1296,32 +1323,32 @@ func historyDomains(entities []string) (system, gpu, workload bool) {
 // timelineForEntities keeps independent workers from creating alternating
 // false gaps. Mixed-domain requests receive the timestamp union without
 // carrying either domain's values forward.
-func (b *Buffer) timelineForEntities(entities []string) []timelineSample {
-	system, gpu, workload := historyDomains(entities)
+func (b *queryView) timelineForEntities(entities []string) []timelineSample {
+	system, gpu, workload := b.domains[0], b.domains[1], b.domains[2]
 	var result []timelineSample
 	if system {
-		result = b.systemTimeline.ordered()
+		result = orderTimeline(b.timelines[0])
 	}
 	if gpu {
-		result = mergeTimelineSamples(result, b.timeline.ordered())
+		result = mergeTimelineSamples(result, orderTimeline(b.timelines[1]))
 	}
 	if workload {
-		result = mergeTimelineSamples(result, b.workloadTimeline.ordered())
+		result = mergeTimelineSamples(result, orderTimeline(b.timelines[2]))
 	}
 	return result
 }
 
-func (b *Buffer) aggregateTimelineForEntities(entities []string) []aggregateTimelinePoint {
-	system, gpu, workload := historyDomains(entities)
+func (b *queryView) aggregateTimelineForEntities(entities []string) []aggregateTimelinePoint {
+	system, gpu, workload := b.domains[0], b.domains[1], b.domains[2]
 	var result []aggregateTimelinePoint
 	if system {
-		result = b.systemAggregateTimeline.ordered()
+		result = orderAggregateTimeline(b.aggregateTimelines[0])
 	}
 	if gpu {
-		result = mergeAggregateTimelinePoints(result, b.aggregateTimeline.ordered())
+		result = mergeAggregateTimelinePoints(result, orderAggregateTimeline(b.aggregateTimelines[1]))
 	}
 	if workload {
-		result = mergeAggregateTimelinePoints(result, b.workloadAggregateTimeline.ordered())
+		result = mergeAggregateTimelinePoints(result, orderAggregateTimeline(b.aggregateTimelines[2]))
 	}
 	return result
 }
@@ -1368,25 +1395,11 @@ func mergeAggregateTimelinePoints(left, right []aggregateTimelinePoint) []aggreg
 }
 
 func (r *ring) ordered() []Point {
-	if !r.full {
-		return append([]Point(nil), r.points...)
-	}
-	out := append([]Point(nil), r.points[r.next:]...)
-	out = append(out, r.points[:r.next]...)
-	sort.SliceStable(out, func(i, j int) bool { return out[i].SampledAt.Before(out[j].SampledAt) })
-	return out
+	return orderPoints(copyRing(r.points, r.next, r.full))
 }
 
 func (r *timelineRing) ordered() []timelineSample {
-	var out []timelineSample
-	if !r.full {
-		out = append([]timelineSample(nil), r.samples...)
-	} else {
-		out = append([]timelineSample(nil), r.samples[r.next:]...)
-		out = append(out, r.samples[:r.next]...)
-	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].sampledAt.Before(out[j].sampledAt) })
-	return out
+	return orderTimeline(copyRing(r.samples, r.next, r.full))
 }
 
 func (b *Buffer) Capacity() int {
