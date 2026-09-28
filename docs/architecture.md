@@ -150,13 +150,18 @@ The compact tier is independent of sampling cadence. Capacity never shrinks
 during the process lifetime, so a later slower cadence cannot discard already
 retained samples. Queries still enforce custom operator retention.
 
-The history API maps a stable current UUID to its internal generation key and
-then removes that suffix from the response. Old generations naturally expire
+The history API maps a stable current UUID to its current generation key while
+preserving the exact requested entity in the response. Old generations expire
 but cannot contaminate the current chart. Windows through one hour return raw
 samples. Four-hour queries return 30-second means (at most 480 points), and
 twelve-hour queries use count-weighted two-minute rollups (at most 360 points).
 Only plotted means cross the existing wire format; gaps, unavailable metrics,
 and generation boundaries remain absent rather than being interpolated.
+Successful polls that skip individual sampling ticks still contribute to these
+means. An inferred long-range outage requires silence longer than a 30-second
+bucket or 1.5 times the configured sampling interval, whichever is greater;
+explicit failures and unavailable measurements remain gaps. Multiple request
+descriptors for one entity share its aggregation before selecting their metrics.
 
 `POST /api/v1/history/aligned` serves overview history for multiple requested
 entities on one shared timestamp grid. Every response row represents one
@@ -178,11 +183,16 @@ no disk queue. Its default 15-second cadence has randomized startup and jitter;
 retry backoff starts at five seconds, honors bounded `Retry-After`, and caps at
 five minutes. Network requests run outside both collector workers.
 
-The local snapshot model and the `uplink-v1` wire model are independent
-contracts. The projection omits processes, users, command lines, workload
+The local snapshot model and the versioned uplink wire models are independent
+contracts. Their projections omit processes, users, command lines, workload
 attribution, provider machine identity, device paths, filesystem UUIDs, and raw
 diagnostic detail. Yggdrasil resolves the authoritative machine identity from
-the bearer credential rather than trusting a payload field.
+the bearer credential rather than trusting a payload field. Token-file deployments
+keep the strict v1 vocabulary by default. [Enrollment](enrollment.md) selects
+portable v2 and renews its credential through durable pending-state recovery.
+V2 preserves bounded plugin provenance and metric identifiers before conversion
+to accelerator/partition objects; the v1 projection still withholds observations
+it cannot represent.
 
 ## API and browser boundary
 
@@ -190,7 +200,9 @@ the bearer credential rather than trusting a payload field.
 produces its Go wire types and `npm run generate:api` produces TypeScript types.
 The independent uplink uses the provenance-locked vendor copy at
 `api/uplink-v1-openapi.yaml`; `go generate ./internal/uplink` produces its local
-Go DTOs without importing Yggdrasil code.
+Go DTOs without importing Yggdrasil code. Portable v2 has its own vendored
+`api/uplink-v2-openapi.yaml`, lock, and shared golden fixtures; its projection
+also remains independent of the local API contract.
 
 The server binds only to loopback after an explicit address check. GPU state
 and telemetry have no mutation routes; the sole mutation changes the current

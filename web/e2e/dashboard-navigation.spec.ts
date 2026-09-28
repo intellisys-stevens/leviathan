@@ -466,12 +466,15 @@ test('opens Workloads details through resource whitespace', async ({
 test('removes a closed detail sheet when its exit animation stalls', async ({
   page,
 }) => {
+  await page.clock.install();
+  await page.reload();
   await page.getByRole('link', { name: 'Resources' }).click();
   await page
     .getByRole('button', { name: 'Open GPU 0 full GPU details' })
     .click();
   const detail = page.getByTestId('detail-sheet');
   await expect(detail).toBeVisible({ timeout: 20_000 });
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 10_000));
   await detail.evaluate(() => {
     const getAnimations = Object.getOwnPropertyDescriptor(
       Element.prototype,
@@ -505,7 +508,10 @@ test('removes a closed detail sheet when its exit animation stalls', async ({
           .__stalledSheetCloseQueries ?? 0,
     ),
   ).toBe(0);
-  await detail.getByRole('button', { name: 'Close' }).click();
+  // Advance the animation frame before the fallback timer. A busy software
+  // renderer can otherwise remove the sheet before the stall probe runs.
+  await detail.getByRole('button', { name: 'Close' }).click({ force: true });
+  await page.clock.runFor(100);
   await expect
     .poll(() =>
       page.evaluate(
@@ -515,7 +521,10 @@ test('removes a closed detail sheet when its exit animation stalls', async ({
       ),
     )
     .toBeGreaterThan(0);
+  await expect(detail).toHaveCount(1);
+  await page.clock.fastForward(1_500);
   await expect(detail).toHaveCount(0, { timeout: 5_000 });
+  await page.clock.resume();
 
   await page
     .getByRole('button', {

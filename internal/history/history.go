@@ -619,8 +619,12 @@ func (b *Buffer) addAggregateTimelineTo(timeline *aggregateTimelineRing, previou
 	}
 	start := aggregateBucketStart(sample.sampledAt)
 	gap := sample.gap
-	if !previous.sampledAt.IsZero() && timelineBreak(*previous, sample) {
-		gap = true
+	if !previous.sampledAt.IsZero() {
+		// Successful polls can skip source-cadence ticks under load without
+		// invalidating the measured values in a 30-second aggregate bucket.
+		// Explicit failures still mark gaps at every query resolution.
+		maximumSilence := max(aggregateBucketSize, max(previous.interval, sample.interval)*3/2)
+		gap = gap || previous.gap || sample.sampledAt.Sub(previous.sampledAt) > maximumSilence
 	}
 	*previous = sample
 
@@ -811,10 +815,12 @@ func (b *queryView) aggregateQueryBuckets(entities []string, window time.Duratio
 	start := end.Add(-window)
 
 	pointsByEntity := make(map[string]map[int64]aggregateSample, len(entities))
+	uniqueEntities := make([]string, 0, len(entities))
 	for _, entity := range entities {
 		if _, exists := pointsByEntity[entity]; exists {
 			continue
 		}
+		uniqueEntities = append(uniqueEntities, entity)
 		points := make(map[int64]aggregateSample, len(b.aggregates[entity]))
 		if series := b.aggregates[entity]; series != nil {
 			for _, point := range series {
@@ -825,7 +831,7 @@ func (b *queryView) aggregateQueryBuckets(entities []string, window time.Duratio
 	}
 
 	buckets := make([]aggregateQueryBucket, 0, int(window/resolution)+1)
-	for _, timeline := range b.aggregateTimelineForEntities(entities) {
+	for _, timeline := range b.aggregateTimelineForEntities(uniqueEntities) {
 		bucketStart := timeline.start.Truncate(resolution)
 		if bucketStart.Before(start) || !bucketStart.Before(end) {
 			continue
@@ -839,7 +845,8 @@ func (b *queryView) aggregateQueryBuckets(entities []string, window time.Duratio
 		bucket := &buckets[len(buckets)-1]
 		bucket.buckets++
 		bucket.gap = bucket.gap || timeline.gap
-		for _, entity := range entities {
+		// Aliases for separate metrics share one entity's aggregate samples.
+		for _, entity := range uniqueEntities {
 			point, exists := pointsByEntity[entity][timeline.start.UnixNano()]
 			if !exists {
 				continue

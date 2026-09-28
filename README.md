@@ -29,7 +29,8 @@ scheduler-authoritative workspace assignments.
 
 Unreleased source changes add [environment plugins](docs/plugins.md),
 [live GPU allocation capacity](docs/kubernetes-attribution.md#live-gpu-capacity),
-hardware activity effects, and chart hover improvements. These features are not
+[automatic Yggdrasil enrollment](docs/enrollment.md), hardware activity effects,
+and chart hover improvements. These features are not
 included in the published v0.4.1 installer below; see [Development](#development)
 to build from source.
 
@@ -114,9 +115,9 @@ default. See [the example configuration](docs/config.example.toml) or run
 
 Provider modes are `auto`, `nvml`, `dcgm`, and `fake`. Use `--no-profile` when a
 profiler such as Nsight owns the profiling hardware. Configure the optional
-Yggdrasil uploader through the `[uplink]` TOML block in the
-[uplink guide](docs/uplink-v1.md); its bearer token remains in a private
-credential file.
+Yggdrasil uploader with [automatic enrollment](docs/enrollment.md), or supply a
+private token file through the `[uplink]` TOML block in the
+[uplink guide](docs/uplink-v1.md).
 
 ## 📚 Documentation
 
@@ -129,13 +130,14 @@ credential file.
 | Host CPU, RAM, and storage telemetry | [docs/host-monitoring.md](docs/host-monitoring.md) |
 | Container and process visibility | [docs/permissions.md](docs/permissions.md) |
 | Optional Kubernetes/Coder attribution | [docs/kubernetes-attribution.md](docs/kubernetes-attribution.md) |
+| Connect and renew Yggdrasil enrollment | [docs/enrollment.md](docs/enrollment.md) |
 | Yggdrasil telemetry uplink | [docs/uplink-v1.md](docs/uplink-v1.md) |
 | Install and enroll the managed updater | [docs/managed-updates.md](docs/managed-updates.md) |
 | Security and privacy model | [docs/security-and-privacy.md](docs/security-and-privacy.md) |
 | Release and unreleased changes | [CHANGELOG.md](CHANGELOG.md) |
 | Upgrade from v0.2.1 | [docs/migration-v0.3.md](docs/migration-v0.3.md) |
 | OpenAPI 3.1 contract | [api/openapi.yaml](api/openapi.yaml) |
-| Yggdrasil-owned uplink contract vendor | [api/uplink-v1-openapi.yaml](api/uplink-v1-openapi.yaml) |
+| Yggdrasil-owned uplink contracts | [v1](api/uplink-v1-openapi.yaml), [portable v2](api/uplink-v2-openapi.yaml) |
 | Development workflow | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Security boundary | [SECURITY.md](SECURITY.md) |
 

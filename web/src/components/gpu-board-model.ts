@@ -22,6 +22,10 @@ const CHIP_WIDTH = 3.08;
 const CHIP_DEPTH = 2.34;
 const CHIP_TOP = 0.335;
 const HIGHLIGHT_MS = 180;
+const CHIP_GLOW = {
+  dark: { idle: 0.004, maximum: 0.032 },
+  light: { idle: 0.004, maximum: 0.075 },
+};
 
 type RegionHighlight = {
   id: string;
@@ -88,7 +92,8 @@ export function createGPUBoard(
   const resistor = standard('#3c433e', 0.72, 0.12);
   const coil = standard('#363b3d', 0.57, 0.38);
   const green = standard('#528c19', 0.55, 0.2);
-  const neutralDie = new THREE.Color(theme === 'dark' ? '#252b2d' : '#30383a');
+  const neutralDie = new THREE.Color(theme === 'dark' ? '#172127' : '#263139');
+  const assignedDie = new THREE.Color(theme === 'dark' ? '#294322' : '#2c4524');
 
   function mesh(
     geom: THREE.BufferGeometry,
@@ -638,8 +643,8 @@ export function createGPUBoard(
         id: region.id,
         bounds: { x, y: CHIP_TOP, z, width, depth },
         maximum,
-        // Hardware remains dark in either page theme, so sparks need a luminous hue.
-        color: theme === 'dark' ? '#98d633' : '#83bc24',
+        // Utilization has a quiet mint accent; assignment keeps its own boundary hue.
+        color: theme === 'dark' ? '#b4eadf' : '#d4fff2',
         theme,
         texture: particleTexture,
       });
@@ -699,19 +704,23 @@ export function createGPUBoard(
   const activeEdge = new THREE.Color(theme === 'dark' ? '#e7f6df' : '#172414');
   function paintHighlight(region: RegionHighlight, amount: number) {
     region.current = amount;
-    region.edge.color.copy(region.material.emissive).lerp(activeEdge, amount);
+    if (theme === 'dark') region.edge.color.copy(region.material.emissive);
+    else region.edge.color.set(GPU_CHIP_COLORS[theme][region.appearance.state]);
+    region.edge.color.lerp(activeEdge, amount);
     region.edge.opacity = 0.62 + amount * 0.38;
   }
   function paintParticles(region: RegionHighlight, deltaMs = 0) {
     const activity = region.appearance.activity;
-    const maximumGlow = theme === 'dark' ? 0.122 : 0.083;
-    const intensity = Math.min(
+    const glow = CHIP_GLOW[theme];
+    const intensity = THREE.MathUtils.clamp(
+      (region.material.emissiveIntensity - glow.idle) /
+        (glow.maximum - glow.idle),
+      0,
       1,
-      region.material.emissiveIntensity / maximumGlow,
     );
     region.halo.material.color.copy(region.material.emissive);
     region.halo.material.opacity =
-      region.material.emissiveIntensity * (theme === 'dark' ? 1.8 : 1.5);
+      region.material.emissiveIntensity * (theme === 'dark' ? 1.8 : 3.2);
     region.particles.paint(
       intensity,
       motionEnabled && activity != null && activity > 0,
@@ -780,17 +789,21 @@ export function createGPUBoard(
       region.appearance = { id: region.id, state, activity };
       region.fromColor.copy(region.material.color);
       region.fromEmissive.copy(region.material.emissive);
+      // Light-theme status inks are dark for contrast on white HTML surfaces.
+      // The 3D die stays dark in both themes, so its emitted light needs the
+      // luminous palette independently of the status boundary and surface tint.
       region.targetEmissive.set(GPU_CHIP_COLORS[theme][state]);
-      region.targetColor
-        .copy(neutralDie)
-        .lerp(region.targetEmissive, 0.05 + (activity ?? 0) * 0.0005);
+      if (state === 'assigned') region.targetColor.copy(assignedDie);
+      else
+        region.targetColor.copy(neutralDie).lerp(region.targetEmissive, 0.03);
+      region.targetEmissive.set(GPU_CHIP_COLORS.dark[state]);
       region.fromIntensity = region.material.emissiveIntensity;
       region.targetIntensity =
         activity === null
           ? 0
-          : theme === 'dark'
-            ? 0.012 + activity * 0.0011
-            : 0.008 + activity * 0.00075;
+          : CHIP_GLOW[theme].idle +
+            (activity / 100) *
+              (CHIP_GLOW[theme].maximum - CHIP_GLOW[theme].idle);
       region.appearanceElapsed = immediate ? HIGHLIGHT_MS : 0;
       if (immediate) {
         region.material.color.copy(region.targetColor);
@@ -873,6 +886,9 @@ export function createGPUBoard(
       haloOpacity: region.halo.material.opacity,
       particleCount: region.particles.points.visible
         ? region.particles.points.geometry.drawRange.count
+        : 0,
+      particleOpacity: region.particles.points.visible
+        ? region.particles.points.material.opacity
         : 0,
       phase: region.particles.phase,
       transitioning: region.appearanceElapsed < HIGHLIGHT_MS,

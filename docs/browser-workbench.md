@@ -68,14 +68,19 @@ A static board and the same inspection buttons remain available without WebGL
 and in forced colors. Camera positions persist while navigating. Resources always
 shows every GPU, including when opened from the Overview capacity tile.
 
-Assigned chip regions and their badges use NVIDIA green; unassigned regions use
-grey. Fresh SM activity increases glow, particle density, and speed, independently
-of whether workload ownership is known.
+Assigned chip regions retain a green surface at idle, and their badges use
+NVIDIA green; unassigned regions use grey. Fresh SM activity increases the
+brightness, density, and speed of fine mint sparks over the dark chip surface,
+leaving its label clear. Activity follows measured utilization even when
+assignment information is reserved or unknown.
 MIG regions use their shared GI activity, not inferred per-CI utilization. Idle
 regions stay dim; unavailable readings remain distinct from zero in details.
 Reserved resources use amber and unknown assignments use a dashed neutral badge.
-Particles stop for idle or stale data, hidden or offscreen views, and reduced
-motion. One renderer shares a maximum of 256 visible particles across GPU and
+Particles stop for idle or stale data and hidden or offscreen views. Reduced
+motion retains the static utilization glow without animated particles. In the
+light theme, the dark 3D die uses luminous emission colors and a stronger halo;
+surrounding controls and chip boundaries retain the light-theme status inks.
+One renderer shares a maximum of 256 visible particles across GPU and
 motherboard scenes, with fixed per-board budgets and no additional animation loop.
 
 Accumulated snow has 1–2 piles per panel, with varied heights and spacing. Each

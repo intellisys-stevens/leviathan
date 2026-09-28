@@ -59,3 +59,5 @@ if ! cmp -s "$generated_tmp" "$generated_file"; then
 fi
 
 printf '%s\n' "uplink-v1 vendored contract verified"
+
+"$repo_root/scripts/verify-uplink-v2-contract.sh"

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 export const VISIBLE_PARTICLE_LIMIT = 256;
-export const GPU_PARTICLE_LIMIT = 64;
+export const GPU_PARTICLE_LIMIT = 32;
 export const MOTHERBOARD_PARTICLE_LIMIT = 48;
 
 /** Deterministic proportional budgets keep every active visible scene represented. */
@@ -24,7 +24,10 @@ export function createActivityParticleTexture() {
   for (let y = 0; y < 32; y++) {
     for (let x = 0; x < 32; x++) {
       const radius = Math.hypot((x - 15.5) / 15.5, (y - 15.5) / 15.5);
-      const alpha = Math.max(0, 1 - radius) ** 1.7;
+      // A fine core and faint falloff keep sparks crisp even when zoomed in.
+      const alpha =
+        0.76 * Math.exp(-radius * radius * 70) +
+        0.16 * Math.exp(-radius * radius * 8);
       pixels.set([255, 255, 255, Math.round(255 * alpha)], (y * 32 + x) * 4);
     }
   }
@@ -36,7 +39,7 @@ export function createActivityParticleTexture() {
   return texture;
 }
 
-/** One preallocated field follows a component's rim, leaving the label center clear. */
+/** Fine, irregular sparks drift over the die while leaving its label clear. */
 export function createActivityParticles({
   id,
   bounds,
@@ -71,17 +74,20 @@ export function createActivityParticles({
     ),
     new THREE.Vector3(
       bounds.x + bounds.width / 2,
-      bounds.y + 0.28,
+      bounds.y + 0.13,
       bounds.z + bounds.depth / 2,
     ),
   );
+  const baseSize =
+    size ?? Math.min(0.075, bounds.width * 0.075, bounds.depth * 0.095);
   const material = new THREE.PointsMaterial({
     map: texture,
     color,
-    size: size ?? Math.min(0.13, bounds.width * 0.13, bounds.depth * 0.17),
+    size: baseSize,
     transparent: true,
     opacity: 0,
     vertexColors: true,
+    blending: THREE.AdditiveBlending,
     depthWrite: false,
     toneMapped: false,
   });
@@ -96,7 +102,17 @@ export function createActivityParticles({
   let seed = 0;
   for (let index = 0; index < id.length; index++)
     seed = (seed * 31 + id.charCodeAt(index)) >>> 0;
-  const offset = (seed % 1000) / 1000;
+  const anchors = new Float32Array(maximum * 4);
+  function random() {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  }
+  for (let index = 0; index < maximum; index++) {
+    anchors[index * 4] = -0.41 + random() * 0.82;
+    anchors[index * 4 + 1] = (index % 2 ? 1 : -1) * (0.27 + random() * 0.14);
+    anchors[index * 4 + 2] = random();
+    anchors[index * 4 + 3] = random();
+  }
   return {
     points,
     maximum,
@@ -106,27 +122,35 @@ export function createActivityParticles({
     paint(intensity: number, active: boolean, budget: number, deltaMs = 0) {
       const level = Math.max(0, Math.min(1, intensity));
       const count = active
-        ? Math.min(budget, Math.ceil(maximum * (0.12 + level * 0.88)))
+        ? Math.min(budget, Math.ceil(maximum * (0.04 + level * 0.96)))
         : 0;
       geometry.setDrawRange(0, count);
       points.visible = count > 0;
-      material.opacity = (theme === 'dark' ? 0.48 : 0.44) + level * 0.34;
+      material.opacity =
+        theme === 'dark' ? 0.2 + level * 0.56 : 0.32 + level * 0.6;
+      material.size = baseSize * (0.6 + level * 0.4);
       if (!count) return;
-      phase += (deltaMs / 1000) * (0.15 + level * 0.5);
+      phase += (deltaMs / 1000) * (0.1 + level * 0.2);
       for (let index = 0; index < maximum; index++) {
-        const life = (phase + offset + index * 0.61803398875) % 1;
-        const along = (offset + index * 0.38196601125 + phase * 0.18) % 1;
-        const edge = index % 4;
-        // Narrow rim paths and gentle upward drift keep lettering legible.
-        const x = edge < 2 ? (edge === 0 ? -0.44 : 0.44) : (along - 0.5) * 0.86;
-        const z = edge < 2 ? (along - 0.5) * 0.86 : edge === 2 ? -0.44 : 0.44;
+        const offset = anchors[index * 4 + 2];
+        const variation = anchors[index * 4 + 3];
+        const life = (phase * (0.65 + variation * 0.7) + offset) % 1;
+        const drift = phase * 1.4 + offset * Math.PI * 2;
+        const x = anchors[index * 4] + Math.sin(drift) * 0.014;
+        const z = anchors[index * 4 + 1] + Math.cos(drift * 0.7) * 0.016;
         positions.setXYZ(
           index,
           bounds.x + bounds.width * x,
-          bounds.y + 0.008 + life * (0.07 + level * 0.18),
+          bounds.y + 0.008 + life * (0.022 + level * 0.055),
           bounds.z + bounds.depth * z,
         );
-        colors.setXYZW(index, 1, 1, 1, Math.sin(life * Math.PI) ** 1.5);
+        colors.setXYZW(
+          index,
+          1,
+          1,
+          1,
+          Math.sin(life * Math.PI) ** 2 * (0.55 + variation * 0.45),
+        );
       }
       positions.needsUpdate = true;
       colors.needsUpdate = true;

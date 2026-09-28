@@ -197,7 +197,8 @@ built-in checkpoint adapter. A published legacy-only bridge cannot be used as a
 generic plugin endpoint. See [bridge deployment](kubernetes-attribution.md).
 
 Before downgrading to v0.4.1, remove `[[plugins]]` and unreleased `[gpu_capacity]`
-configuration; its older parser rejects them. Re-enable supported legacy
+configuration, plus `uplink.state_file` and `uplink.schema`; its older parser
+rejects them. Provision a v1 token file if uplink is needed. Re-enable supported legacy
 settings explicitly. Plugin-private identity and diagnostics are not added to
 the separate versioned [Yggdrasil uplink](uplink-v1.md).
 
@@ -218,8 +219,13 @@ and source `unknown`; normalization preserves actual source timestamps, includin
 zero timestamps for never-observed fields. These changes affect consumers that
 previously distinguished null from an empty collection or accepted dangling joins.
 
-The Yggdrasil uplink retains its separately locked schema. Unsupported optional
-observations are omitted with the local `uplink_omitted_observations` diagnostic.
-If required host sources, units, or scopes cannot be represented, no envelope is
-sent and `uplink_incompatible_host` explains the omission locally. A custom plugin
-source is never relabeled as NVML, procfs, or synthetic to fit the uplink contract.
+The separately locked Yggdrasil uplink v1 omits unsupported optional observations
+and skips an envelope when required host sources, units, or scopes cannot be
+represented. Local `uplink_omitted_observations` and `uplink_incompatible_host`
+diagnostics describe v1 compatibility, including when v2 is configured.
+
+[Enrolled agents](enrollment.md) use portable uplink v2, which preserves bounded
+custom metric names, sources, units, and scopes. Existing token-file deployments
+keep v1 unless configured with `schema = "uplink-v2"`. A custom plugin source is
+never relabeled as NVML, procfs, or synthetic to fit either contract. Unknown GPU
+vendors remain `unknown`; custom provenance alone does not establish a vendor.

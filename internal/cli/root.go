@@ -86,7 +86,7 @@ func (a *application) command() *cobra.Command {
 	flags.BoolVar(&a.flags.Health.Enabled, "health-history", a.flags.Health.Enabled, "save 30 days of local health observations during serve")
 	flags.StringVar(&a.flags.Health.Directory, "health-dir", a.flags.Health.Directory, "private local health history directory")
 
-	root.AddCommand(a.tuiCommand(), a.snapshotCommand(), a.watchCommand(), a.serveCommand(), a.doctorCommand(), a.configCheckCommand(), a.pluginsCommand(), versionCommand(a.stdout))
+	root.AddCommand(a.tuiCommand(), a.snapshotCommand(), a.watchCommand(), a.serveCommand(), a.doctorCommand(), a.configCheckCommand(), a.pluginsCommand(), a.joinCommand(), versionCommand(a.stdout))
 	return root
 }
 

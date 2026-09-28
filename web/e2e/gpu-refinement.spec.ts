@@ -1743,6 +1743,7 @@ test('sibling CIs share measured GI activity independently of reservation and at
   expect((await chipAppearance(view, 'MIG-refinement-0')).particleCount).toBe(
     0,
   );
+  expect((await chipAppearance(view, 'MIG-refinement-0')).activity).toBe(38);
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await expect
     .poll(async () => (await chipAppearance(view, sibling.uuid)).particleCount)

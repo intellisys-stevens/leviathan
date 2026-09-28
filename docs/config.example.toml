@@ -1,3 +1,4 @@
+# Development only, at the top level: fixture = "multi-ci" selects fake hardware.
 # Leviathan configuration. CLI flags override LEVIATHAN_* environment
 # variables, which override this file.
 interval = "1s"                 # 250ms through 60s
@@ -32,7 +33,7 @@ enabled = true
 
 # Optional latest-only telemetry uplink owned by `leviathan serve`. These
 # controls are intentionally TOML-only. The bearer value itself must exist only
-# in the private token file, never in this TOML, an environment variable, or a
+# in private credential storage, never in this TOML, an environment variable, or a
 # process argument.
 [uplink]
 enabled = false
@@ -40,12 +41,14 @@ base_url = ""
 token_file = ""
 interval = "15s"
 
+# Unreleased: `leviathan join` replaces token_file with a private state_file,
+# enables uplink, and selects schema = "uplink-v2" for credential renewal.
+# Do not combine state_file and token_file. Remove state_file/schema before
+# downgrading to v0.4.1; see enrollment.md.
+
 # With the systemd LoadCredential example, enable the block above and use:
 # base_url = "https://yggdrasil.example.edu"
 # token_file = "/run/credentials/leviathan@root.service/leviathan-uplink-token"
-
-# Development only. Any non-empty fixture selects the fake provider.
-# fixture = "multi-ci"
 
 # Independent aggregate GPU feasibility from the attribution socket. The bridge
 # also needs gpuCapacity.enabled=true and its read-only cluster-wide DRA RBAC.

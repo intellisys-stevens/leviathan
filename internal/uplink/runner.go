@@ -70,6 +70,7 @@ type Runner struct {
 	backoff        time.Duration
 	maximumBackoff time.Duration
 	buildInfo      model.BuildInfo
+	project        func(model.Snapshot, model.BuildInfo, string, uint64) (Envelope, error)
 	streamID       string
 	random         io.Reader
 	onAttempt      func(AttemptResult)
@@ -112,8 +113,14 @@ func NewRunner(source SnapshotSource, sender Sender, options RunnerOptions) (*Ru
 	} else if !validStreamID(streamID) {
 		return nil, ErrInvalidStreamID
 	}
+	projector := Project
+	if source, ok := sender.(interface {
+		projectSnapshot(model.Snapshot, model.BuildInfo, string, uint64) (Envelope, error)
+	}); ok {
+		projector = source.projectSnapshot
+	}
 	return &Runner{
-		source: source, sender: sender, interval: interval, backoff: backoff, maximumBackoff: maximumBackoff,
+		source: source, sender: sender, project: projector, interval: interval, backoff: backoff, maximumBackoff: maximumBackoff,
 		buildInfo: options.BuildInfo, streamID: streamID, random: randomReader, onAttempt: options.OnAttempt,
 		newTimer: func(delay time.Duration) runnerTimer { return &standardTimer{Timer: time.NewTimer(delay)} },
 	}, nil
@@ -184,7 +191,7 @@ func (runner *Runner) Run(ctx context.Context) error {
 					return ErrSequenceExhausted
 				}
 				sequence++
-				projected, err := Project(latest, runner.buildInfo, runner.streamID, sequence)
+				projected, err := runner.project(latest, runner.buildInfo, runner.streamID, sequence)
 				if err != nil {
 					delay := runner.jitter(runner.interval)
 					runner.report(AttemptResult{StreamID: runner.streamID, Sequence: sequence, SampledAt: latest.SampledAt, NextAttemptIn: delay, Err: err})

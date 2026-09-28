@@ -11,20 +11,61 @@ import (
 var ErrUnsupportedObservation = errors.New("required host observations are not representable in uplink v1")
 
 func metricRepresentable(metric model.Metric) bool {
-	return safeMetricSource(metric.Source) != "" && safeMetricUnit(metric.Unit) != "" && safeMetricScope(metric.Scope) != ""
+	return (projectionPolicy{}).metricRepresentable(metric)
 }
 func memoryRepresentable(memory model.Memory) bool {
-	return safeMetricSource(memory.Source) != "" && safeMetricScope(memory.Scope) != ""
+	return (projectionPolicy{}).memoryRepresentable(memory)
 }
 func systemRepresentable(system model.System) bool {
-	if safeMetricSource(system.CPU.Source) == "" || safeMetricSource(system.Memory.Source) == "" || safeMetricSource(system.Storage.Source) == "" {
+	return (projectionPolicy{}).systemRepresentable(system)
+}
+
+func (policy projectionPolicy) source(source model.MetricSource) string {
+	if policy.portable {
+		return portableIdentifier(string(source), 128)
+	}
+	return safeMetricSource(source)
+}
+func (policy projectionPolicy) scope(scope model.MetricScope) string {
+	if policy.portable {
+		return portableIdentifier(string(scope), 128)
+	}
+	return safeMetricScope(scope)
+}
+func (policy projectionPolicy) unit(unit string) string {
+	if policy.portable {
+		return portableIdentifier(unit, 64)
+	}
+	return safeMetricUnit(unit)
+}
+func (policy projectionPolicy) metricName(name string) bool {
+	if policy.portable {
+		return portableIdentifier(name, 128) != ""
+	}
+	_, known := safeGPUMetrics[name]
+	return known
+}
+func portableIdentifier(value string, limit int) string {
+	if value != "" && boundedPrintable(value, limit) == value {
+		return value
+	}
+	return ""
+}
+func (policy projectionPolicy) metricRepresentable(metric model.Metric) bool {
+	return policy.source(metric.Source) != "" && policy.unit(metric.Unit) != "" && policy.scope(metric.Scope) != ""
+}
+func (policy projectionPolicy) memoryRepresentable(memory model.Memory) bool {
+	return policy.source(memory.Source) != "" && policy.scope(memory.Scope) != ""
+}
+func (policy projectionPolicy) systemRepresentable(system model.System) bool {
+	if policy.source(system.CPU.Source) == "" || policy.source(system.Memory.Source) == "" || policy.source(system.Storage.Source) == "" {
 		return false
 	}
-	if safeMetricScope(system.Memory.Scope) == "" || safeMetricScope(system.Storage.Scope) == "" {
+	if policy.scope(system.Memory.Scope) == "" || policy.scope(system.Storage.Scope) == "" {
 		return false
 	}
 	for _, metric := range []model.Metric{system.CPU.Utilization, system.CPU.Load1, system.CPU.Load5, system.CPU.Load15, system.Memory.Utilization, system.Storage.ReadBytesPerSecond, system.Storage.WriteBytesPerSecond} {
-		if !metricRepresentable(metric) {
+		if !policy.metricRepresentable(metric) {
 			return false
 		}
 	}
@@ -38,7 +79,7 @@ func CompatibilityDiagnostics(snapshot model.Snapshot) []model.Diagnostic {
 		return model.Diagnostic{Code: code, Severity: "warning", Component: "uplink", Summary: message, Status: model.StatusUnsupported}
 	}
 	if !systemRepresentable(snapshot.System) {
-		return []model.Diagnostic{diagnostic("uplink_incompatible_host", "Uplink v1 skips this snapshot because required host observations use unsupported sources, units, or scopes")}
+		return []model.Diagnostic{diagnostic("uplink_incompatible_host", "Required host observations are not representable by uplink v1; portable identifiers remain available to uplink v2")}
 	}
 	omitted := false
 	for _, filesystem := range snapshot.System.Storage.Filesystems {
@@ -64,7 +105,7 @@ func CompatibilityDiagnostics(snapshot model.Snapshot) []model.Diagnostic {
 		}
 	}
 	if omitted {
-		return []model.Diagnostic{diagnostic("uplink_omitted_observations", "Uplink v1 omits optional observations with unsupported metric names, sources, units, or scopes; local telemetry is preserved")}
+		return []model.Diagnostic{diagnostic("uplink_omitted_observations", "Some optional observations are not representable by uplink v1; local telemetry and portable uplink v2 identifiers are preserved")}
 	}
 	return nil
 }

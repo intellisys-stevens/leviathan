@@ -4,6 +4,9 @@
 
 ### Added
 
+- Yggdrasil enrollment saves and renews per-machine credentials, with durable
+  recovery after lost responses. Portable uplink v2 retains custom plugin metric
+  sources, units, and scopes; existing token-file deployments keep uplink v1.
 - Versioned external environment plugins use the public telemetry model and
   independently sampled capabilities, with a non-Coder fixture example.
 - Explicit plugin composition, offline configuration inspection, bounded
@@ -20,10 +23,13 @@
 
 ### Changed
 
+- Uplink connections honor `HTTPS_PROXY` and `NO_PROXY`, including existing v1
+  token-file deployments; TLS continues to verify the configured server origin.
 - Local API and CLI snapshot projections share empty-collection and unresolved
   reference normalization. Source, platform, and workload-kind identifiers are
   extensible; strict generated clients need regeneration. The separate Yggdrasil
-  uplink schema remains locked, with local diagnostics for omitted observations.
+  uplink v1 schema remains locked, with local compatibility diagnostics for
+  observations it cannot represent. Enrolled agents use the separately locked v2 schema.
 - Build commands bundle and compile; deterministic checks, tests, specialized
   integration lanes, and dependency audits are separate. CI selects dependent
   jobs and rejects an unexpectedly skipped required lane.
@@ -37,6 +43,9 @@
 
 ### Fixed
 
+- Long-range history retains successful skipped samples and aggregates a resource
+  once when several requested series refer to it. Explicit outages stay visible.
+- Detail panels complete closing when background scheduling stalls their animation.
 - Chart hover positions update through a shared animation frame with cached
   tooltip dimensions, preserving historical samples and missing-data gaps.
 - Full GPU workloads use the same chip icon as SM ACTIVE while retaining the

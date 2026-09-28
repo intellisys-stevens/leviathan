@@ -329,7 +329,7 @@ test('fresh activity strengthens GPU, CPU, RAM and SSD effects even with unknown
   await updateActivity(page, 100);
   await expect
     .poll(async () => (await activity(gpu))[0]?.particleCount)
-    .toBe(64);
+    .toBe(32);
   expect((await activity(gpu))[0].particleCount).toBeGreaterThan(
     lowGPU.particleCount,
   );
@@ -371,7 +371,7 @@ test('fresh activity strengthens GPU, CPU, RAM and SSD effects even with unknown
   await updateActivity(page, 100);
   await expect
     .poll(async () => (await activity(gpu))[0].particleCount)
-    .toBe(64);
+    .toBe(32);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await expect.poll(async () => (await activity(gpu))[0].particleCount).toBe(0);
   expect((await activity(gpu))[0].activity).toBe(100);

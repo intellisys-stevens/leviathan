@@ -288,3 +288,21 @@ func TestCheckpointConfigurationIsOptInAndValidated(t *testing.T) {
 		t.Fatal("missing socket accepted")
 	}
 }
+
+func TestEnrollmentStateSelectsV2AndRejectsV1(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[uplink]\nstate_file = '/var/lib/leviathan/enrollment/state.json'\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Defaults()
+	if err := LoadFile(path, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Uplink.Schema != "uplink-v2" {
+		t.Fatalf("enrolled default schema = %q", cfg.Uplink.Schema)
+	}
+	cfg.Uplink.Schema = "uplink-v1"
+	if err := Validate(cfg); err == nil || !strings.Contains(err.Error(), "enrollment state requires uplink-v2") {
+		t.Fatalf("explicit enrolled v1 configuration accepted: %v", err)
+	}
+}

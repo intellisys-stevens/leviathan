@@ -22,6 +22,8 @@ const (
 )
 
 type UplinkConfig struct {
+	StateFile string        `toml:"state_file"`
+	Schema    string        `toml:"schema"`
 	Enabled   bool          `toml:"enabled"`
 	BaseURL   string        `toml:"base_url"`
 	TokenFile string        `toml:"token_file"`
@@ -96,6 +98,8 @@ type fileConfig struct {
 }
 
 type fileUplinkConfig struct {
+	StateFile string       `toml:"state_file"`
+	Schema    string       `toml:"schema"`
 	Enabled   bool         `toml:"enabled"`
 	BaseURL   string       `toml:"base_url"`
 	TokenFile string       `toml:"token_file"`
@@ -227,7 +231,7 @@ func LoadFile(path string, cfg *Config) error {
 		HistoryWindow: fileDuration(cfg.HistoryWindow), TopologyInterval: fileDuration(cfg.TopologyInterval),
 		Provider: cfg.Provider, DCGMAddress: cfg.DCGMAddress, ShowCommandLine: cfg.ShowCommandLine, NoProfile: cfg.NoProfile,
 		Listen: cfg.Listen, NoColor: cfg.NoColor, ASCII: cfg.ASCII, Fixture: cfg.Fixture, AttributionSocket: cfg.AttributionSocket, AttributionCheckpointPath: cfg.AttributionCheckpointPath, WorkloadTelemetry: cfg.WorkloadTelemetry,
-		Uplink:      fileUplinkConfig{Enabled: cfg.Uplink.Enabled, BaseURL: cfg.Uplink.BaseURL, TokenFile: cfg.Uplink.TokenFile, Interval: fileDuration(cfg.Uplink.Interval)},
+		Uplink:      fileUplinkConfig{StateFile: cfg.Uplink.StateFile, Schema: cfg.Uplink.Schema, Enabled: cfg.Uplink.Enabled, BaseURL: cfg.Uplink.BaseURL, TokenFile: cfg.Uplink.TokenFile, Interval: fileDuration(cfg.Uplink.Interval)},
 		Health:      cfg.Health,
 		GPUCapacity: cfg.GPUCapacity,
 	}
@@ -241,8 +245,11 @@ func LoadFile(path string, cfg *Config) error {
 	cfg.ShowCommandLine, cfg.NoProfile, cfg.Listen = decoded.ShowCommandLine, decoded.NoProfile, decoded.Listen
 	cfg.NoColor, cfg.ASCII, cfg.Fixture, cfg.AttributionSocket = decoded.NoColor, decoded.ASCII, decoded.Fixture, decoded.AttributionSocket
 	cfg.Uplink = UplinkConfig{
-		Enabled: decoded.Uplink.Enabled, BaseURL: decoded.Uplink.BaseURL, TokenFile: decoded.Uplink.TokenFile,
+		StateFile: decoded.Uplink.StateFile, Schema: decoded.Uplink.Schema, Enabled: decoded.Uplink.Enabled, BaseURL: decoded.Uplink.BaseURL, TokenFile: decoded.Uplink.TokenFile,
 		Interval: time.Duration(decoded.Uplink.Interval),
+	}
+	if cfg.Uplink.StateFile != "" && cfg.Uplink.Schema == "" {
+		cfg.Uplink.Schema = uplink.SchemaV2
 	}
 	cfg.AttributionCheckpointPath = decoded.AttributionCheckpointPath
 	cfg.WorkloadTelemetry = decoded.WorkloadTelemetry
@@ -313,11 +320,23 @@ func Validate(cfg Config) error {
 			return fmt.Errorf("uplink token file must be an absolute clean path")
 		}
 	}
+	if cfg.Uplink.Schema != "" && cfg.Uplink.Schema != "uplink-v1" && cfg.Uplink.Schema != "uplink-v2" {
+		return fmt.Errorf("uplink schema must be uplink-v1 or uplink-v2")
+	}
+	if cfg.Uplink.StateFile != "" && (!filepath.IsAbs(cfg.Uplink.StateFile) || filepath.Clean(cfg.Uplink.StateFile) != cfg.Uplink.StateFile) {
+		return fmt.Errorf("uplink state file must be an absolute clean path")
+	}
+	if cfg.Uplink.StateFile != "" && cfg.Uplink.Schema != "" && cfg.Uplink.Schema != uplink.SchemaV2 {
+		return fmt.Errorf("enrollment state requires uplink-v2")
+	}
+	if cfg.Uplink.StateFile != "" && cfg.Uplink.TokenFile != "" {
+		return fmt.Errorf("configure only one uplink state_file or token_file")
+	}
 	if cfg.Uplink.Enabled {
 		if cfg.Uplink.BaseURL == "" {
 			return fmt.Errorf("uplink base URL is required when uplink is enabled")
 		}
-		if cfg.Uplink.TokenFile == "" {
+		if cfg.Uplink.TokenFile == "" && cfg.Uplink.StateFile == "" {
 			return fmt.Errorf("uplink token file is required when uplink is enabled")
 		}
 	}

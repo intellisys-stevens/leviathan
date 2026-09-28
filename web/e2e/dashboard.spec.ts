@@ -198,9 +198,11 @@ test('matches targeted workbench and frost-dragon visual baselines', async ({
       .getByRole('button', { name: 'Open GPU 0 full GPU details' })
       .locator('xpath=..');
     await hoveredResource.hover();
+    // Reduced motion already makes this capture static. Disabling animations
+    // again can stall SwiftShader before the element stability frame arrives.
     await expect(hoveredResource).toHaveScreenshot(
       'resources-hover-border-dark.png',
-      { animations: 'disabled' },
+      { animations: 'allow', timeout: 30_000 },
     );
     await page.mouse.move(0, 0);
     // A shared scroll-attached canvas renders visible scenes; capture the viewport
@@ -286,7 +288,7 @@ test('matches targeted workbench and frost-dragon visual baselines', async ({
       );
       await expect(page.locator('.gpu-card').first()).toHaveScreenshot(
         `gpu-board-mobile-${theme}.png`,
-        { animations: 'disabled' },
+        { animations: 'allow', timeout: 30_000 },
       );
       await page.locator('.gpu-card').nth(1).scrollIntoViewIfNeeded();
       await expect(page.locator('.gpu-board-view').nth(1)).toHaveAttribute(
@@ -295,7 +297,7 @@ test('matches targeted workbench and frost-dragon visual baselines', async ({
       );
       await expect(page.locator('.gpu-card').nth(1)).toHaveScreenshot(
         `mig-board-mobile-${theme}.png`,
-        { animations: 'disabled' },
+        { animations: 'allow', timeout: 30_000 },
       );
     } finally {
       await isolatedBoardStyle.evaluate((element) =>

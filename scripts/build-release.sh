@@ -87,7 +87,9 @@ python3 scripts/sync-managed-installer.py --check
 cp scripts/install.sh scripts/install-managed.py scripts/bootstrap-updater.sh scripts/bootstrap-updater.py "${stage}/scripts/"
 cp -R docs "${stage}/"
 cp -R licenses "${stage}/"
-cp api/openapi.yaml "${stage}/api/openapi.yaml"
+cp api/openapi.yaml api/plugin-v1.yaml \
+  api/uplink-v1-openapi.yaml api/uplink-v1-contract.lock \
+  api/uplink-v2-openapi.yaml api/uplink-v2-contract.lock "${stage}/api/"
 cp web/public/leviathan-mark.svg "${stage}/web/public/leviathan-mark.svg"
 cp api/openapi.yaml "${stage}/openapi.yaml"
 cp licenses/* "${stage}/THIRD_PARTY_LICENSES/assets/"

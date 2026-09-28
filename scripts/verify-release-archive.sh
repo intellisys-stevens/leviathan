@@ -75,14 +75,21 @@ for required_path in \
   "${archive_root}/docs/assets/architecture.svg" \
   "${archive_root}/docs/config.example.toml" \
   "${archive_root}/docs/deployment.md" \
+  "${archive_root}/docs/enrollment.md" \
   "${archive_root}/docs/kubernetes-attribution.md" \
   "${archive_root}/docs/migration-v0.3.md" \
   "${archive_root}/docs/permissions.md" \
+  "${archive_root}/docs/plugins.md" \
   "${archive_root}/docs/releasing.md" \
   "${archive_root}/docs/security-and-privacy.md" \
   "${archive_root}/docs/uplink-v1.md" \
   "${archive_root}/docs/managed-updates.md" \
   "${archive_root}/api/openapi.yaml" \
+  "${archive_root}/api/plugin-v1.yaml" \
+  "${archive_root}/api/uplink-v1-openapi.yaml" \
+  "${archive_root}/api/uplink-v1-contract.lock" \
+  "${archive_root}/api/uplink-v2-openapi.yaml" \
+  "${archive_root}/api/uplink-v2-contract.lock" \
   "${archive_root}/web/public/leviathan-mark.svg" \
   "${archive_root}/openapi.yaml" \
   "${archive_root}/licenses/OFL-1.1.txt" \
@@ -141,6 +148,10 @@ grep -Fx 'MIT License' "${root}/LICENSE" >/dev/null
 grep -F 'Leviathan (formerly MIGLens)' "${root}/NOTICE" >/dev/null
 grep -F 'Copyright (c) 2026 MIGLens contributors' "${root}/LICENSE" >/dev/null
 cmp "${root}/openapi.yaml" "${root}/api/openapi.yaml" >/dev/null
+for protocol in v1 v2; do
+  spec_hash="$(sed -n 's/^spec_sha256=//p' "${root}/api/uplink-${protocol}-contract.lock")"
+  printf '%s  %s\n' "${spec_hash}" "${root}/api/uplink-${protocol}-openapi.yaml" | sha256sum --check --strict
+done
 
 version_output="$("${root}/leviathan" version --format json)"
 grep -F "\"version\":\"${version}\"" <<<"${version_output}" >/dev/null
