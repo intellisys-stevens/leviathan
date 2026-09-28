@@ -1,0 +1,3 @@
+# Generated bundles include upstream GLSL string literals. Preserve those bytes;
+# source files still use Git's normal whitespace checks.
+internal/webui/dist/assets/*.js -whitespace
