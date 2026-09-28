@@ -67,7 +67,8 @@ type Source interface {
 
 // ResourceRef names a resource owned by a configured producer instance.
 // ID and Generation remain local to that producer, including embedded slashes.
-// Generation distinguishes replaced resources that reuse the same ID.
+// ID must not contain leading or trailing Unicode whitespace, so history queries
+// can address the resource. Generation distinguishes replacements reusing the ID.
 type ResourceRef struct {
 	InstanceID string `json:"instance_id"`
 	ID         string `json:"id"`
@@ -102,6 +103,8 @@ type ProcessData struct {
 // against the complete inventory: a local definition or an explicitly named
 // definition from another instance. If both distinct candidates exist, the
 // runtime withholds the ambiguous join rather than choosing by arrival order.
+// Owner and workload identity refs and references have no surrounding Unicode
+// whitespace; display names and opaque scope joins are unaffected.
 type Owner struct {
 	Ref          string                 `json:"ref"`
 	Name         string                 `json:"name"`

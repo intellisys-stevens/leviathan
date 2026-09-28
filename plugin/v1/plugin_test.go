@@ -303,3 +303,72 @@ func TestValidationAcceptsBoundedLargeHostObservations(t *testing.T) {
 		t.Fatalf("topology fixture exceeds wire contract: bytes=%d err=%v", len(data), err)
 	}
 }
+
+func TestHistoryEntityIdentitiesRejectSurroundingWhitespace(t *testing.T) {
+	now := time.Now().UTC()
+	envelope := func(capability Capability) Observation {
+		return Observation{Capability: capability, InstanceID: "external", SessionID: "first", Revision: 1, ObservedAt: now, Status: "available"}
+	}
+	gpu := gpuObservation(now)
+	gpu.GPU.GPUs[0].Name = " Display label "
+	gpu.GPU.GPUs[0].GPUInstances = []model.GPUInstance{{UUID: "GI-1", ComputeInstances: []model.ComputeInstance{{UUID: "CI-1"}}}}
+	inventory := envelope(WorkloadInventory)
+	inventory.WorkloadInventory = &InventoryData{
+		Workloads: []model.WorkloadAttribution{{Ref: "ns/job", Platform: "batch", Kind: "job", Name: " Job label "}},
+		Owners:    []Owner{{Ref: "owner", Name: " Owner label ", Platform: "batch", WorkloadRefs: []string{"ns/job"}}},
+		Scopes:    []ScopeAssignment{{ScopeRef: " opaque scope ", WorkloadRef: "ns/job", OwnerRef: "owner"}},
+	}
+	allocations := envelope(Allocations)
+	allocations.Allocations = &AllocationData{
+		Assignments: []Assignment{{WorkloadRef: "ns/job", Resource: ResourceRef{InstanceID: "external", ID: "GPU-1"}, EntityType: model.AllocationEntityPhysicalGPU, State: model.AllocationStateAllocated}},
+		Resolution:  &model.AttributionResolution{Status: "incomplete", Workloads: []model.WorkloadAssignmentResolution{{WorkloadRef: "ns/job"}}},
+	}
+	processes := envelope(Processes)
+	processes.Processes = &ProcessData{Processes: []ProcessRecord{{Process: model.Process{PID: 1, WorkloadRef: "ns/job", Status: model.StatusAvailable}, ScopeRef: " opaque scope "}}}
+	measurements := envelope(WorkloadMeasurements)
+	measurements.WorkloadMeasurements = &model.WorkloadTelemetry{Status: model.WorkloadTelemetryAvailable, Owners: []model.WorkloadOwnerTelemetry{{Ref: "owner", Status: model.WorkloadTelemetryAvailable}}}
+	cases := []struct {
+		name        string
+		observation Observation
+		identity    *string
+	}{
+		{"gpu", gpu, &gpu.GPU.GPUs[0].UUID},
+		{"gpu instance", gpu, &gpu.GPU.GPUs[0].GPUInstances[0].UUID},
+		{"compute instance", gpu, &gpu.GPU.GPUs[0].GPUInstances[0].ComputeInstances[0].UUID},
+		{"workload", inventory, &inventory.WorkloadInventory.Workloads[0].Ref},
+		{"owner", inventory, &inventory.WorkloadInventory.Owners[0].Ref},
+		{"owner workload reference", inventory, &inventory.WorkloadInventory.Owners[0].WorkloadRefs[0]},
+		{"scope workload reference", inventory, &inventory.WorkloadInventory.Scopes[0].WorkloadRef},
+		{"scope owner reference", inventory, &inventory.WorkloadInventory.Scopes[0].OwnerRef},
+		{"resource reference", allocations, &allocations.Allocations.Assignments[0].Resource.ID},
+		{"assignment workload reference", allocations, &allocations.Allocations.Assignments[0].WorkloadRef},
+		{"resolution workload reference", allocations, &allocations.Allocations.Resolution.Workloads[0].WorkloadRef},
+		{"process workload reference", processes, &processes.Processes.Processes[0].Process.WorkloadRef},
+		{"measured owner", measurements, &measurements.WorkloadMeasurements.Owners[0].Ref},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			original := *test.identity
+			defer func() { *test.identity = original }()
+			for _, id := range []string{" ns/job", "ns/job ", "\u00a0ns/job", "ns/job\u0085", "\u3000ns/job"} {
+				*test.identity = id
+				if err := test.observation.ValidateAt(now); err == nil {
+					t.Fatalf("accepted identity with surrounding whitespace %q", id)
+				}
+			}
+			for _, id := range []string{original, "ns/job name", "ns/job\u00a0name"} {
+				*test.identity = id
+				if err := test.observation.ValidateAt(now); err != nil {
+					t.Fatalf("rejected addressable identity %q or unchanged label/scope: %v", id, err)
+				}
+			}
+		})
+	}
+	processes.Processes.Processes[0].Process.WorkloadRef = ""
+	inventory.WorkloadInventory.Scopes[0].OwnerRef = ""
+	for _, observation := range []Observation{processes, inventory} {
+		if err := observation.ValidateAt(now); err != nil {
+			t.Fatalf("empty optional reference rejected: %v", err)
+		}
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -96,6 +97,9 @@ func validateValue(value reflect.Value, now time.Time, budget *int) error {
 				return errors.New("invalid unresolved assignment count")
 			}
 		case model.WorkloadAssignmentResolution:
+			if !validEntityID(typed.WorkloadRef, false) {
+				return errors.New("invalid workload resolution reference")
+			}
 			if typed.UnresolvedAssignments < 0 {
 				return errors.New("invalid unresolved assignment count")
 			}
@@ -110,10 +114,13 @@ func validateValue(value reflect.Value, now time.Time, budget *int) error {
 				return errors.New("invalid workload telemetry status")
 			}
 		case model.Process:
-			if typed.PID == 0 || !metricStatus(typed.Status) {
+			if typed.PID == 0 || !metricStatus(typed.Status) || !validEntityID(typed.WorkloadRef, true) {
 				return errors.New("invalid process identity or status")
 			}
 		case Assignment:
+			if !validEntityID(typed.WorkloadRef, false) {
+				return errors.New("invalid assignment workload reference")
+			}
 			if typed.EntityType != model.AllocationEntityPhysicalGPU && typed.EntityType != model.AllocationEntityComputeInstance {
 				return errors.New("invalid allocation entity type")
 			}
@@ -152,31 +159,36 @@ func validateValue(value reflect.Value, now time.Time, budget *int) error {
 				}
 			}
 		case model.WorkloadAttribution:
-			if !validText(typed.Ref, 512, false) || !validText(string(typed.Platform), 128, false) || !validText(string(typed.Kind), 128, false) || !validText(typed.Name, 253, false) {
+			if !validEntityID(typed.Ref, false) || !validText(string(typed.Platform), 128, false) || !validText(string(typed.Kind), 128, false) || !validText(typed.Name, 253, false) {
 				return errors.New("invalid workload identity")
 			}
 		case Owner:
-			if !validText(typed.Ref, 512, false) || !validText(typed.Name, 128, false) || !validText(string(typed.Platform), 128, false) {
+			if !validEntityID(typed.Ref, false) || !validText(typed.Name, 128, false) || !validText(string(typed.Platform), 128, false) {
 				return errors.New("invalid owner identity")
 			}
+			for _, ref := range typed.WorkloadRefs {
+				if !validEntityID(ref, false) {
+					return errors.New("invalid owner workload reference")
+				}
+			}
 		case ScopeAssignment:
-			if !validText(typed.ScopeRef, 512, false) || !validText(typed.WorkloadRef, 512, false) {
+			if !validText(typed.ScopeRef, 512, false) || !validEntityID(typed.WorkloadRef, false) || !validEntityID(typed.OwnerRef, true) {
 				return errors.New("invalid scope assignment")
 			}
 		case ResourceRef:
-			if !ValidID(typed.InstanceID) || !validText(typed.ID, 512, false) {
+			if !ValidID(typed.InstanceID) || !validEntityID(typed.ID, false) {
 				return errors.New("invalid resource reference")
 			}
 		case model.GPU:
-			if !validText(typed.UUID, 512, false) || len(typed.GPUInstances) > 256 {
+			if !validEntityID(typed.UUID, false) || len(typed.GPUInstances) > 256 {
 				return errors.New("invalid GPU identity or instance count")
 			}
 		case model.GPUInstance:
-			if !validText(typed.UUID, 512, false) || len(typed.ComputeInstances) > 256 {
+			if !validEntityID(typed.UUID, false) || len(typed.ComputeInstances) > 256 {
 				return errors.New("invalid GPU-instance identity or count")
 			}
 		case model.ComputeInstance:
-			if !validText(typed.UUID, 512, false) {
+			if !validEntityID(typed.UUID, false) {
 				return errors.New("invalid compute-instance identity")
 			}
 		case model.Filesystem:
@@ -184,7 +196,7 @@ func validateValue(value reflect.Value, now time.Time, budget *int) error {
 				return errors.New("invalid filesystem identity")
 			}
 		case model.WorkloadOwnerTelemetry:
-			if !validText(typed.Ref, 512, false) {
+			if !validEntityID(typed.Ref, false) {
 				return errors.New("invalid workload owner identity")
 			}
 		}
@@ -255,4 +267,11 @@ func validText(value string, limit int, empty bool) bool {
 		}
 	}
 	return true
+}
+
+// History query parameters trim surrounding Unicode whitespace. Entity IDs and
+// references must already be canonical so every accepted identity is addressable.
+// Display labels and opaque execution-scope joins do not use this restriction.
+func validEntityID(value string, empty bool) bool {
+	return validText(value, 512, empty) && value == strings.TrimSpace(value)
 }

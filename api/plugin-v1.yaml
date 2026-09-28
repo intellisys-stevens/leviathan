@@ -68,10 +68,19 @@ components:
       description: >-
         Source-local opaque identity. A slash remains part of this local ID; resource and
         definition IDs cannot claim another producer's namespace.
+    EntityID:
+      allOf:
+        - $ref: '#/components/schemas/LocalID'
+      not:
+        pattern: '^[\u0009-\u000D\u0020\u0085\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]|[\u0009-\u000D\u0020\u0085\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]$'
+      description: >-
+        A source-local GPU, GPU-instance, compute-instance, workload, or owner identity.
+        Leading and trailing Unicode whitespace are forbidden so history queries can address
+        the entity. Internal whitespace and slashes remain part of the identity. Display labels
+        and opaque scope joins do not use this restriction.
     Reference:
-      type: string
-      minLength: 1
-      maxLength: 512
+      allOf:
+        - $ref: '#/components/schemas/EntityID'
       description: >-
         Resolve against the complete inventory. The producer-local definition is
         one candidate; an existing fully qualified instance/id definition owned
@@ -192,7 +201,15 @@ components:
       type: object
       required: ["process"]
       properties:
-        process: {$ref: ./openapi.yaml#/components/schemas/Process}
+        process:
+          allOf:
+            - $ref: ./openapi.yaml#/components/schemas/Process
+            - type: object
+              properties:
+                workloadRef:
+                  anyOf:
+                    - $ref: '#/components/schemas/Reference'
+                    - const: ''
         scope_ref:
           allOf:
             - $ref: '#/components/schemas/LocalID'
@@ -216,7 +233,7 @@ components:
         - $ref: ./openapi.yaml#/components/schemas/WorkloadAttribution
         - type: object
           properties:
-            ref: {$ref: '#/components/schemas/LocalID'}
+            ref: {$ref: '#/components/schemas/EntityID'}
       description: >-
         Defines a workload in this producer's namespace; ref is source-local, including when it
         contains a slash.
@@ -224,7 +241,7 @@ components:
       type: object
       required: ["ref","name","platform","workload_refs"]
       properties:
-        ref: {$ref: '#/components/schemas/LocalID'}
+        ref: {$ref: '#/components/schemas/EntityID'}
         name: {type: string, minLength: 1, maxLength: 128}
         platform: {$ref: ./openapi.yaml#/components/schemas/WorkloadPlatform}
         workload_refs:
@@ -265,7 +282,7 @@ components:
       required: ["instance_id","id"]
       properties:
         instance_id: {$ref: '#/components/schemas/InstanceID'}
-        id: {$ref: '#/components/schemas/LocalID'}
+        id: {$ref: '#/components/schemas/EntityID'}
         generation:
           type: string
           maxLength: 4096
@@ -304,7 +321,20 @@ components:
           type: array
           maxItems: 4096
           items: {$ref: '#/components/schemas/ScopeAssignment'}
-        resolution: {$ref: ./openapi.yaml#/components/schemas/AttributionResolution}
+        resolution: {$ref: '#/components/schemas/PluginAttributionResolution'}
+    PluginAttributionResolution:
+      allOf:
+        - $ref: ./openapi.yaml#/components/schemas/AttributionResolution
+        - type: object
+          properties:
+            workloads:
+              type: array
+              items:
+                allOf:
+                  - $ref: ./openapi.yaml#/components/schemas/WorkloadAssignmentResolution
+                  - type: object
+                    properties:
+                      workloadRef: {$ref: '#/components/schemas/Reference'}
     Error:
       type: object
       required: ["error"]
@@ -384,7 +414,7 @@ components:
       required: ["uuid","id","profile","memory","metrics","generation"]
       properties:
         uuid: &ref_0
-          $ref: '#/components/schemas/LocalID'
+          $ref: '#/components/schemas/EntityID'
         id: {type: integer, format: uint32, minimum: 0}
         profile: {type: string}
         memory: {$ref: '#/components/schemas/PluginMemory'}
@@ -469,7 +499,7 @@ components:
       type: object
       required: ["id","mountPoint","fsType","totalBytes","usedBytes","availableBytes","source","scope","sampledAt","status"]
       properties:
-        id: *ref_0
+        id: {$ref: '#/components/schemas/LocalID'}
         mountPoint: {type: string}
         fsType: {type: string}
         totalBytes: {type: [integer, 'null'], format: uint64, minimum: 0}
