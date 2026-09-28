@@ -9,7 +9,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -17,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/intellisys-stevens/leviathan/adapters/kubernetes/attribution"
+	"github.com/intellisys-stevens/leviathan/adapters/kubernetes/scope"
 	"github.com/intellisys-stevens/leviathan/model"
 )
 
@@ -30,16 +29,17 @@ type Options struct {
 	CgroupRoot string
 	SysfsRoot  string
 	// Now retains a monotonic component in production; tests may supply a clock.
-	Now func() time.Time
+	Now            func() time.Time
+	DiscoverScopes func(context.Context, string) (map[string]string, error)
 }
-type inventoryReader interface {
+type InventoryReader interface {
 	Read(context.Context, time.Time) (Document, error)
 	Close()
 }
 type Collector struct {
 	mu             sync.Mutex
 	options        Options
-	client         inventoryReader
+	client         InventoryReader
 	inventory      *Document
 	lastRead       time.Time
 	inventoryError string
@@ -58,6 +58,25 @@ type podSample struct {
 }
 
 func NewSampler(options Options) (*Collector, error) {
+	client, err := NewClient(options.SocketPath)
+	if err != nil {
+		return nil, err
+	}
+	collector, err := NewSamplerWithInventory(options, client)
+	if err != nil {
+		client.Close()
+	}
+	return collector, err
+}
+
+// NewSamplerWithInventory separates local accounting from environment metadata.
+func NewSamplerWithInventory(options Options, client InventoryReader) (*Collector, error) {
+	if client == nil {
+		return nil, errors.New("workload inventory reader is required")
+	}
+	if options.DiscoverScopes == nil {
+		options.DiscoverScopes = scope.DiscoverCgroups
+	}
 	if options.Now == nil {
 		options.Now = time.Now
 	}
@@ -71,10 +90,6 @@ func NewSampler(options Options) (*Collector, error) {
 		if !filepath.IsAbs(path) || filepath.Clean(path) != path {
 			return nil, errors.New("workload roots must be absolute clean paths")
 		}
-	}
-	client, err := NewClient(options.SocketPath)
-	if err != nil {
-		return nil, err
 	}
 	return &Collector{options: options, client: client, previous: map[string]podSample{}}, nil
 }
@@ -162,7 +177,11 @@ func (c *Collector) Sample(ctx context.Context, at time.Time) (model.WorkloadTel
 	if _, err = readBounded(root, "cgroup.controllers", 64<<10); err != nil {
 		return unavailable(model.WorkloadTelemetryUnavailable, readStatus(err), "Cgroup v2 controllers are unavailable")
 	}
-	paths, err := discoverPods(ctx, c.options.CgroupRoot)
+	discover := c.options.DiscoverScopes
+	if discover == nil {
+		discover = scope.DiscoverCgroups
+	}
+	paths, err := discover(ctx, c.options.CgroupRoot)
 	if err != nil {
 		return unavailable(model.WorkloadTelemetryUnavailable, readStatus(err), "Pod cgroup discovery is incomplete")
 	}
@@ -349,45 +368,8 @@ func readBounded(root *os.Root, path string, limit int64) ([]byte, error) {
 	return data, nil
 }
 
-var podDirectory = regexp.MustCompile(`pod([[:xdigit:]]{8}[-_][[:xdigit:]]{4}[-_][[:xdigit:]]{4}[-_][[:xdigit:]]{4}[-_][[:xdigit:]]{12})(?:\.slice)?$`)
-
 func discoverPods(ctx context.Context, root string) (map[string]string, error) {
-	paths := map[string]string{}
-	visited := 0
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if err = ctx.Err(); err != nil {
-			return err
-		}
-		visited++
-		if visited > 32768 {
-			return errors.New("cgroup discovery exceeds bound")
-		}
-		if !entry.IsDir() {
-			return nil
-		}
-		match := podDirectory.FindStringSubmatch(entry.Name())
-		if match == nil {
-			return nil
-		}
-		scope, ok := attribution.ScopeRefForPodUID(match[1])
-		if !ok {
-			return filepath.SkipDir
-		}
-		relative, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		if _, duplicate := paths[scope]; duplicate {
-			paths[scope] = ""
-		} else {
-			paths[scope] = relative
-		}
-		return filepath.SkipDir
-	})
-	return paths, err
+	return scope.DiscoverCgroups(ctx, root)
 }
 
 func sortedKeys[T any](values map[string]T) []string {

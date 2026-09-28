@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/intellisys-stevens/leviathan/adapters/kubernetes/scope"
 	"github.com/intellisys-stevens/leviathan/model"
 )
 
@@ -35,7 +36,7 @@ func OpaqueRef(prefix, value string) string {
 }
 
 func ClaimRef(uid string) (string, bool) {
-	if !canonicalPodUID.MatchString(uid) {
+	if !scope.ValidUID(uid) {
 		return "", false
 	}
 	return OpaqueRef("claim_", uid), true

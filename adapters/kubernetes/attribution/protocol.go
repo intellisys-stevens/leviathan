@@ -3,16 +3,14 @@
 package attribution
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/intellisys-stevens/leviathan/adapters/kubernetes/scope"
 	"github.com/intellisys-stevens/leviathan/model"
 )
 
@@ -23,8 +21,6 @@ const (
 	MaxAssignments   = 2048
 	MaxProcessScopes = 4096
 )
-
-var canonicalPodUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 type SourceState string
 
@@ -171,14 +167,7 @@ func (d Document) Validate() error {
 
 // ScopeRefForPodUID validates and canonicalizes the UUID-shaped Pod UID used
 // by kubelet cgroups, then returns its stable opaque process-scope reference.
-func ScopeRefForPodUID(value string) (string, bool) {
-	value = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), "_", "-"))
-	if !canonicalPodUID.MatchString(value) {
-		return "", false
-	}
-	digest := sha256.Sum256([]byte("scope_\x00" + value))
-	return "scope_" + hex.EncodeToString(digest[:16]), true
-}
+func ScopeRefForPodUID(value string) (string, bool) { return scope.PodUID(value) }
 
 func validOpaqueRef(value, prefix string) bool {
 	if !strings.HasPrefix(value, prefix) || len(value) != len(prefix)+32 {

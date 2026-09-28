@@ -204,6 +204,7 @@ type GPUInstance struct {
 }
 
 type GPU struct {
+	Generation    string        `json:"generation,omitempty"`
 	UUID          string        `json:"uuid"`
 	Index         int           `json:"index"`
 	Name          string        `json:"name"`
@@ -225,12 +226,13 @@ type ProviderState struct {
 }
 
 type Capabilities struct {
-	System         ProviderState `json:"system"`
-	NVML           ProviderState `json:"nvml"`
-	GPM            ProviderState `json:"gpm"`
-	DCGM           ProviderState `json:"dcgm"`
-	Proc           ProviderState `json:"proc"`
-	ProfileMetrics bool          `json:"profileMetrics"`
+	GPU            *ProviderState `json:"gpu,omitempty"`
+	System         ProviderState  `json:"system"`
+	NVML           ProviderState  `json:"nvml"`
+	GPM            ProviderState  `json:"gpm"`
+	DCGM           ProviderState  `json:"dcgm"`
+	Proc           ProviderState  `json:"proc"`
+	ProfileMetrics bool           `json:"profileMetrics"`
 }
 
 type Diagnostic struct {

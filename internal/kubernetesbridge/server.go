@@ -16,17 +16,20 @@ import (
 
 	"github.com/intellisys-stevens/leviathan/adapters/kubernetes/attribution"
 	"github.com/intellisys-stevens/leviathan/internal/gpucapacity"
+	plugin "github.com/intellisys-stevens/leviathan/plugin/v1"
 )
 
 type Server struct {
-	state     *State
-	workloads *WorkloadState
-	capacity  *CapacityState
-	now       func() time.Time
+	pluginInstanceID string
+	gpuInstanceID    string
+	state            *State
+	workloads        *WorkloadState
+	capacity         *CapacityState
+	now              func() time.Time
 }
 
 func NewServer(state *State) *Server {
-	return &Server{state: state, now: func() time.Time { return time.Now().UTC() }}
+	return &Server{pluginInstanceID: "coder-kubernetes", gpuInstanceID: "nvidia", state: state, now: func() time.Time { return time.Now().UTC() }}
 }
 
 // WithWorkloads opts into the private Pod metadata handoff. Allocations and
@@ -38,6 +41,13 @@ func (s *Server) WithGPUCapacity(state *CapacityState) *Server { s.capacity = st
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	if handler, err := plugin.NewHandler(&bridgePlugin{server: s}, plugin.HandlerOptions{InstanceID: s.pluginInstanceID}); err == nil {
+		mux.Handle("/plugin/v1/", handler)
+	} else {
+		mux.HandleFunc("/plugin/v1/", func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "plugin endpoint unavailable"})
+		})
+	}
 	mux.HandleFunc("GET /v1/allocations", s.allocations)
 	mux.HandleFunc("GET /v2/allocations", s.allocationsV2)
 	if s.capacity != nil {
