@@ -122,6 +122,7 @@ credential file.
 | Host CPU, RAM, and storage telemetry | [docs/host-monitoring.md](docs/host-monitoring.md) |
 | Container and process visibility | [docs/permissions.md](docs/permissions.md) |
 | Optional Kubernetes/Coder attribution | [docs/kubernetes-attribution.md](docs/kubernetes-attribution.md) |
+| Connect and renew Yggdrasil enrollment | [docs/enrollment.md](docs/enrollment.md) |
 | Yggdrasil telemetry uplink | [docs/uplink-v1.md](docs/uplink-v1.md) |
 | Install and enroll the managed updater | [docs/managed-updates.md](docs/managed-updates.md) |
 | Security and privacy model | [docs/security-and-privacy.md](docs/security-and-privacy.md) |

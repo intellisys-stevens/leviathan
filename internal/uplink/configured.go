@@ -10,6 +10,8 @@ import (
 // Configuration is the minimal serve-owned configuration needed to assemble
 // an uploader. The caller must supply its already-running SnapshotSource.
 type Configuration struct {
+	StateFile string
+	Schema    string
 	Enabled   bool
 	BaseURL   string
 	TokenFile string
@@ -23,11 +25,17 @@ func NewConfiguredRunner(configuration Configuration, source SnapshotSource, bui
 	if !configuration.Enabled {
 		return nil, nil
 	}
-	credentials, err := NewFileTokenSource(configuration.TokenFile)
+	var credentials TokenSource
+	var err error
+	if configuration.StateFile != "" {
+		credentials, err = NewEnrollmentTokenSource(configuration.StateFile, configuration.BaseURL, nil)
+	} else {
+		credentials, err = NewFileTokenSource(configuration.TokenFile)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("initialize uplink credential: %w", err)
 	}
-	client, err := NewClient(configuration.BaseURL, credentials, ClientOptions{})
+	client, err := NewClient(configuration.BaseURL, credentials, ClientOptions{Schema: configuration.Schema})
 	if err != nil {
 		return nil, fmt.Errorf("initialize uplink client: %w", err)
 	}
