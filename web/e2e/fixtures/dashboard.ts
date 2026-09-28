@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { requireNvidiaWebGL, webGLLaunchArgs } from '../hardware-gpu';
+import type { Snapshot } from '../../src/types';
 export { expect, test };
 
 export const sampledAt = '2026-08-30T16:00:00.000Z';
@@ -327,7 +328,12 @@ async function installSyntheticBackend(
   {
     injectAlignedGap = false,
     representativeHistory = false,
-  }: { injectAlignedGap?: boolean; representativeHistory?: boolean } = {},
+    initialSnapshot = snapshot,
+  }: {
+    injectAlignedGap?: boolean;
+    representativeHistory?: boolean;
+    initialSnapshot?: Snapshot | typeof snapshot;
+  } = {},
 ) {
   const state: SyntheticBackendState = {
     alignedRequests: 0,
@@ -458,7 +464,7 @@ async function installSyntheticBackend(
       });
     },
     {
-      initialSnapshot: snapshot,
+      initialSnapshot,
       samplingIntervalMs: settings.samplingIntervalMs,
     },
   );
@@ -467,7 +473,7 @@ async function installSyntheticBackend(
     const request = route.request();
     const url = new URL(request.url());
     if (url.pathname === '/api/v1/snapshot') {
-      await route.fulfill({ json: snapshot });
+      await route.fulfill({ json: initialSnapshot });
       return;
     }
     if (url.pathname === '/api/v1/status') {
@@ -688,7 +694,9 @@ export function canvasFramesAreStable(canvas: Locator) {
   });
 }
 
-export function configureDashboardTests() {
+export function configureDashboardTests({
+  initialSnapshot,
+}: { initialSnapshot?: Snapshot } = {}) {
   test.use({
     launchOptions: {
       args: webGLLaunchArgs,
@@ -712,6 +720,7 @@ export function configureDashboardTests() {
       }
     }, theme);
     await installSyntheticBackend(page, {
+      initialSnapshot,
       injectAlignedGap: testInfo.title.includes('explicit missing sample'),
       representativeHistory: testInfo.title.includes('matches targeted'),
     });
@@ -724,7 +733,7 @@ export function configureDashboardTests() {
         level: 1,
       }),
     ).toBeVisible();
-    if (!directOperations) {
+    if (!directOperations && !initialSnapshot) {
       await waitForOverviewCharts(page);
     }
   });

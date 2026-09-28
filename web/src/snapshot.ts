@@ -178,12 +178,13 @@ function sameDiagnostic(left: Diagnostic, right: Diagnostic): boolean {
 }
 
 function sameCapabilities(left: Capabilities, right: Capabilities): boolean {
-  const providers = ['system', 'nvml', 'gpm', 'dcgm', 'proc'] as const;
+  const providers = ['system', 'gpu', 'nvml', 'gpm', 'dcgm', 'proc'] as const;
   return (
     left.profileMetrics === right.profileMetrics &&
     providers.every((name) => {
       const current = left[name];
       const next = right[name];
+      if (!current || !next) return current === next;
       return (
         current.name === next.name &&
         current.available === next.available &&

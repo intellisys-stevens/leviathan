@@ -379,8 +379,8 @@ function GPUGrid({
       {snapshot.gpus.length === 0 ? (
         <div className="frost-panel border border-dashed border-border bg-card p-6 text-center lg:col-span-2">
           <p className="text-[15px] font-medium">
-            {snapshot.capabilities.nvml.available
-              ? 'No NVIDIA GPUs detected'
+            {(snapshot.capabilities.gpu ?? snapshot.capabilities.nvml).available
+              ? 'No GPUs detected'
               : 'GPU discovery unavailable'}
           </p>
         </div>

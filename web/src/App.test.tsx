@@ -917,7 +917,7 @@ describe('Leviathan dashboard states', () => {
     mockUseLeviathan.mockReturnValue(result(snapshot([])));
     render(<App />);
     openView('Resources');
-    expect(screen.getByText('No NVIDIA GPUs detected')).toBeInTheDocument();
+    expect(screen.getByText('No GPUs detected')).toBeInTheDocument();
     openView('Workloads');
     expect(screen.queryByTestId('process-section')).not.toBeInTheDocument();
     expect(

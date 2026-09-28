@@ -163,8 +163,8 @@ export function GPUCapacityPanel({ hostKey }: { hostKey: string }) {
         <output className="gpu-capacity-message">{message}</output>
       ) : null}
       <p className="gpu-capacity-note" id={noteId}>
-        Profile counts are alternatives, not additive. Kubernetes validates
-        allocation when a workload starts.
+        Profile counts are alternatives, not additive. Allocation is validated
+        when a workload starts.
       </p>
     </section>
   );

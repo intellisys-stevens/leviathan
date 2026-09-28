@@ -585,6 +585,30 @@ describe('useLeviathan runtime settings', () => {
     expect(updated.attribution).not.toBe(previous.attribution);
   });
 
+  it('preserves changes to optional generic GPU availability between snapshots', () => {
+    const previous = structuredClone(snapshot);
+    const next = structuredClone(snapshot);
+    next.capabilities.gpu = {
+      name: 'Lab GPU collector',
+      available: true,
+      status: 'available',
+    };
+    expect(shareStableSnapshot(previous, next).capabilities).toBe(
+      next.capabilities,
+    );
+    expect(shareStableSnapshot(next, structuredClone(next)).capabilities).toBe(
+      next.capabilities,
+    );
+    const stale = structuredClone(next);
+    stale.capabilities.gpu!.status = 'stale';
+    expect(shareStableSnapshot(next, stale).capabilities).toBe(
+      stale.capabilities,
+    );
+    expect(shareStableSnapshot(next, previous).capabilities).toBe(
+      previous.capabilities,
+    );
+  });
+
   it('reuses owner samples between independent polls without hiding freshness or status changes', () => {
     const previous: Snapshot = {
       ...snapshot,

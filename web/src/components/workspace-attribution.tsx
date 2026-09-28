@@ -159,7 +159,10 @@ export function AttributionDetails({
         id="workspace-attribution-title"
         className="mb-2 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
       >
-        <UserRound className="size-3.5" /> Workspace attribution
+        <UserRound className="size-3.5" />{' '}
+        {attributed.every(({ workload }) => workload.kind === 'workspace')
+          ? 'Workspace attribution'
+          : 'Workload attribution'}
       </h3>
       <div className="border border-border bg-card">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-3 py-2 font-mono text-[13px] text-muted-foreground">

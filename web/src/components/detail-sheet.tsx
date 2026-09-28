@@ -826,7 +826,9 @@ export default function DetailSheet({
   const physical = selection.kind === 'physical_gpu';
   const gpu = selection.gpu;
   const source = physical ? gpu : selection.gi;
-  const historyEntity = physical ? gpu.uuid : selection.gi.uuid;
+  const historyEntity = physical
+    ? gpu.generation || gpu.uuid
+    : selection.gi.uuid;
   const liveMetrics = physical ? physicalLiveMetrics : instanceLiveMetrics;
   const chartMetrics = physical ? physicalChartMetrics : instanceChartMetrics;
   const historyMetrics = physical
@@ -1087,14 +1089,23 @@ export default function DetailSheet({
             >
               {liveMetrics.map(({ name, label }) => {
                 const metric = liveMetric(source, name);
+                const metricSource = source.metrics[name]?.source;
                 return (
                   <div key={name} className="bg-card p-3">
                     <p className="flex items-center gap-1.5 text-[13px] uppercase tracking-[0.08em] text-muted-foreground">
                       <MetricIcon metric={name} className="size-3.5" />
                       {label}
                     </p>
-                    <p className="mt-1 font-mono text-lg font-semibold text-primary">
+                    <p
+                      className="mt-1 font-mono text-lg font-semibold text-primary"
+                      title={
+                        metricSource ? `Source: ${metricSource}` : undefined
+                      }
+                    >
                       {formatMetric(metric)}
+                      {metricSource ? (
+                        <span className="sr-only"> Source: {metricSource}</span>
+                      ) : null}
                     </p>
                   </div>
                 );

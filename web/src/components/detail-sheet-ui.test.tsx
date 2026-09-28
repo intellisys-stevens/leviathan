@@ -186,6 +186,36 @@ function deferred<T>() {
 }
 
 describe('detail sheet presentation', () => {
+  it('loads replacement GPU history without renaming the selected GPU', async () => {
+    const selection = physicalSelection();
+    selection.gpu.generation = 'lab/GPU-synthetic-0@replacement';
+    const loadHistory = vi.fn().mockResolvedValue(history());
+    render(
+      <DetailSheet
+        selection={selection}
+        open
+        onOpenChange={() => undefined}
+        loadHistory={loadHistory}
+        chartWindowMs={30 * 60 * 1000}
+        retentionMs={60 * 60 * 1000}
+        onChartWindowChange={() => undefined}
+      />,
+    );
+    await waitFor(() =>
+      expect(loadHistory).toHaveBeenCalledWith(
+        'lab/GPU-synthetic-0@replacement',
+        expect.any(Array),
+        '30m',
+      ),
+    );
+    const dialog = await screen.findByRole('dialog');
+    expect(
+      within(dialog).getByRole('heading', { name: 'GPU 0 · Full GPU' }),
+    ).toBeInTheDocument();
+    expect(selection.gpu.uuid).toBe('GPU-synthetic-0');
+    expect(dialog).not.toHaveTextContent('lab/GPU-synthetic-0@replacement');
+  });
+
   it.each([physicalSelection, computeSelection])(
     'uses the physical GPU brand for physical and MIG inspection',
     async (createSelection) => {

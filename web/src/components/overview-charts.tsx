@@ -670,7 +670,7 @@ function ChartPanel({
     () =>
       entities.map((entity) => ({
         key: entity.key,
-        entity: entity.uuid,
+        entity: entity.historyEntity,
         metrics: historyMetrics(metric, entity.scope),
       })),
     [entities, metric],
