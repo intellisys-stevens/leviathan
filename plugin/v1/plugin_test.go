@@ -53,6 +53,11 @@ func TestObservationRejectsMalformedDataAndKeepsCustomSource(t *testing.T) {
 		},
 		"control character": func(o *Observation) { o.GPU.GPUs[0].Name = "bad\x00name" },
 		"future envelope":   func(o *Observation) { o.ObservedAt = now.Add(time.Hour) },
+		"incomplete unset metric": func(o *Observation) {
+			o.GPU.GPUs[0].Metrics["gpu_activity"] = model.Metric{SampledAt: now.Add(time.Hour)}
+		},
+		"incomplete unset memory":   func(o *Observation) { o.GPU.GPUs[0].Memory.Source = "custom" },
+		"incomplete unset provider": func(o *Observation) { o.GPU.Capabilities.NVML.Available = true },
 	}
 	for name, change := range cases {
 		t.Run(name, func(t *testing.T) {

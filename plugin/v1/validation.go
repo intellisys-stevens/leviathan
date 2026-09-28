@@ -62,6 +62,39 @@ func validateValue(value reflect.Value, now time.Time, budget *int) error {
 	}
 	if value.CanInterface() {
 		switch typed := value.Interface().(type) {
+		case model.MetricSource:
+			if !validText(string(typed), 128, true) {
+				return errors.New("invalid metric source")
+			}
+		case model.MetricScope:
+			if typed != "" && !metricScope(typed) {
+				return errors.New("invalid metric scope")
+			}
+		case model.WorkloadPlatform:
+			if !validText(string(typed), 128, true) {
+				return errors.New("invalid workload platform")
+			}
+		case model.WorkloadKind:
+			if !validText(string(typed), 128, true) {
+				return errors.New("invalid workload kind")
+			}
+		case model.Diagnostic:
+			switch typed.Severity {
+			case "", "info", "warning", "error":
+			default:
+				return errors.New("invalid diagnostic severity")
+			}
+		case model.AttributionResolution:
+			if typed.Status != "complete" && typed.Status != "incomplete" && typed.Status != "unknown" {
+				return errors.New("invalid allocation resolution status")
+			}
+			if typed.UnresolvedAssignments < 0 {
+				return errors.New("invalid unresolved assignment count")
+			}
+		case model.WorkloadAssignmentResolution:
+			if typed.UnresolvedAssignments < 0 {
+				return errors.New("invalid unresolved assignment count")
+			}
 		case model.MetricStatus:
 			if typed != "" && !metricStatus(typed) {
 				return errors.New("invalid metric status")
@@ -88,8 +121,15 @@ func validateValue(value reflect.Value, now time.Time, budget *int) error {
 				return errors.New("plugin source timestamp is from the future")
 			}
 			return nil
+		case model.ProviderState:
+			if typed.Status == "" && typed != (model.ProviderState{}) {
+				return errors.New("unset provider state must be empty")
+			}
 		case model.Metric:
 			if typed.Status == "" && typed.Value == nil {
+				if typed != (model.Metric{}) {
+					return errors.New("unset metric group must be empty")
+				}
 				return nil
 			}
 			if !metricStatus(typed.Status) || !metricScope(typed.Scope) || !metricUnit(typed.Unit) || !validText(string(typed.Source), 128, false) || typed.SampledAt.IsZero() {
@@ -99,6 +139,9 @@ func validateValue(value reflect.Value, now time.Time, budget *int) error {
 				return errors.New("metric value must be finite")
 			}
 		case model.Memory:
+			if typed.Status == "" && typed.TotalBytes == nil && typed.UsedBytes == nil && typed.FreeBytes == nil && typed != (model.Memory{}) {
+				return errors.New("unset memory group must be empty")
+			}
 			if typed.Status != "" || typed.TotalBytes != nil || typed.UsedBytes != nil || typed.FreeBytes != nil {
 				if !metricStatus(typed.Status) || !metricScope(typed.Scope) || !validText(string(typed.Source), 128, false) || typed.SampledAt.IsZero() {
 					return errors.New("invalid memory provenance, status or scope")
