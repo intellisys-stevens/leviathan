@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -112,9 +112,8 @@ jobs:
           - chromium-desktop-light
           - chromium-narrow-dark
           - chromium-narrow-light
-    # Concurrent software-rendered tests timed out on the shared Brokkr host.
-    # Keep all four projects independent; native NVIDIA coverage is manual.
-    runs-on: ubuntu-24.04
+    # Separate Brokkr services run the four browser projects concurrently.
+    runs-on: ${{ vars.BROKKR_ENABLED == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","brokkr"]') || 'ubuntu-24.04' }}
     # The full desktop suite takes about 27 minutes with software graphics.
     # Leave room for cold runner setup and retaining failure artifacts.
     timeout-minutes: 45
@@ -128,7 +127,12 @@ jobs:
       - run: npm ci
         working-directory: web
       - name: Install Chromium for dashboard regressions
+        if: runner.environment != 'self-hosted'
         run: npx playwright install --with-deps chromium
+        working-directory: web
+      - name: Install Chromium for this runner
+        if: runner.environment == 'self-hosted'
+        run: npx playwright install chromium
         working-directory: web
       - name: Run dashboard browser regressions
         run: npm run test:e2e -- --project="${{ matrix.project }}" --workers=1
