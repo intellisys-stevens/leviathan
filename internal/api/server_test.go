@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -788,6 +789,22 @@ func TestAlignedHistoryAcceptsBoundedPluginGenerationKeys(t *testing.T) {
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || len(source.alignedRequest) != 1 || source.alignedRequest[0].Entity != entity {
 		t.Fatalf("plugin generation rejected: code=%d body=%s", response.Code, response.Body.String())
+	}
+	// Multiple valid long keys stay in one request: splitting independently
+	// downsampled responses could introduce false gaps when merging them.
+	for i := range 20 {
+		input.Series = append(input.Series, history.SeriesDescriptor{Key: fmt.Sprintf("%d:%s", i, entity), Entity: entity, Metrics: []string{"sm_activity"}})
+	}
+	body, err = json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/history/aligned", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if len(body) <= 256<<10 || response.Code != http.StatusOK || len(source.alignedRequest) != len(input.Series) {
+		t.Fatalf("valid multi-resource request rejected: bytes=%d code=%d", len(body), response.Code)
 	}
 	input.Series[0].Entity = strings.Repeat("x", maxAlignedEntityLength+1)
 	if _, message := server.validateAlignedHistory(input); message == "" {

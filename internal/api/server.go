@@ -176,7 +176,9 @@ func (s *Server) history(writer http.ResponseWriter, request *http.Request) {
 }
 
 const (
-	maxAlignedHistoryBodyBytes   = 256 << 10
+	// Qualified plugin generations can approach 13 KiB in both entity and key.
+	// Keep one bounded request so downsampling sees all requested signals.
+	maxAlignedHistoryBodyBytes   = 9 << 20
 	maxAlignedHistorySeries      = 256
 	maxAlignedMetricsPerSeries   = 16
 	maxAlignedHistoryTotalMetric = 1024

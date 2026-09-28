@@ -86,6 +86,7 @@ paths:
   /api/v1/history/aligned:
     post:
       operationId: getAlignedHistory
+      description: Accepts at most 256 series, 1024 metrics in total, and a 9 MiB JSON body; aligned downsampling applies to all requested signals together.
       summary: Return multiple retained metric series on one shared timestamp set.
       requestBody:
         required: true

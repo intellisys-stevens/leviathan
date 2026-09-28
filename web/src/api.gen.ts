@@ -104,7 +104,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Return multiple retained metric series on one shared timestamp set. */
+        /**
+         * Return multiple retained metric series on one shared timestamp set.
+         * @description Accepts at most 256 series, 1024 metrics in total, and a 9 MiB JSON body; aligned downsampling applies to all requested signals together.
+         */
         post: operations["getAlignedHistory"];
         delete?: never;
         options?: never;
