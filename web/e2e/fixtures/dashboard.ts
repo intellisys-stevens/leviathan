@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import process from 'node:process';
 import { requireNvidiaWebGL, webGLLaunchArgs } from '../hardware-gpu';
 import type { Snapshot } from '../../src/types';
 export { expect, test };
@@ -699,7 +700,11 @@ export function configureDashboardTests({
 }: { initialSnapshot?: Snapshot } = {}) {
   test.use({
     launchOptions: {
-      args: webGLLaunchArgs,
+      args:
+        process.env.BROKKR_RUNNER_NAME &&
+        process.env.PLAYWRIGHT_HARDWARE_GPU !== '1'
+          ? [...webGLLaunchArgs, '--disable-gpu-compositing']
+          : webGLLaunchArgs,
     },
   });
   test.beforeAll(async ({ browser }) => requireNvidiaWebGL(browser));
