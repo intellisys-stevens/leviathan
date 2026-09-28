@@ -95,7 +95,7 @@
 }
 .motherboard-category-heading h2 {
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
 }
 .motherboard-category-title {
   display: inline-flex;

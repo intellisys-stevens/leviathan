@@ -22,6 +22,7 @@
 }
 .gpu-hardware-heading {
   display: flex;
+  flex-wrap: wrap;
   grid-column: 1 / -1;
   min-width: 0;
   gap: 8px;

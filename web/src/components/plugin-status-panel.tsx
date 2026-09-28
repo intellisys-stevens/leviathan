@@ -15,7 +15,7 @@ export function PluginStatusPanel() {
       className="frost-panel min-w-0 border border-border/75 bg-card/90"
       aria-labelledby="plugins-heading"
     >
-      <header className="flex items-center justify-between gap-3 border-b border-border/70 p-4">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 p-4">
         <h2
           id="plugins-heading"
           className="text-xl font-semibold tracking-[-0.018em]"

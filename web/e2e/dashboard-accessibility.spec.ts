@@ -607,7 +607,7 @@ test.describe('whole-machine layouts retain readable controls at 200 percent tex
           // Perimeter light extends past the control; visible text must still fit.
           const clipped = await page
             .locator(
-              '.host-capacity-card, .assignment-status, [data-testid="process-card"] dl, .health-history-heading',
+              '.host-capacity-card, .assignment-status, [data-testid="process-card"] dl, .health-history-heading, .gpu-hardware-heading, .motherboard-category-heading h2, [aria-labelledby="plugins-heading"] > header',
             )
             .evaluateAll((elements) =>
               elements.flatMap((element) => {
