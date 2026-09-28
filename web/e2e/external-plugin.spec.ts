@@ -111,13 +111,11 @@ test('external plugin API responses render across Resources, Workloads and Statu
   await expect(page.getByRole('tabpanel')).toContainText('Example owner');
   await expect(page.getByRole('tabpanel')).toContainText('1 workload');
   await expect(page.getByText('Preparing telemetry…')).toHaveCount(0);
-  await page
-    .getByRole('tabpanel')
-    .screenshot({
-      path: info.outputPath('external-plugin-workload.png'),
-      style:
-        '.leviathan-header,.mobile-workbench-nav { visibility: hidden !important; }',
-    });
+  await page.getByRole('tabpanel').screenshot({
+    path: info.outputPath('external-plugin-workload.png'),
+    style:
+      '.leviathan-header,.mobile-workbench-nav { visibility: hidden !important; }',
+  });
 
   await page.getByRole('link', { name: 'Status', exact: true }).click();
   const plugins = page.getByRole('region', { name: 'Plugins', exact: true });
