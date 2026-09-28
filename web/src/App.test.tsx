@@ -385,7 +385,11 @@ function result(
   return {
     snapshot: current,
     connection,
-    error,
+    snapshotError: current ? null : error,
+    streamError: current ? error : null,
+    settingsError: null,
+    retrySnapshot: vi.fn(),
+    retrySettings: vi.fn(),
     history: vi.fn(async (entity: string, metrics: string[]) => ({
       entity,
       metrics,
@@ -435,10 +439,6 @@ function result(
       commit: 'abc1234',
       buildDate: '2026-08-30T12:00:00Z',
     },
-    updateSamplingInterval: vi.fn(async (samplingIntervalMs: number) => ({
-      ...settings,
-      samplingIntervalMs,
-    })),
   };
 }
 
@@ -1054,7 +1054,6 @@ describe('Leviathan dashboard states', () => {
       expect(within(status).getByRole('radio', { name: '1s' })).toBeChecked();
     }
     expect(localStorage.getItem('leviathan.displayCadence.v1')).toBe('1000');
-    expect(dashboard.updateSamplingInterval).not.toHaveBeenCalled();
   });
 
   it('opens and dismisses the accessible mobile view-update popover', async () => {
@@ -1082,7 +1081,6 @@ describe('Leviathan dashboard states', () => {
     expect(mockUseLeviathan).toHaveBeenLastCalledWith(2000);
     expect(within(choices).getByRole('radio', { name: '2s' })).toBeChecked();
     expect(localStorage.getItem('leviathan.displayCadence.v1')).toBe('2000');
-    expect(dashboard.updateSamplingInterval).not.toHaveBeenCalled();
 
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -1528,7 +1526,6 @@ describe('Leviathan dashboard states', () => {
           screen.getByRole('radiogroup', { name: 'View updates' }),
         ).getByRole('radio', { checked: true }),
       ).toHaveAttribute('value', String(expected));
-      expect(dashboard.updateSamplingInterval).not.toHaveBeenCalled();
     },
   );
 

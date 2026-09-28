@@ -453,21 +453,15 @@ export function App() {
   const [displayCadenceMs, setDisplayCadenceMs] =
     useState(storedDisplayCadence);
   const leviathan = useLeviathan(displayCadenceMs);
+  const { snapshot, connection, history, alignedHistory, settings, buildInfo } =
+    leviathan;
   const {
-    snapshot,
-    connection,
-    error: legacyError,
-    history,
-    alignedHistory,
-    settings,
-    buildInfo,
+    snapshotError,
+    streamError,
+    settingsError,
+    retrySnapshot,
+    retrySettings,
   } = leviathan;
-  const snapshotError =
-    leviathan.snapshotError ?? (!snapshot ? legacyError : null);
-  const streamError = leviathan.streamError ?? (snapshot ? legacyError : null);
-  const settingsError = leviathan.settingsError ?? null;
-  const retrySnapshot = leviathan.retrySnapshot ?? (() => undefined);
-  const retrySettings = leviathan.retrySettings ?? (() => undefined);
   const [initialHash] = useState(() => window.location.hash);
   const pendingOperationsFocusRef = useRef<OperationsFocus | null>(
     operationsFocusForHash(initialHash),

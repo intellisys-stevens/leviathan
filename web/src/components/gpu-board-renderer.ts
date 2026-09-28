@@ -1,13 +1,11 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import type { BoardRegion } from './gpu-board-model';
 import {
   createHardwareScene,
   resolveHardwarePick,
   type HardwareScene,
   type HardwareSceneModel,
 } from './hardware-scene';
-import type { GPUChipAppearance } from './gpu-chip-appearance';
 import {
   particleBudgets,
   VISIBLE_PARTICLE_LIMIT,
@@ -19,11 +17,11 @@ export type BoardViewState = {
   canZoomIn: boolean;
   canZoomOut: boolean;
 };
-export type BoardViewOptions = {
-  gpuKey: string;
+export type HardwareBoardViewOptions = {
+  sceneKey: string;
   topologyKey: string;
-  regions: readonly BoardRegion[];
-  appearances?: readonly GPUChipAppearance[];
+  scene: HardwareScene;
+  selectedId: string | null;
   theme: 'dark' | 'light';
   highlightedId: string | null;
   interactive: boolean;
@@ -31,21 +29,6 @@ export type BoardViewOptions = {
   onSelect: (id: string) => void;
   onRenderMode: (mode: 'webgl' | 'fallback') => void;
   onViewState: (state: BoardViewState) => void;
-};
-export type BoardViewHandle = {
-  update: (options: BoardViewOptions) => void;
-  zoom: (direction: 'in' | 'out') => void;
-  focusChip: () => void;
-  reset: () => void;
-  dispose: () => void;
-};
-export type HardwareBoardViewOptions = Omit<
-  BoardViewOptions,
-  'gpuKey' | 'regions' | 'appearances'
-> & {
-  sceneKey: string;
-  scene: HardwareScene;
-  selectedId: string | null;
 };
 export type HardwareBoardViewHandle = {
   update: (options: HardwareBoardViewOptions) => void;
@@ -1129,34 +1112,4 @@ export function registerHardwareBoardView(
 ): HardwareBoardViewHandle {
   shared ??= new HardwareBoardRenderer();
   return shared.add(element, options);
-}
-
-/** Preserve the GPU bridge and chip-focus defaults while sharing all scenes. */
-export function registerGPUBoardView(
-  element: HTMLElement,
-  options: BoardViewOptions,
-): BoardViewHandle {
-  let focus = 'chip';
-  const convert = (next: BoardViewOptions): HardwareBoardViewOptions => ({
-    ...next,
-    sceneKey: next.gpuKey,
-    scene: {
-      kind: 'gpu',
-      regions: next.regions,
-      appearances: next.appearances,
-    },
-    selectedId: null,
-    onViewState: (state) => {
-      focus = state.focus;
-      next.onViewState(state);
-    },
-  });
-  const handle = registerHardwareBoardView(element, convert(options));
-  return {
-    update: (next) => handle.update(convert(next)),
-    zoom: handle.zoom,
-    focusChip: () => handle.focus(focus === 'chip' ? 'board' : 'chip'),
-    reset: handle.reset,
-    dispose: handle.dispose,
-  };
 }
