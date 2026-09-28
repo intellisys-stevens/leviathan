@@ -2,6 +2,7 @@
 
 import AxeBuilder from '@axe-core/playwright';
 import { platform } from 'node:os';
+import process from 'node:process';
 import { expect, test, type Page } from '@playwright/test';
 import type { components } from '../src/api.gen';
 import type { AlignedHistoryRequest, Snapshot } from '../src/types';
@@ -790,7 +791,12 @@ test('new owner and Status panels have reviewed Linux visual baselines', async (
   });
   await expect(page.getByTestId('person-card')).toHaveScreenshot(
     'owner-host-resources.png',
-    { animations: 'disabled' },
+    {
+      animations: 'disabled',
+      // NVIDIA rasterization differs at one curved edge pixel of the storage
+      // icon. Keep the reviewed baseline and exact software-rendered comparison.
+      maxDiffPixels: process.env.PLAYWRIGHT_HARDWARE_GPU === '1' ? 1 : 0,
+    },
   );
   await openStatus(page);
   await page.addStyleTag({
