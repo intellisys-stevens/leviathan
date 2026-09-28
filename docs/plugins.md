@@ -102,7 +102,10 @@ browser API remains loopback-only; its schema is in [OpenAPI](../api/openapi.yam
 
 ## Implement the protocol
 
-A plugin exposes HTTP over a local Unix socket:
+A plugin exposes HTTP over a local Unix socket. The portable
+[OpenAPI contract](../api/plugin-v1.yaml) defines manifests, capability payloads,
+and source-local references. The SDK additionally checks stateful revision
+ordering and freshness; the monitor resolves resource joins.
 
 | Request | Response |
 | --- | --- |
