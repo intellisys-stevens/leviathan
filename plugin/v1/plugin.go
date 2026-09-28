@@ -66,6 +66,7 @@ type Source interface {
 }
 
 // ResourceRef names a resource owned by a configured producer instance.
+// ID and Generation remain local to that producer, including embedded slashes.
 // Generation distinguishes replaced resources that reuse the same ID.
 type ResourceRef struct {
 	InstanceID string `json:"instance_id"`
@@ -97,6 +98,10 @@ type ProcessData struct {
 	Diagnostics []model.Diagnostic  `json:"diagnostics,omitempty"`
 }
 
+// Owner defines a source-local owner. WorkloadRefs are references, resolved
+// against the complete inventory: a local definition or an explicitly named
+// definition from another instance. If both distinct candidates exist, the
+// runtime withholds the ambiguous join rather than choosing by arrival order.
 type Owner struct {
 	Ref          string                 `json:"ref"`
 	Name         string                 `json:"name"`
@@ -104,6 +109,8 @@ type Owner struct {
 	WorkloadRefs []string               `json:"workload_refs"`
 }
 
+// ScopeAssignment uses the same inventory resolution for WorkloadRef and
+// OwnerRef. A slash alone does not prove that a reference names another source.
 type ScopeAssignment struct {
 	ScopeRef    string `json:"scope_ref"`
 	WorkloadRef string `json:"workload_ref"`
@@ -116,6 +123,9 @@ type InventoryData struct {
 	Scopes    []ScopeAssignment           `json:"scopes,omitempty"`
 }
 
+// Assignment references a workload using complete-inventory resolution and
+// names its resource producer explicitly. Definitions in AllocationData.Workloads
+// remain source-local; they cannot claim another producer's namespace.
 type Assignment struct {
 	WorkloadRef string                     `json:"workload_ref"`
 	Resource    ResourceRef                `json:"resource"`

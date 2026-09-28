@@ -73,8 +73,12 @@ components:
       minLength: 1
       maxLength: 512
       description: >-
-        A bare reference names this producer's definition. An explicit instance/id reference names
-        another producer's definition. Use ResourceRef for GPU targets.
+        Resolve against the complete inventory. The producer-local definition is
+        one candidate; an existing fully qualified instance/id definition owned
+        by another producer is another candidate. Exactly one distinct candidate
+        resolves. If both exist, the join is ambiguous and withheld; if neither
+        exists, it remains unresolved. A slash alone does not prove another
+        producer owns the definition. GPU targets use explicit ResourceRef instead.
     Manifest:
       type: object
       required: ["protocol_version","id","version","capabilities"]
