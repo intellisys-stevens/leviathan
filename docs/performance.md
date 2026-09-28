@@ -117,3 +117,24 @@ candidate for reuse within one sampling pass. That path has not been benchmarked
 here, so it remains unchanged. Measure representative Pod counts and overlapping
 device graphs before adding a cache; preserve unknown/ambiguous accounting and
 device-replacement detection between passes.
+
+## Shared snapshot encoding
+
+`BenchmarkSnapshotEncoding` uses the same default fake-provider snapshot and
+normalization for both paths, with 16 readers per snapshot sequence. Five runs
+on September 28 used Go 1.27.0, Darwin/arm64, and the Apple M1 Pro:
+
+| Path | Median per reader | Range | Allocated bytes | Allocations |
+| --- | --- | --- | --- | --- |
+| Encode for every reader | 49.9 µs | 47.5–64.2 µs | 40,595–40,644 | 188 |
+| Share one encoding per sequence | 3.08 µs | 3.05–3.17 µs | 2,537–2,541 | 11 |
+
+The shared path retains one immutable JSON document, up to 4 MiB. Unversioned
+snapshots bypass caching, and an old reader cannot evict the current sequence.
+These are amortized encoding costs under this reader pattern, not HTTP/SSE
+throughput, network latency, or whole-monitor CPU measurements. Host-load timing
+variance is visible above; allocation counts were stable. Repeat with:
+
+```bash
+go test ./internal/api -run '^$' -bench BenchmarkSnapshotEncoding -benchmem -count=5
+```
