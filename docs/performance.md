@@ -26,6 +26,36 @@ light-theme p95 was 9.0 ms with a 127.3 ms tail spike. These historical results
 used macOS Darwin 25.6 arm64, Headless Chrome 151, 1280×900, and DPR 1. They do
 not establish performance of the current source or eliminate tail latency.
 
+### September 28 production check
+
+The [dense tooltip fixture](../web/e2e/tooltip-v041.spec.ts) ran at 1280×900,
+DPR 1, a five-minute chart window, reduced motion, and one worker. Both production
+builds used Node 24.20.0, Vite 8.2.2, and React 19.2.8 on an Apple M1 Pro with ten
+logical CPUs. The Docker comparison uses baseline `0917e07` and frontend
+`6e83f05`, Playwright 1.62.1, Chrome 151.0.7922.34, and the ARM64 image
+`mcr.microsoft.com/playwright:v1.62.1-noble` (digest `dcc5531e9784`). Its runtime
+is Ubuntu 24.04.4, LinuxKit 7.0.12, Node 24.18.1. The separate native check uses
+the same final bundle, fixture, Playwright, and Chrome versions on macOS 26.6.2
+(25G83), ARM64, Node 24.20.0.
+
+| Runtime / revision | Theme | Samples | Median | p95 | Maximum | Tooltip rectangle reads |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Docker / before | Dark | 119 | 36.0 ms | 160.2 ms | 226.8 ms | 14 |
+| Docker / after | Dark | 120 | 25.9 ms | 188.2 ms | 314.3 ms | 19 |
+| Docker / before | Light | 120 | 35.3 ms | 140.5 ms | 166.9 ms | 11 |
+| Docker / after | Light | 119 | 30.7 ms | 143.1 ms | 200.8 ms | 11 |
+| Native / after | Dark | 120 | 6.4 ms | 10.0 ms | 147.6 ms | 10 |
+| Native / after | Light | 120 | 6.3 ms | 10.5 ms | 131.4 ms | 10 |
+
+All runs recorded zero hidden tooltip frames. Both Docker revisions failed the
+unchanged p95 < 50 ms budget; both native cases passed, including resize and scroll
+checks. These single runs establish no refactor speedup. The native result is a
+separate absolute-budget check, not a before/after comparison. The same bundle's
+runtime gap suggests an environment contribution, but does not isolate its cause;
+other local tasks produced intermittent CPU load. Maximum delays still exceed
+130 ms on native macOS. Retained Playwright reports and their JSON attachments
+record these summaries; they do not retain individual pointer-latency samples.
+
 ## GPU capacity and history
 
 ```bash
