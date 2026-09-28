@@ -47,7 +47,7 @@ jobs:
         working-directory: web
       - run: npm run format -- --check
         working-directory: web
-      - run: npm test
+      - run: npm test -- --maxWorkers=1
         working-directory: web
       - run: npm run generate:api
         working-directory: web
