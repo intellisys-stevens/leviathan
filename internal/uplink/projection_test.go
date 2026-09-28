@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 const testStreamID = "AAAAAAAAAAAAAAAAAAAAAA"

@@ -21,13 +21,13 @@ import (
 	"github.com/intellisys-stevens/leviathan/internal/doctor"
 	"github.com/intellisys-stevens/leviathan/internal/gpucapacity"
 	"github.com/intellisys-stevens/leviathan/internal/health"
-	"github.com/intellisys-stevens/leviathan/internal/model"
 	"github.com/intellisys-stevens/leviathan/internal/render"
 	systemtelemetry "github.com/intellisys-stevens/leviathan/internal/system"
 	"github.com/intellisys-stevens/leviathan/internal/tui"
 	"github.com/intellisys-stevens/leviathan/internal/uplink"
 	"github.com/intellisys-stevens/leviathan/internal/webui"
 	"github.com/intellisys-stevens/leviathan/internal/workload"
+	"github.com/intellisys-stevens/leviathan/model"
 	"github.com/spf13/cobra"
 )
 

@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/leviathan/internal/model"
 	providerpkg "github.com/intellisys-stevens/leviathan/internal/provider"
 	"github.com/intellisys-stevens/leviathan/internal/provider/fake"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 type systemSamplerFunc func(context.Context, time.Time) (model.System, []model.Diagnostic, error)

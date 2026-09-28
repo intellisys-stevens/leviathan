@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/intellisys-stevens/leviathan/internal/attribution"
+	"github.com/intellisys-stevens/leviathan/adapters/kubernetes/attribution"
 	"github.com/intellisys-stevens/leviathan/internal/gpucapacity"
 )
 

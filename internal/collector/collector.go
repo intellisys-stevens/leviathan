@@ -14,10 +14,10 @@ import (
 
 	"github.com/intellisys-stevens/leviathan/internal/health"
 	"github.com/intellisys-stevens/leviathan/internal/history"
-	"github.com/intellisys-stevens/leviathan/internal/model"
 	"github.com/intellisys-stevens/leviathan/internal/provider"
 	systemtelemetry "github.com/intellisys-stevens/leviathan/internal/system"
 	"github.com/intellisys-stevens/leviathan/internal/workload"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 type Engine struct {

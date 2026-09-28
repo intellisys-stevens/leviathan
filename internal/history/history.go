@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 type Point struct {

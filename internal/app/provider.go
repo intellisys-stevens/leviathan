@@ -3,7 +3,7 @@ package app
 import (
 	"time"
 
-	"github.com/intellisys-stevens/leviathan/internal/attribution"
+	"github.com/intellisys-stevens/leviathan/adapters/kubernetes/attribution"
 	"github.com/intellisys-stevens/leviathan/internal/config"
 	workspaceprocess "github.com/intellisys-stevens/leviathan/internal/process"
 	"github.com/intellisys-stevens/leviathan/internal/provider"

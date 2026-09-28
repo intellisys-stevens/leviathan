@@ -6,7 +6,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 func SnapshotTable(writer io.Writer, snapshot model.Snapshot, ascii bool) {

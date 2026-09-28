@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 type bindingPin struct {

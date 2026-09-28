@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 const testClaimUID = "11111111-2222-3333-4444-555555555555"

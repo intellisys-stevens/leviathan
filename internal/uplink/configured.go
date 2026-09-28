@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 // Configuration is the minimal serve-owned configuration needed to assemble

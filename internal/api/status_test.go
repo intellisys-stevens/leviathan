@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/intellisys-stevens/leviathan/internal/health"
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 func TestStatusAvailableBeforeFirstSnapshot(t *testing.T) {

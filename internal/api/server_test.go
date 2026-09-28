@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/intellisys-stevens/leviathan/internal/history"
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 type stubSource struct {

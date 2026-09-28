@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/intellisys-stevens/leviathan/internal/model"
 	"github.com/intellisys-stevens/leviathan/internal/provider"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 // Provider decorates telemetry with the latest optional attribution inventory.

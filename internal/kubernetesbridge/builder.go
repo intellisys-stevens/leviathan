@@ -10,8 +10,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/intellisys-stevens/leviathan/internal/attribution"
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/adapters/kubernetes/attribution"
+	"github.com/intellisys-stevens/leviathan/model"
 	resourcev1 "k8s.io/api/resource/v1"
 )
 

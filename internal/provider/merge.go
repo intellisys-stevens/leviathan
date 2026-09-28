@@ -1,6 +1,6 @@
 package provider
 
-import "github.com/intellisys-stevens/leviathan/internal/model"
+import "github.com/intellisys-stevens/leviathan/model"
 
 var sourceRank = map[model.MetricSource]int{
 	model.SourceSynthetic: 0,

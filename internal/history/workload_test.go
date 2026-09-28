@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 func ownerSnapshot(at time.Time, ref string, value *float64) model.Snapshot {

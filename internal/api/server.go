@@ -18,7 +18,7 @@ import (
 	"github.com/intellisys-stevens/leviathan/internal/gpucapacity"
 	"github.com/intellisys-stevens/leviathan/internal/health"
 	"github.com/intellisys-stevens/leviathan/internal/history"
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 type DataSource interface {
@@ -80,7 +80,10 @@ func NewServer(source DataSource, assets fs.FS, buildInfo model.BuildInfo, statu
 // Kubernetes data to immutable snapshots or the versioned uplink contract.
 func (s *Server) WithGPUCapacity(source interface {
 	Read(context.Context, time.Time) (gpucapacity.Document, error)
-}) *Server { s.capacitySource = source; return s }
+}) *Server {
+	s.capacitySource = source
+	return s
+}
 
 func (s *Server) gpuCapacity(writer http.ResponseWriter, request *http.Request) {
 	document := gpucapacity.Unavailable("Live GPU capacity is unavailable; configure the local DRA bridge")

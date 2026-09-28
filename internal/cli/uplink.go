@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/intellisys-stevens/leviathan/internal/config"
-	"github.com/intellisys-stevens/leviathan/internal/model"
 	"github.com/intellisys-stevens/leviathan/internal/uplink"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 // newConfiguredUplink can only subscribe to a caller-owned source. It has no

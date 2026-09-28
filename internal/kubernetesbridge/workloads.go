@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/intellisys-stevens/leviathan/internal/attribution"
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/adapters/kubernetes/attribution"
 	"github.com/intellisys-stevens/leviathan/internal/workload"
+	"github.com/intellisys-stevens/leviathan/model"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
