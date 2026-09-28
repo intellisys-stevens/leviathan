@@ -95,6 +95,8 @@ func observationStatus(status model.MetricStatus) string {
 		return "stale"
 	case model.StatusError:
 		return "error"
+	case model.StatusUnsupported:
+		return "unsupported"
 	default:
 		return "unavailable"
 	}
