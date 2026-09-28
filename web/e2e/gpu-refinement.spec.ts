@@ -1996,7 +1996,12 @@ test('motherboard glow reflects measured CPU and memory occupancy while unavaila
     await expectCameraNear(view, initialCamera);
     await expect(view).toHaveScreenshot(
       `motherboard-utilization-${value}.png`,
-      { animations: 'disabled', maxDiffPixelRatio: 0.002 },
+      {
+        animations: 'disabled',
+        // Keep the existing proportional allowance for this capture.
+        maxDiffPixels: undefined,
+        maxDiffPixelRatio: 0.002,
+      },
     );
   }
   expect(intensities[0]).toBeLessThan(intensities[1]);

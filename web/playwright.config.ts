@@ -14,6 +14,14 @@ export default defineConfig({
   forbidOnly: true,
   retries: 0,
   reporter: 'list',
+  expect: {
+    toHaveScreenshot: {
+      // Reviewed NVIDIA captures differ by at most three rasterized edge pixels
+      // in icons and WebGL boards. Preserve the software baselines and threshold.
+      maxDiffPixels:
+        process.env.PLAYWRIGHT_HARDWARE_GPU === '1' ? 3 : undefined,
+    },
+  },
   use: {
     baseURL,
     browserName: 'chromium',
