@@ -85,7 +85,7 @@ try {
       ['--query-gpu=uuid,utilization.gpu', '--format=csv,noheader,nounits'],
       { timeout: 5000 },
     );
-    // This guest must have exactly the approved passed-through GPU.
+    // Brokkr provides one shared NVIDIA GPU.
     const rows = stdout.trim().split('\n');
     if (rows.length !== 1) throw new Error('Expected exactly one NVIDIA GPU');
     const [uuid, value] = rows[0].split(',').map((part) => part.trim());
