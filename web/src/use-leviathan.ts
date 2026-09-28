@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { fetchAlignedHistory } from './aligned-history-request';
 import {
   normalizeSnapshot,
   shareStableSnapshot,
   type SnapshotPayload,
 } from './snapshot';
 import type {
-  AlignedHistory,
-  AlignedHistoryRequest,
   BuildInfo,
   HistorySeries,
   RuntimeSettings,
@@ -332,21 +331,6 @@ export function useLeviathan(displayCadenceMs = 0) {
     [],
   );
 
-  const alignedHistory = useCallback(
-    async (request: AlignedHistoryRequest): Promise<AlignedHistory> => {
-      const response = await fetch('/api/v1/history/aligned', {
-        method: 'POST',
-        cache: 'no-store',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request),
-      });
-      if (!response.ok)
-        throw new Error(`Aligned history request failed (${response.status})`);
-      return response.json() as Promise<AlignedHistory>;
-    },
-    [],
-  );
-
   return {
     snapshot,
     connection,
@@ -356,7 +340,7 @@ export function useLeviathan(displayCadenceMs = 0) {
     retrySnapshot,
     retrySettings,
     history,
-    alignedHistory,
+    alignedHistory: fetchAlignedHistory,
     settings,
     buildInfo,
   };
