@@ -87,6 +87,14 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: npx playwright install chromium
         working-directory: web
+      # Keep each software renderer from spawning a host-sized worker pool.
+      - name: Limit SwiftShader threads on Brokkr
+        if: runner.environment == 'self-hosted'
+        run: |
+          for browser_dir in "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux64 "$HOME"/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64; do
+            test -d "$browser_dir" || continue
+            printf '[Processor]\nThreadCount=1\n' > "$browser_dir/SwiftShader.ini"
+          done
       # Separate runner services execute the four browser projects in parallel.
       - name: Run dashboard browser regressions
         run: npm run test:e2e -- --project="${{ matrix.project }}" --workers=1
