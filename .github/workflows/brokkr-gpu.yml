@@ -14,11 +14,6 @@ on:
           - chromium-desktop-light
           - chromium-narrow-dark
           - chromium-narrow-light
-      probe:
-        description: Queue one selected project for the explicit Brokkr GPU probe
-        type: boolean
-        required: true
-        default: false
 
 permissions:
   contents: read
@@ -26,11 +21,7 @@ permissions:
 jobs:
   hardware-browser:
     # Additional, manual coverage. Required software-rendered CI stays unchanged.
-    if: >-
-      github.event_name == 'workflow_dispatch' &&
-      contains(fromJSON('["all","chromium-desktop-dark","chromium-desktop-light","chromium-narrow-dark","chromium-narrow-light"]'), inputs.project) &&
-      ((inputs.probe == true && inputs.project != 'all') ||
-       (inputs.probe != true && vars.BROKKR_ENABLED == 'true' && vars.BROKKR_GPU_ENABLED == 'true'))
+    if: vars.BROKKR_ENABLED == 'true' && vars.BROKKR_GPU_ENABLED == 'true' && github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -44,14 +35,8 @@ jobs:
             inputs.project == 'chromium-narrow-light' && fromJSON('["chromium-narrow-light"]') ||
             fromJSON('[]')
           }}
-    # Hardware reruns still require Brokkr's GPU; never substitute hosted CPU tests.
-    runs-on: >-
-      ${{
-        inputs.probe == true &&
-        fromJSON(format('["self-hosted","linux","x64","brokkr","brokkr-gpu","brokkr-gpu-probe","brokkr-{0}-{1}-hardware-browser-{2}"]', github.run_id, github.run_attempt, matrix.project)) ||
-        fromJSON(format('["self-hosted","linux","x64","brokkr","brokkr-gpu","brokkr-{0}-{1}-hardware-browser-{2}"]', github.run_id, github.run_attempt, matrix.project))
-      }}
-    timeout-minutes: 60
+    runs-on: [self-hosted, linux, x64, brokkr, brokkr-gpu]
+    timeout-minutes: 75
     env:
       PLAYWRIGHT_HARDWARE_GPU: "1"
       VK_DRIVER_FILES: /usr/share/vulkan/icd.d/nvidia_icd.json
@@ -70,14 +55,15 @@ jobs:
         working-directory: web
       - name: Check NVIDIA Vulkan ICD
         run: test -r "$VK_DRIVER_FILES"
-      - name: Verify NVIDIA WebGL rendering and GPU activity
-        run: node scripts/check-hardware-gpu.mjs
-        working-directory: web
-      - name: Show hardware GPU evidence
-        run: cat hardware-gpu.json
-        working-directory: web
-      - name: Run unchanged browser assertions
-        run: npm run test:e2e -- --project="${{ matrix.project }}" --workers=1
+      - name: Verify NVIDIA rendering and run browser assertions
+        env:
+          BROWSER_PROJECT: ${{ matrix.project }}
+        run: |
+          /usr/local/bin/brokkr-gpu-run bash -euo pipefail -c '
+            node scripts/check-hardware-gpu.mjs
+            cat hardware-gpu.json
+            npm run test:e2e -- --project="$BROWSER_PROJECT" --workers=1
+          '
         working-directory: web
       - name: Retain experiment evidence
         if: always()
