@@ -716,7 +716,10 @@ test('resource detail history is inspectable directly by keyboard', async ({
     .click();
   const detail = page.getByTestId('detail-sheet');
   const detailPlot = detail.locator('figure').first();
-  await expect(detailPlot.locator('.recharts-wrapper')).toBeVisible();
+  // Wait for the lazy panel and chart before testing keyboard interaction.
+  await expect(detailPlot.locator('.recharts-wrapper')).toBeVisible({
+    timeout: 20_000,
+  });
   await detailPlot.focus();
   await page.keyboard.press('Home');
   await expect(

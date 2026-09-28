@@ -466,6 +466,9 @@ test('opens Workloads details through resource whitespace', async ({
 test('removes a closed detail sheet when its exit animation stalls', async ({
   page,
 }) => {
+  // Reloading and opening two WebGL scenes can consume the ordinary test
+  // budget under software graphics. The fallback itself stays clock-bounded.
+  test.setTimeout(120_000);
   await page.clock.install();
   await page.reload();
   await page.getByRole('link', { name: 'Resources' }).click();
