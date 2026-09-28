@@ -59,3 +59,16 @@ func TestNativeSourcePreservesAvailabilityAndCachedSourceTime(t *testing.T) {
 		}
 	}
 }
+
+func TestNativeSourceRejectsMissingSourceTime(t *testing.T) {
+	source := newNative("bridge", "test", v1.GPUCapacity)
+	source.read = func(context.Context, v1.Capability, time.Time) (v1.Observation, error) {
+		return v1.Observation{Status: "unavailable"}, nil
+	}
+	for i := range 2 {
+		observation, err := source.Read(context.Background(), v1.GPUCapacity, time.Now().Add(time.Duration(i)*time.Second))
+		if err == nil || !observation.ObservedAt.IsZero() || source.revisions[v1.GPUCapacity] != 0 {
+			t.Fatalf("missing source time became a new observation: %+v error=%v", observation, err)
+		}
+	}
+}

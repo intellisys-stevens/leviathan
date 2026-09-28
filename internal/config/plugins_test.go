@@ -49,3 +49,19 @@ func TestPluginDefaultsPreserveWorkloadOptIn(t *testing.T) {
 		t.Fatalf("explicit composition = %+v", got)
 	}
 }
+
+func TestDefaultCompositionUsesValidatedIndependentProcessInterval(t *testing.T) {
+	cfg := Defaults()
+	if err := Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range PluginComposition(cfg) {
+		if source.Builtin == "processes" && source.SamplingInterval(cfg.Interval) != cfg.ProcessInterval {
+			t.Fatal("default process cadence changed")
+		}
+	}
+	cfg.ProcessInterval = 0
+	if err := Validate(cfg); err == nil {
+		t.Fatal("legacy zero interval unexpectedly valid")
+	}
+}

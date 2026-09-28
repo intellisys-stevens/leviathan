@@ -13,7 +13,7 @@ Build a separate plugin executable from the repository root:
 ```bash
 go build -o bin/fixture-plugin ./examples/fixture-plugin
 go build -o bin/leviathan ./cmd/leviathan
-mkdir -p /tmp/leviathan-plugin-example
+install -d -m 700 /tmp/leviathan-plugin-example
 bin/fixture-plugin --socket /tmp/leviathan-plugin-example/plugin.sock --id example
 ```
 
@@ -154,7 +154,9 @@ systemd or Kubernetes starts, restarts, and upgrades each plugin. Leviathan only
 connects to configured sockets; it does not download, execute, or supervise a
 binary. In systemd, place the socket in a service-owned runtime directory. In
 Kubernetes, mount a shared socket directory into the plugin and monitor, keeping
-cluster credentials with the adapter. The example creates a `0600` socket, so
+cluster credentials with the adapter. Create the socket directory with mode `0700` before starting the server; this
+protects the brief bind-before-chmod step even with a permissive process umask.
+The example creates a `0600` socket, so
 run both processes with the same effective user or deliberately provide another
 socket permission policy in your server.
 

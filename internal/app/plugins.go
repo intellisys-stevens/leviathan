@@ -62,7 +62,7 @@ func (s *nativeSource) Read(ctx context.Context, capability v1.Capability, at ti
 	defer s.mu.Unlock()
 	observation.InstanceID, observation.SessionID, observation.Capability = s.id, s.session, capability
 	if observation.ObservedAt.IsZero() {
-		observation.ObservedAt = at
+		return v1.Observation{}, fmt.Errorf("%s did not report a source observation timestamp", s.id)
 	}
 	if s.revisions[capability] == 0 || !s.timestamps[capability].Equal(observation.ObservedAt) {
 		s.revisions[capability]++
