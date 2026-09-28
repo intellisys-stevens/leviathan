@@ -2,8 +2,8 @@
 # Build the real agent and exercise enrollment, renewal, and uplink against
 # Yggdrasil's central receiver. All processes and state stay in the container.
 set -eu
-repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-yggdrasil_root=$(CDPATH= cd -- "${1:-$repo_root/../yggdrasil}" && pwd)
+repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+yggdrasil_root=$(CDPATH='' cd -- "${1:-$repo_root/../yggdrasil}" && pwd)
 output=$(mktemp -d "${TMPDIR:-/tmp}/leviathan-enrollment.XXXXXX")
 trap 'rm -rf "$output"' EXIT HUP INT TERM
 module_cache=$(go env GOMODCACHE)
