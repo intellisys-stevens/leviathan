@@ -39,7 +39,6 @@ jobs:
           test "$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)",$/\1/p' web/package-lock.json | sed -n '1p')" = "$version"
           test "$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)",$/\1/p' web/package-lock.json | sed -n '2p')" = "$version"
           grep -Fxq -- "  --version $version \\" docs/kubernetes-attribution.md
-          scripts/verify-branding.sh
           scripts/verify-release-metadata.sh "$version"
           source_epoch=$(git log -1 --format=%ct)
           build_date=$(date -u -d "@$source_epoch" +%Y-%m-%dT%H:%M:%SZ)
@@ -67,11 +66,11 @@ jobs:
       - uses: azure/setup-helm@v5
         with:
           version: v3.18.6
-      - name: Test and vet attribution components
+      - name: Test and vet Go components and installer behavior
         run: |
-          go test ./cmd/leviathan-kubernetes-bridge ./internal/attribution ./internal/kubernetesbridge
-          go vet ./cmd/leviathan-kubernetes-bridge ./internal/attribution ./internal/kubernetesbridge
-          go test ./cmd/leviathan-update-manifest ./cmd/leviathan-updater ./internal/updater ./internal/updateprotocol
+          go test ./...
+          go vet ./...
+          python3 scripts/ci_test.py
           python3 scripts/bootstrap-updater-test.py
           scripts/install_test.sh
           python3 scripts/release-installer-test.py

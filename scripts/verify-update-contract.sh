@@ -20,4 +20,3 @@ if [ -d "$repo_root/internal/updateprotocol/cmd/contractgen" ]; then
   cmp "$temporary/api/agent-updates-v1-openapi.json" "$repo_root/api/agent-updates-v1-openapi.json"
   cmp "$temporary/internal/updateprotocol/testdata/release-v1.golden.json" "$repo_root/internal/updateprotocol/testdata/release-v1.golden.json"
 fi
-(cd "$repo_root" && go test ./internal/updateprotocol)

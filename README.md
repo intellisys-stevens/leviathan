@@ -27,7 +27,8 @@ scheduler-authoritative workspace assignments.
 - Optional Coder/Kubernetes attribution and [per-owner resource charts](docs/workload-telemetry.md).
 - Twelve-hour telemetry history and 90-day persistent health records.
 
-Unreleased source changes add [live GPU allocation capacity](docs/kubernetes-attribution.md#live-gpu-capacity),
+Unreleased source changes add [environment plugins](docs/plugins.md),
+[live GPU allocation capacity](docs/kubernetes-attribution.md#live-gpu-capacity),
 hardware activity effects, and chart hover improvements. These features are not
 included in the published v0.4.1 installer below; see [Development](#development)
 to build from source.
@@ -124,13 +125,14 @@ credential file.
 | Browser workbench | [docs/browser-workbench.md](docs/browser-workbench.md) |
 | Deployment and remote access | [docs/deployment.md](docs/deployment.md) |
 | Architecture and metric semantics | [docs/architecture.md](docs/architecture.md) |
+| Plugin configuration, protocol, and migration | [docs/plugins.md](docs/plugins.md) |
 | Host CPU, RAM, and storage telemetry | [docs/host-monitoring.md](docs/host-monitoring.md) |
 | Container and process visibility | [docs/permissions.md](docs/permissions.md) |
 | Optional Kubernetes/Coder attribution | [docs/kubernetes-attribution.md](docs/kubernetes-attribution.md) |
 | Yggdrasil telemetry uplink | [docs/uplink-v1.md](docs/uplink-v1.md) |
 | Install and enroll the managed updater | [docs/managed-updates.md](docs/managed-updates.md) |
 | Security and privacy model | [docs/security-and-privacy.md](docs/security-and-privacy.md) |
-| v0.4.1 changes | [CHANGELOG.md](CHANGELOG.md) |
+| Release and unreleased changes | [CHANGELOG.md](CHANGELOG.md) |
 | Upgrade from v0.2.1 | [docs/migration-v0.3.md](docs/migration-v0.3.md) |
 | OpenAPI 3.1 contract | [api/openapi.yaml](api/openapi.yaml) |
 | Yggdrasil-owned uplink contract vendor | [api/uplink-v1-openapi.yaml](api/uplink-v1-openapi.yaml) |
@@ -146,8 +148,9 @@ git clone https://github.com/intellisys-stevens/leviathan.git
 cd leviathan
 make bootstrap
 make generate       # regenerate local API types and uplink DTOs
-make test           # Go, race, vet, frontend, and license checks
-make vulncheck      # Go and npm vulnerability checks
+make check          # static and contract checks
+make test           # deterministic Go/frontend/CI-selection tests
+make build          # bundle and compile
 make soak           # accelerated collector soak
 ```
 

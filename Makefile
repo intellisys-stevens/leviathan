@@ -12,7 +12,7 @@ LDFLAGS := -s -w -X github.com/intellisys-stevens/leviathan/internal/cli.Version
 BRIDGE_LDFLAGS := -s -w -X main.BridgeVersion=$(VERSION)
 UPDATER_LDFLAGS := -X main.Version=$(VERSION) -X github.com/intellisys-stevens/leviathan/internal/updater.ReleasePublicKeys=$(LEVIATHAN_UPDATE_PUBLIC_KEYS)
 
-.PHONY: bootstrap generate generate-uplink-contract check-update-contract check-uplink-contract fmt frontend build build-leviathan build-updater build-update-manifest build-bridge bridge-image branding-check release-metadata-check helm-check helm-package test test-go test-race test-install test-updater-bootstrap license-check vulncheck soak soak-one-hour clean
+.PHONY: bootstrap generate generate-uplink-contract check check-go check-web check-contracts check-release check-update-contract check-uplink-contract fmt frontend build build-leviathan build-updater build-update-manifest build-bridge bridge-image release-metadata-check helm-check helm-package test test-go test-web test-race test-browser test-conformance test-ci test-install test-updater-bootstrap test-systemd license-check vulncheck soak soak-one-hour clean
 
 bootstrap:
 	cd web && $(NPM) ci
@@ -35,14 +35,10 @@ fmt:
 	cd web && $(NPM) run format -- --write
 
 frontend:
-	cd web && $(NPM) audit
-	cd web && $(NPM) run license:check
-	cd web && $(NPM) run lint
-	cd web && $(NPM) run format -- --check
-	cd web && $(NPM) test
 	cd web && $(NPM) run build
 
-build: frontend build-leviathan build-updater build-bridge
+build: frontend
+	$(MAKE) build-leviathan build-updater build-bridge
 
 build-leviathan:
 	mkdir -p bin
@@ -63,9 +59,6 @@ build-update-manifest:
 bridge-image:
 	$(DOCKER) build --file contrib/container/leviathan-kubernetes-bridge.Dockerfile --build-arg VERSION='$(VERSION)' --build-arg COMMIT='$(COMMIT)' --build-arg BUILD_DATE='$(BUILD_DATE)' --tag '$(BRIDGE_IMAGE)' .
 
-branding-check:
-	scripts/verify-branding.sh
-
 release-metadata-check:
 	scripts/verify-release-metadata.sh
 
@@ -78,7 +71,30 @@ helm-package: helm-check
 
 test-go:
 	CGO_CFLAGS='$(CGO_CFLAGS)' $(GO) test ./...
+
+test-web:
+	cd web && $(NPM) test
+
+test-browser:
+	cd web && $(NPM) run test:e2e -- --workers=1
+
+test-conformance:
+	CGO_CFLAGS='$(CGO_CFLAGS)' $(GO) test ./plugin/v1/... ./examples/fixture-plugin/...
+
+test-ci:
+	python3 scripts/ci_test.py
+
+check-go:
 	CGO_CFLAGS='$(CGO_CFLAGS)' $(GO) vet ./...
+
+check-web:
+	cd web && $(NPM) run lint
+	cd web && $(NPM) run format -- --check
+	cd web && $(NPM) exec -- tsc --noEmit
+
+check-contracts: check-update-contract check-uplink-contract
+
+check: check-go check-web check-contracts
 
 test-race:
 	CGO_CFLAGS='$(CGO_CFLAGS)' $(GO) test -race ./...
@@ -92,13 +108,20 @@ test-install:
 test-updater-bootstrap:
 	python3 scripts/bootstrap-updater-test.py
 
+# Requires the exact-source fixture package built by the CI systemd job.
+test-systemd:
+	@test "$${LEVIATHAN_UPDATER_DISPOSABLE_HOST:-}" = 1 || { echo 'Prepare a disposable Linux systemd host and set LEVIATHAN_UPDATER_DISPOSABLE_HOST=1'; exit 1; }
+	/root/updater-package/automatic-setup.test -test.run '^TestSystemdAutomaticSetupAcceptance$$' -test.v -test.timeout=720s
+
 license-check:
 	CGO_CFLAGS='$(CGO_CFLAGS)' $(GO) run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/leviathan --disallowed_types=forbidden,restricted,unknown
 	$(GO) run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/leviathan-kubernetes-bridge --disallowed_types=forbidden,restricted,unknown
 	$(GO) run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/leviathan-updater --disallowed_types=forbidden,restricted,unknown
 	cd web && $(NPM) run license:check
 
-test: check-update-contract check-uplink-contract test-go test-race test-install test-updater-bootstrap frontend branding-check release-metadata-check helm-check license-check
+test: test-go test-web test-ci
+
+check-release: check test test-race test-install test-updater-bootstrap test-browser helm-check release-metadata-check license-check vulncheck
 
 vulncheck:
 	CGO_CFLAGS='$(CGO_CFLAGS)' $(GO) run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...

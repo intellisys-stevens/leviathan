@@ -133,8 +133,8 @@ hardware controls, and capacity refresh recovery. Profile dense live chart hover
 against the same production fixture before comparing latency. Require passing
 CI and a non-publishing release dry run on the final release commit.
 
-The [September 6 validation report](v0.4.1-validation.md) describes the original
-worktree and is historical evidence, not validation of the reconciled source.
+Use the [performance checks](performance.md) to repeat the production-tooltip
+and capacity measurements on the release source.
 
 ## Historical v0.4.1 patch release
 

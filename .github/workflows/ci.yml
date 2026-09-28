@@ -5,19 +5,62 @@ on:
     branches: ["**"]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1"
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      frontend: ${{ steps.select.outputs.frontend }}
+      browser: ${{ steps.select.outputs.browser }}
+      go: ${{ steps.select.outputs.go }}
+      race: ${{ steps.select.outputs.race }}
+      systemd: ${{ steps.select.outputs.systemd }}
+      bridge: ${{ steps.select.outputs.bridge }}
+      distribution: ${{ steps.select.outputs.distribution }}
+      archive: ${{ steps.select.outputs.archive }}
+      security: ${{ steps.select.outputs.security }}
+      expected: ${{ steps.select.outputs.expected }}
+      base: ${{ steps.select.outputs.base }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - run: python3 scripts/ci_test.py
+      - id: select
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python3 scripts/ci.py classify
+      - name: Check patch whitespace
+        env:
+          BASE_SHA: ${{ steps.select.outputs.base }}
+        run: |
+          if [ -n "$BASE_SHA" ]; then
+            git diff --check "$BASE_SHA" HEAD
+          else
+            git show --format= --check HEAD
+          fi
+
   secrets:
+    needs: changes
     runs-on: ${{ vars.BROKKR_ENABLED == 'true' && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && fromJSON(format('["self-hosted","linux","x64","brokkr","brokkr-{0}-{1}-ci-secrets"]', github.run_id, github.run_attempt)) || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Scan Git history for secrets
+      - name: Scan changed commits for secrets (full history in security runs)
         shell: bash
+        env:
+          BASE_SHA: ${{ needs.changes.outputs.base }}
+          FULL_SCAN: ${{ needs.changes.outputs.security }}
         run: |
           set -euo pipefail
           version=8.30.1
@@ -26,9 +69,15 @@ jobs:
             "https://github.com/gitleaks/gitleaks/releases/download/v${version}/${archive}"
           echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  ${archive}" | sha256sum --check --strict
           tar -xzf "${archive}" gitleaks
-          ./gitleaks git --no-banner --redact=100 --log-opts='--all' .
+          revision_range=--all
+          if [ "$FULL_SCAN" != true ] && [ -n "$BASE_SHA" ]; then
+            revision_range="$BASE_SHA..HEAD"
+          fi
+          ./gitleaks git --no-banner --redact=100 --log-opts="$revision_range" .
 
   frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ${{ vars.BROKKR_ENABLED == 'true' && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && fromJSON(format('["self-hosted","linux","x64","brokkr","brokkr-{0}-{1}-ci-frontend"]', github.run_id, github.run_attempt)) || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v7
@@ -38,10 +87,6 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
-        working-directory: web
-      - run: npm audit
-        working-directory: web
-      - run: npm run license:check
         working-directory: web
       - run: npm run lint
         working-directory: web
@@ -57,7 +102,8 @@ jobs:
       - run: git diff --exit-code -- internal/webui/dist
 
   frontend-browser:
-    needs: frontend
+    needs: [changes, frontend]
+    if: needs.changes.outputs.browser == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -103,6 +149,8 @@ jobs:
           retention-days: 7
 
   go:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ${{ vars.BROKKR_ENABLED == 'true' && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && fromJSON(format('["self-hosted","linux","x64","brokkr","brokkr-{0}-{1}-ci-go"]', github.run_id, github.run_attempt)) || 'ubuntu-24.04' }}
     env:
       CGO_CFLAGS: -Wno-deprecated-declarations
@@ -119,18 +167,26 @@ jobs:
       - name: Verify managed update contract and signature vectors
         run: scripts/verify-update-contract.sh
       - run: go test ./...
-      - run: go test -race ./...
       - run: go vet ./...
       - name: Build Kubernetes attribution bridge
         run: make build-bridge VERSION=0.4.1
-      - name: Check Go dependency licenses
-        run: |
-          go run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/leviathan --disallowed_types=forbidden,restricted,unknown
-          go run github.com/google/go-licenses/v2@v2.0.1 check ./cmd/leviathan-kubernetes-bridge --disallowed_types=forbidden,restricted,unknown
-      - name: Check reachable Go vulnerabilities
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+  race:
+    needs: changes
+    if: needs.changes.outputs.race == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      CGO_CFLAGS: -Wno-deprecated-declarations
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - run: make test-race
 
   automatic-setup-systemd:
+    needs: changes
+    if: needs.changes.outputs.systemd == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -204,6 +260,8 @@ jobs:
           if-no-files-found: ignore
 
   bridge-image:
+    needs: changes
+    if: needs.changes.outputs.bridge == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -249,6 +307,8 @@ jobs:
           test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' leviathan-kubernetes-bridge:ci)" = '0.4.1'
 
   distribution-validation:
+    needs: changes
+    if: needs.changes.outputs.distribution == 'true'
     runs-on: ${{ vars.BROKKR_ENABLED == 'true' && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && fromJSON(format('["self-hosted","linux","x64","brokkr","brokkr-{0}-{1}-ci-distribution-validation"]', github.run_id, github.run_attempt)) || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v7
@@ -262,10 +322,8 @@ jobs:
           sudo apt-get install --yes shellcheck
       - name: Check shell scripts
         run: shellcheck scripts/*.sh
-      - name: Verify clean product rename and release metadata
-        run: |
-          scripts/verify-branding.sh
-          scripts/verify-release-metadata.sh 0.4.1
+      - name: Verify release metadata
+        run: scripts/verify-release-metadata.sh 0.4.1
       - name: Test installer
         run: |
           scripts/install_test.sh
@@ -293,7 +351,8 @@ jobs:
           upload-release-assets: false
 
   release-archive-dry-run:
-    needs: distribution-validation
+    needs: [changes, distribution-validation]
+    if: needs.changes.outputs.archive == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -341,3 +400,36 @@ jobs:
           output-file: ${{ runner.temp }}/leviathan-package/leviathan_linux_${{ matrix.architecture }}.spdx.json
           upload-artifact: false
           upload-release-assets: false
+
+  security:
+    needs: changes
+    if: needs.changes.outputs.security == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      CGO_CFLAGS: -Wno-deprecated-declarations
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: make license-check vulncheck
+
+  required:
+    if: always()
+    needs: [changes, secrets, frontend, frontend-browser, go, race, automatic-setup-systemd, bridge-image, distribution-validation, release-archive-dry-run, security]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Require every selected lane to succeed
+        env:
+          EXPECTED_JOBS: ${{ needs.changes.outputs.expected }}
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        run: python3 scripts/ci.py gate

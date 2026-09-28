@@ -2,7 +2,8 @@
 
 ![Leviathan data flow](assets/architecture.svg)
 
-The editable diagram source is `assets/architecture.mmd`.
+The editable diagram source is `assets/architecture.mmd`. It shows the built-in
+monitoring path; the plugin composition below extends that path.
 
 ## Runtime shape
 
@@ -12,18 +13,24 @@ coordinator. The TUI, streaming CLI, HTTP server, history buffer, and optional
 uplink consume those snapshots; they never start another collector. A blocked
 GPU call cannot delay CPU, RAM, or storage publication. Slow consumers receive
 the newest complete snapshot rather than building a queue. An optional
-Kubernetes bridge is a separate least-privilege process and communicates only
-through a configured local Unix socket.
+Kubernetes bridge is a separate process and communicates only through a
+configured local Unix socket.
 
-Each domain loop is synchronous within that domain. Expensive GPM/DCGM entities
-are staggered across ticks, `/proc` GPU-process inventory is cached at its own
-default two-second cadence, and filesystem discovery defaults to ten seconds.
-Cached metrics retain their true sample time and expire to `stale`. If a poll
-takes longer than its interval, the next deadline is advanced past the current
-time, so overlapping calls and accumulated lag are impossible. A GPU provider
-error triggers one immediate full retry. Persistent errors publish a
-retained-topology snapshot whose formerly available dynamic values are `stale`
-and `null`, while the other telemetry domain remains current.
+The unreleased plugin runtime schedules each enabled capability independently
+and assembles its observations into the same snapshot model. Public `model/`
+types describe telemetry; `plugin/v1/` defines transport and compatibility;
+`internal/plugins/` owns scheduling and health; `adapters/kubernetes/` owns
+Kubernetes-specific identity resolution. Built-ins remain the default. External
+plugins are supervised by systemd or Kubernetes and cannot replace an entire
+snapshot. See [plugin configuration and protocol](plugins.md).
+
+Each capability has at most one read in flight. Expensive GPM/DCGM entities
+are staggered across ticks, `/proc` GPU-process inventory defaults to a separate
+two-second cadence, and filesystem discovery defaults to ten seconds. Cached
+metrics retain their true sample time and expire to `stale`. The next capability
+read waits until the previous read has ended, so slow providers cannot accumulate
+overlapping requests. Failed sources retain explanatory topology while their
+dynamic values become stale and null; other capabilities remain independent.
 
 The browser receives every server-sent snapshot. Each browser independently
 chooses whether React commits every sample or only the newest pending snapshot

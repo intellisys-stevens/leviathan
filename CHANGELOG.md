@@ -4,6 +4,10 @@
 
 ### Added
 
+- Versioned external environment plugins use the public telemetry model and
+  independently sampled capabilities, with a non-Coder fixture example.
+- Explicit plugin composition, offline configuration inspection, bounded
+  endpoint checks, structured CLI errors, and `/api/v1/plugins` health reporting.
 - A full-width Live GPU capacity panel above the Resources GPU boards shows
   additional native and MIG allocations feasible for this host. Independent
   read-only Kubernetes DRA state includes reservations from every namespace;
@@ -16,6 +20,12 @@
 
 ### Changed
 
+- Build commands bundle and compile; deterministic checks, tests, specialized
+  integration lanes, and dependency audits are separate. CI selects dependent
+  jobs and rejects an unexpectedly skipped required lane.
+- Public model types and Kubernetes attribution now have explicit package
+  boundaries. Current contributor/agent instructions replace validation diaries
+  and obsolete rename/branding checks.
 - GPU details use a visible labeled control. The motherboard gains a soft edge
   glow and stays centered beside long host details. Its static section headings
   remain accessible navigation targets; Focus board toggles a CPU closeup and

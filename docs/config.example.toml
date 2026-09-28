@@ -54,3 +54,19 @@ interval = "15s"
 enabled = true
 # Override: LEVIATHAN_GPU_CAPACITY_ENABLED. Remove this block before downgrading
 # to released v0.4.1 or an earlier configuration parser.
+
+# Unreleased: an explicit array replaces automatic built-in composition.
+# Keep all sources you need; see plugins.md for an external plugin example.
+# Remove these tables before downgrading to v0.4.1.
+# [[plugins]]
+# id = "host"
+# builtin = "host"
+#
+# [[plugins]]
+# id = "hardware"
+# builtin = "nvidia"
+#
+# [[plugins]]
+# id = "processes"
+# builtin = "processes"
+# interval = "2s"

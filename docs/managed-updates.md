@@ -352,7 +352,8 @@ go test ./cmd/leviathan-update-manifest
 
 ## Validation and operational limits
 
-See [validation evidence](agent-updates-validation.md) before rollout. The
+Use the [native systemd and reboot procedure](generated-updater-acceptance.md)
+to validate the release being deployed. The
 updater reports verification progress only after observing the exact new
 running binary, and reports success only after the sustained health window.
 A `recovery_required` result remains blocked for operator inspection. Local
