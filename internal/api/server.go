@@ -34,6 +34,7 @@ type DataSource interface {
 }
 
 type Server struct {
+	encoding       snapshotEncoder
 	source         DataSource
 	assets         fs.FS
 	buildInfo      model.BuildInfo
@@ -134,7 +135,7 @@ func (s *Server) snapshot(writer http.ResponseWriter, _ *http.Request) {
 		writeError(writer, http.StatusServiceUnavailable, "snapshot not available")
 		return
 	}
-	data, err := json.Marshal(model.NormalizeSnapshot(snapshot))
+	data, err := s.encoding.encode(snapshot)
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, "snapshot encoding failed")
 		return
@@ -391,7 +392,7 @@ func (s *Server) events(writer http.ResponseWriter, request *http.Request) {
 			if !open {
 				return
 			}
-			data, err := json.Marshal(model.NormalizeSnapshot(snapshot))
+			data, err := s.encoding.encode(snapshot)
 			if err != nil {
 				return
 			}
