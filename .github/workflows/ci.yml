@@ -105,6 +105,9 @@ jobs:
     env:
       CGO_CFLAGS: -Wno-deprecated-declarations
     steps:
+      - name: Limit Go parallelism on Brokkr
+        if: runner.environment == 'self-hosted'
+        run: printf '%s\n' 'GOMAXPROCS=1' 'GOFLAGS=-p=1' >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
@@ -304,6 +307,9 @@ jobs:
     env:
       CGO_CFLAGS: -Wno-deprecated-declarations
     steps:
+      - name: Limit Go parallelism on Brokkr
+        if: runner.environment == 'self-hosted'
+        run: printf '%s\n' 'GOMAXPROCS=1' 'GOFLAGS=-p=1' >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
