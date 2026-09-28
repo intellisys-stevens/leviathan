@@ -214,3 +214,32 @@ func TestPluginProvidersKeepHealthyStatesAndExcludeConflictedGPUs(t *testing.T) 
 		t.Fatal("provider availability depends on source order")
 	}
 }
+
+func TestOutOfOrderCallbacksKeepPublicationTimeAndSourceHistory(t *testing.T) {
+	at := time.Now().UTC()
+	e := pluginTestEngine(t)
+	first := gpuPluginEvent("first", "GPU-a", at.Add(time.Second))
+	first.At = at.Add(2 * time.Second)
+	e.AcceptObservation(first)
+	before, _ := e.Current()
+	// The second callback completed earlier but waited to publish. Its source
+	// observation is independently older and must keep its real timestamp.
+	second := gpuPluginEvent("second", "GPU-b", at)
+	second.At = at.Add(time.Second)
+	e.AcceptObservation(second)
+	after, _ := e.Current()
+	if after.Sequence <= before.Sequence || !after.SampledAt.Equal(before.SampledAt) {
+		t.Fatalf("publication moved backward: before=(%d,%v) after=(%d,%v)", before.Sequence, before.SampledAt, after.Sequence, after.SampledAt)
+	}
+	series := e.History("second/GPU-b", nil, time.Minute, after.SampledAt)
+	if len(series.Points) != 1 || !series.Points[0].SampledAt.Equal(at) {
+		t.Fatalf("delayed callback retimed its source measurement: %+v", series.Points)
+	}
+	gapAt := at.Add(1500 * time.Millisecond)
+	e.AcceptObservation(plugins.Event{InstanceID: "second", Capability: v1.GPU, At: gapAt, Interval: time.Second, Err: errors.New("delayed failure callback")})
+	failed, _ := e.Current()
+	series = e.History("second/GPU-b", nil, time.Minute, failed.SampledAt)
+	if !failed.SampledAt.Equal(after.SampledAt) || len(series.Points) != 2 || !series.Points[1].SampledAt.Equal(gapAt) || len(series.Points[1].Values) != 0 {
+		t.Fatalf("delayed error lost its gap time: publication=%v history=%+v", failed.SampledAt, series.Points)
+	}
+}

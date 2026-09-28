@@ -75,7 +75,14 @@ func (e *Engine) AcceptObservation(event plugins.Event) {
 		}
 		e.observations[key] = previous
 	}
-	snapshot := e.assemblePlugins(event.At)
+	publicationAt := event.At
+	if current, ok := e.Current(); ok && publicationAt.Before(current.SampledAt) {
+		publicationAt = current.SampledAt
+	}
+	// Independent callbacks can acquire the assembly lock out of timestamp
+	// order. Publication time stays monotone; the original event and source
+	// timestamps still determine measurement history and error gaps.
+	snapshot := e.assemblePlugins(publicationAt)
 	domain := domainMetadata
 	switch event.Capability {
 	case v1.Host:
