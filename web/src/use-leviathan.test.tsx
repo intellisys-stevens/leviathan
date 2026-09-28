@@ -642,6 +642,14 @@ describe('useLeviathan runtime settings', () => {
     expect(unjoined.processes[0].workloadRef).toBeUndefined();
   });
 
+  it('preserves custom metric source identifiers at the snapshot boundary', () => {
+    const payload = structuredClone(snapshot);
+    payload.system.cpu.utilization.source = 'lab-host-monitor';
+    expect(normalizeSnapshot(payload).system.cpu.utilization.source).toBe(
+      'lab-host-monitor',
+    );
+  });
+
   it('normalizes nullable wire collections before snapshots are shared', async () => {
     const nullablePayload: SnapshotPayload = {
       ...snapshot,

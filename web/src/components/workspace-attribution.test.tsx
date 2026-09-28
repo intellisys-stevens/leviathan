@@ -49,6 +49,26 @@ const attribution: Attribution = {
 };
 
 describe('workspace attribution presentation', () => {
+  it('preserves custom provider, platform and workload kind labels', () => {
+    const custom: Attribution = {
+      ...attribution,
+      provider: 'lab-scheduler',
+      workloads: attribution.workloads.map((workload) => ({
+        ...workload,
+        platform: 'research-cluster',
+        kind: 'batch-job',
+      })),
+    };
+    render(
+      <AttributionDetails
+        attribution={custom}
+        targets={[{ entityType: 'physical_gpu', entityUuid: 'GPU-a' }]}
+      />,
+    );
+    expect(screen.getByText('lab-scheduler')).toBeVisible();
+    expect(screen.getAllByText('research-cluster · batch-job')).toHaveLength(2);
+  });
+
   it('renders a concise configured-state placeholder when attribution is absent', () => {
     render(<AttributionSummary />);
 

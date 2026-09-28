@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { DiagnosticsPanel } from './components/diagnostics-panel';
+import { PluginStatusPanel } from './components/plugin-status-panel';
 import { AmbientSnow } from './components/ambient-snow';
 import { ChartWindowControl } from './components/chart-window-control';
 import { GPUCard } from './components/gpu-card';
@@ -858,6 +859,7 @@ export function App() {
             <div className="space-y-6">
               <ViewIntro view={activeDefinition} headingRef={viewHeadingRef} />
               <HealthStatusPanel snapshot={null} />
+              <PluginStatusPanel />
             </div>
           ) : (
             <WorkbenchLoading
@@ -1003,6 +1005,7 @@ export function App() {
               <div className="mt-6 space-y-5">
                 <HealthStatusPanel snapshot={snapshot} />
                 <DiagnosticsPanel diagnostics={statusDiagnostics} />
+                <PluginStatusPanel />
               </div>
             ) : null}
           </div>
