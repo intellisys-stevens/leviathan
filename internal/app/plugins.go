@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -364,7 +365,11 @@ func adapterTopology(snapshot model.Snapshot, composition []config.PluginConfig,
 	unwrap := func(id, generation string) string {
 		producer, local, qualified := strings.Cut(id, "/")
 		if qualified && external[producer] {
-			targets[local] = v1.ResourceRef{InstanceID: producer, ID: local, Generation: strings.TrimPrefix(generation, producer+"/")}
+			rawGeneration := ""
+			if encoded, ok := strings.CutPrefix(generation, id+"@plugin:"); ok {
+				rawGeneration, _ = url.QueryUnescape(encoded)
+			}
+			targets[local] = v1.ResourceRef{InstanceID: producer, ID: local, Generation: rawGeneration}
 			return local
 		}
 		targets[id] = v1.ResourceRef{InstanceID: fallback, ID: id}

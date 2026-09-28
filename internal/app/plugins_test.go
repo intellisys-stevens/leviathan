@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"net/url"
 	"testing"
 	"time"
 
+	"github.com/intellisys-stevens/leviathan/internal/config"
 	"github.com/intellisys-stevens/leviathan/model"
 	v1 "github.com/intellisys-stevens/leviathan/plugin/v1"
 )
@@ -70,5 +72,18 @@ func TestNativeSourceRejectsMissingSourceTime(t *testing.T) {
 		if err == nil || !observation.ObservedAt.IsZero() || source.revisions[v1.GPUCapacity] != 0 {
 			t.Fatalf("missing source time became a new observation: %+v error=%v", observation, err)
 		}
+	}
+}
+
+func TestAdapterTopologyRecoversPluginGeneration(t *testing.T) {
+	const rawGeneration = "1/@x +"
+	const resource = "example/GPU-a"
+	topology := model.Snapshot{GPUs: []model.GPU{{UUID: resource, Generation: resource + "@plugin:" + url.QueryEscape(rawGeneration), GPUInstances: []model.GPUInstance{{UUID: "example/GI-a", Generation: "example/GI-a@g1"}}}}}
+	result, refs := adapterTopology(topology, []config.PluginConfig{{ID: "example", Socket: "/tmp/example.sock"}}, "hardware")
+	if result.GPUs[0].UUID != "GPU-a" || refs["GPU-a"].Generation != rawGeneration || refs["GPU-a"].InstanceID != "example" {
+		t.Fatalf("external generation lost: %+v", refs)
+	}
+	if refs["GI-a"].Generation != "" {
+		t.Fatal("core-derived generation was presented as a plugin generation")
 	}
 }
