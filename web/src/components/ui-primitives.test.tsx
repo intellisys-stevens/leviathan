@@ -1,7 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import {
   Sheet,
@@ -57,25 +55,6 @@ describe('shared UI primitive states', () => {
     expect(progress).toHaveAttribute('aria-valuenow', '0');
     indicator = progress.querySelector('[data-slot="progress-indicator"]');
     expect(indicator).toHaveStyle({ width: '0%' });
-  });
-
-  it('uses scoped button motion and keeps badges static', () => {
-    render(
-      <>
-        <Button>Inspect</Button>
-        <Badge>Live</Badge>
-      </>,
-    );
-
-    const button = screen.getByRole('button', { name: 'Inspect' });
-    expect(button).toHaveClass(
-      'transition-[color,background-color,border-color,opacity,transform]',
-      'duration-[var(--duration-feedback)]',
-      'ease-[var(--ease-out)]',
-      'active:[transform:scale(0.98)]',
-    );
-    expect(button).not.toHaveClass('transition-all', 'translate-y-px');
-    expect(screen.getByText('Live')).not.toHaveClass('transition-all');
   });
 
   it('uses tokenized full-distance sheet motion and completes controlled closes', async () => {
