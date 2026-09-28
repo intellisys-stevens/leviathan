@@ -279,3 +279,55 @@ func TestSamplingSettingsWakeInheritedCadenceAndKeepExplicitCadence(t *testing.T
 		t.Fatal("runtime did not stop")
 	}
 }
+
+func TestDelayedReadPublishesCompletionTimeWithoutChangingSourceTime(t *testing.T) {
+	started := make(chan time.Time, 1)
+	release := make(chan struct{})
+	source := &runtimeSource{capabilities: map[v1.Capability]string{v1.Host: "1", v1.GPU: "1"}}
+	source.read = func(ctx context.Context, capability v1.Capability, requestedAt time.Time) (v1.Observation, error) {
+		if capability == v1.GPU {
+			return runtimeGPU("sensor", requestedAt), nil
+		}
+		started <- requestedAt
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return v1.Observation{}, ctx.Err()
+		}
+		observedAt := time.Now().UTC()
+		return v1.Observation{InstanceID: "sensor", SessionID: "first", Capability: v1.Host, Revision: 1, ObservedAt: observedAt, Status: "available", Host: &v1.HostData{System: model.System{SampledAt: observedAt, Status: model.StatusAvailable}}}, nil
+	}
+	instance := runtimeInstance("sensor", source)
+	runtime, err := New([]Instance{instance})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := make(chan Event, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- runtime.poll(context.Background(), instance, v1.Host, func(event Event) { events <- event })
+	}()
+	requestedAt := <-started
+	var fast Event
+	if err = runtime.poll(context.Background(), instance, v1.GPU, func(event Event) { fast = event }); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	if err = <-done; err != nil {
+		t.Fatal(err)
+	}
+	slow := <-events
+	if !fast.At.After(requestedAt) || !slow.At.After(fast.At) {
+		t.Fatalf("delayed read regressed completion time: requested=%v fast=%v slow=%v", requestedAt, fast.At, slow.At)
+	}
+	if slow.Observation == nil || !slow.Observation.ObservedAt.Equal(slow.Observation.Host.System.SampledAt) || slow.At.Before(slow.Observation.ObservedAt) {
+		t.Fatalf("source timestamp changed or completion predates measurement: %+v", slow)
+	}
+	for _, state := range runtime.List()[0].Capabilities {
+		if state.Capability == v1.Host {
+			if state.LastSuccess == nil || !state.LastSuccess.Equal(slow.At) || state.ObservedAt == nil || !state.ObservedAt.Equal(slow.Observation.ObservedAt) {
+				t.Fatalf("incorrect completion/source health timestamps: %+v", state)
+			}
+		}
+	}
+}

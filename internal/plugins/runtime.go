@@ -331,22 +331,20 @@ func (r *Runtime) Collect(ctx context.Context, warmup time.Duration, emit func(E
 }
 
 func (r *Runtime) poll(ctx context.Context, instance Instance, capability v1.Capability, emit func(Event)) error {
-	at := time.Now().UTC()
+	requestedAt := time.Now().UTC()
 	instance.Interval = r.intervalFor(instance.Config.ID)
 	request, cancel := context.WithTimeout(ctx, RequestTimeout)
-	observation, err := instance.Source.Read(request, capability, at)
+	observation, err := instance.Source.Read(request, capability, requestedAt)
 	cancel()
+	completedAt := time.Now().UTC()
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 	if err == nil {
-		err = observation.ValidateAt(at)
+		err = observation.ValidateAt(completedAt)
 	}
 	if err == nil && (observation.InstanceID != instance.Config.ID || observation.Capability != capability) {
 		err = errors.New("observation identity or capability does not match request")
-	}
-	if err == nil && observation.ObservedAt.After(at.Add(time.Minute)) {
-		err = errors.New("observation timestamp is in the future")
 	}
 	key := instance.Config.ID + "/" + string(capability)
 	r.mu.Lock()
@@ -371,8 +369,8 @@ func (r *Runtime) poll(ctx context.Context, instance Instance, capability v1.Cap
 			state.Message = observation.Message
 			observedAt := observation.ObservedAt
 			state.ObservedAt = &observedAt
-			state.LastSuccess = &at
-			if at.Sub(observation.ObservedAt) > 3*instance.Interval {
+			state.LastSuccess = &completedAt
+			if completedAt.Sub(observation.ObservedAt) > 3*instance.Interval {
 				state.Status = "stale"
 				state.Message = "source observation is stale"
 			}
@@ -387,7 +385,7 @@ func (r *Runtime) poll(ctx context.Context, instance Instance, capability v1.Cap
 	}
 	r.health[instance.Config.ID] = health
 	r.mu.Unlock()
-	event := Event{InstanceID: instance.Config.ID, Native: instance.Native, Capability: capability, Err: err, At: at, Interval: instance.Interval}
+	event := Event{InstanceID: instance.Config.ID, Native: instance.Native, Capability: capability, Err: err, At: completedAt, Interval: instance.Interval}
 	if err == nil {
 		event.Observation = &observation
 	}
