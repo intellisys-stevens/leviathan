@@ -169,6 +169,9 @@ func projectionSnapshot() model.Snapshot {
 	at := time.Date(2026, 9, 2, 12, 34, 56, 0, time.UTC)
 	percent := model.AvailableMetric(73, "percent", model.SourceNVMLGPM, model.ScopePhysicalGPU, at)
 	percent.Message = "metric-message-canary"
+	instancePercent, computePercent := percent, percent
+	instancePercent.Scope = model.ScopeGPUInstance
+	computePercent.Scope = model.ScopeComputeInstance
 	unsafe := model.AvailableMetric(12, "widgets", model.SourceSynthetic, model.ScopePhysicalGPU, at)
 	return model.Snapshot{
 		SchemaVersion: "v1",
@@ -210,11 +213,11 @@ func projectionSnapshot() model.Snapshot {
 			GPUInstances: []model.GPUInstance{{
 				UUID: "MIG-GI-aaaaaaaa", ID: 1, Profile: "1g.10gb", Generation: "generation-canary",
 				Memory:  model.Memory{TotalBytes: model.Uint64(4 << 30), UsedBytes: model.Uint64(2 << 30), FreeBytes: model.Uint64(2 << 30), Source: model.SourceNVML, Scope: model.ScopeGPUInstance, SampledAt: at, Status: model.StatusAvailable},
-				Metrics: model.MetricSet{"sm_activity": percent},
+				Metrics: model.MetricSet{"sm_activity": instancePercent},
 				ComputeInstances: []model.ComputeInstance{{
 					UUID: "MIG-CI-aaaaaaaa", ID: 2, Profile: "1c.1g.10gb", Generation: "generation-canary",
 					Memory:      model.Memory{TotalBytes: model.Uint64(4 << 30), UsedBytes: model.Uint64(2 << 30), FreeBytes: model.Uint64(2 << 30), Source: model.SourceNVML, Scope: model.ScopeComputeInstance, SampledAt: at, Status: model.StatusAvailable},
-					Metrics:     model.MetricSet{"sm_activity": percent},
+					Metrics:     model.MetricSet{"sm_activity": computePercent},
 					Diagnostics: []model.Diagnostic{{Detail: "diagnostic-detail-canary"}},
 				}},
 			}},

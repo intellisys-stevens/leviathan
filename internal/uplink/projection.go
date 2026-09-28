@@ -120,7 +120,7 @@ func Project(snapshot model.Snapshot, build model.BuildInfo, streamID string, se
 func projectSystem(system model.System) System {
 	filesystems := make([]Filesystem, 0, min(len(system.Storage.Filesystems), maximumFilesystems))
 	for _, filesystem := range system.Storage.Filesystems {
-		if safeMetricSource(filesystem.Source) == "" {
+		if safeMetricSource(filesystem.Source) == "" || safeMetricScope(filesystem.Scope) == "" {
 			continue
 		}
 		if len(filesystems) == maximumFilesystems {
@@ -142,7 +142,7 @@ func projectSystem(system model.System) System {
 			UsedBytes:      copyUint64(filesystem.UsedBytes),
 			AvailableBytes: copyUint64(filesystem.AvailableBytes),
 			Source:         string(filesystem.Source),
-			Scope:          string(model.ScopeHost),
+			Scope:          safeMetricScope(filesystem.Scope),
 			SampledAt:      filesystem.SampledAt.UTC(),
 			Status:         MetricStatus(filesystem.Status),
 		})
@@ -178,7 +178,7 @@ func projectSystem(system model.System) System {
 			WriteBytesPerSecond: projectMetric(system.Storage.WriteBytesPerSecond),
 			Filesystems:         filesystems,
 			Source:              string(system.Storage.Source),
-			Scope:               string(model.ScopeHost),
+			Scope:               safeMetricScope(system.Storage.Scope),
 			SampledAt:           system.Storage.SampledAt.UTC(),
 			Status:              MetricStatus(system.Storage.Status),
 		},
@@ -190,7 +190,7 @@ func projectSystem(system model.System) System {
 func projectGPUs(source []model.GPU) []GPU {
 	result := make([]GPU, 0, min(len(source), maximumGPUs))
 	for _, gpu := range source {
-		if safeMetricSource(gpu.Memory.Source) == "" {
+		if !memoryRepresentable(gpu.Memory) {
 			continue
 		}
 		if len(result) == maximumGPUs {
@@ -198,28 +198,28 @@ func projectGPUs(source []model.GPU) []GPU {
 		}
 		instances := make([]GPUInstance, 0, len(gpu.GPUInstances))
 		for _, instance := range gpu.GPUInstances {
-			if safeMetricSource(instance.Memory.Source) == "" {
+			if !memoryRepresentable(instance.Memory) {
 				continue
 			}
 			computeInstances := make([]ComputeInstance, 0, len(instance.ComputeInstances))
 			for _, compute := range instance.ComputeInstances {
-				if safeMetricSource(compute.Memory.Source) == "" {
+				if !memoryRepresentable(compute.Memory) {
 					continue
 				}
 				computeInstances = append(computeInstances, ComputeInstance{
 					UUID:    boundedPrintable(compute.UUID, maximumIdentityFieldBytes),
 					ID:      compute.ID,
 					Profile: boundedPrintable(compute.Profile, maximumIdentityFieldBytes),
-					Memory:  projectGPUMemory(compute.Memory, model.ScopeComputeInstance),
-					Metrics: projectMetricSet(compute.Metrics, model.ScopeComputeInstance),
+					Memory:  projectGPUMemory(compute.Memory),
+					Metrics: projectMetricSet(compute.Metrics),
 				})
 			}
 			instances = append(instances, GPUInstance{
 				UUID:             boundedPrintable(instance.UUID, maximumIdentityFieldBytes),
 				ID:               instance.ID,
 				Profile:          boundedPrintable(instance.Profile, maximumIdentityFieldBytes),
-				Memory:           projectGPUMemory(instance.Memory, model.ScopeGPUInstance),
-				Metrics:          projectMetricSet(instance.Metrics, model.ScopeGPUInstance),
+				Memory:           projectGPUMemory(instance.Memory),
+				Metrics:          projectMetricSet(instance.Metrics),
 				ComputeInstances: computeInstances,
 			})
 		}
@@ -229,21 +229,21 @@ func projectGPUs(source []model.GPU) []GPU {
 			Name:          boundedPrintable(gpu.Name, maximumIdentityFieldBytes),
 			MIGEnabled:    gpu.MIGEnabled,
 			MaxMIGDevices: gpu.MaxMIGDevices,
-			Memory:        projectGPUMemory(gpu.Memory, model.ScopePhysicalGPU),
-			Metrics:       projectMetricSet(gpu.Metrics, model.ScopePhysicalGPU),
+			Memory:        projectGPUMemory(gpu.Memory),
+			Metrics:       projectMetricSet(gpu.Metrics),
 			GPUInstances:  instances,
 		})
 	}
 	return result
 }
 
-func projectGPUMemory(memory model.Memory, scope model.MetricScope) Memory {
+func projectGPUMemory(memory model.Memory) Memory {
 	return Memory{
 		TotalBytes:     copyUint64(memory.TotalBytes),
 		UsedBytes:      copyUint64(memory.UsedBytes),
 		AvailableBytes: copyUint64(memory.FreeBytes),
 		Source:         safeMetricSource(memory.Source),
-		Scope:          safeMetricScope(scope),
+		Scope:          safeMetricScope(memory.Scope),
 		SampledAt:      memory.SampledAt.UTC(),
 		Status:         MetricStatus(memory.Status),
 	}
@@ -257,13 +257,11 @@ var safeGPUMetrics = map[string]struct{}{
 	"pcie_tx_bytes_per_second": {}, "pcie_rx_bytes_per_second": {},
 }
 
-func projectMetricSet(source model.MetricSet, scope model.MetricScope) MetricSet {
+func projectMetricSet(source model.MetricSet) MetricSet {
 	result := make(MetricSet)
 	for name, metric := range source {
 		if _, ok := safeGPUMetrics[name]; ok && metricRepresentable(metric) {
-			projected := projectMetric(metric)
-			projected.Scope = safeMetricScope(scope)
-			result[name] = projected
+			result[name] = projectMetric(metric)
 		}
 	}
 	return result
@@ -321,8 +319,11 @@ func projectHealth(snapshot model.Snapshot) Health {
 	gpu := DomainHealth{Status: HealthUnavailable, SampledAt: snapshot.SampledAt.UTC()}
 	if len(snapshot.GPUs) > 0 {
 		gpu.Status = HealthOK
-		if snapshot.Capabilities.NVML.Status == model.StatusStale || snapshot.Capabilities.NVML.Status == model.StatusError ||
-			snapshot.Capabilities.NVML.Status == model.StatusPermissionDenied {
+		state := snapshot.Capabilities.NVML
+		if snapshot.Capabilities.GPU != nil {
+			state = *snapshot.Capabilities.GPU
+		}
+		if state.Status == model.StatusStale || state.Status == model.StatusError || state.Status == model.StatusPermissionDenied {
 			gpu.Status = HealthDegraded
 		}
 	}
