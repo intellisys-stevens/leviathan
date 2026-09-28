@@ -180,8 +180,8 @@ const (
 	maxAlignedHistorySeries      = 256
 	maxAlignedMetricsPerSeries   = 16
 	maxAlignedHistoryTotalMetric = 1024
-	maxAlignedKeyLength          = 256
-	maxAlignedEntityLength       = 512
+	maxAlignedKeyLength          = 16384
+	maxAlignedEntityLength       = 16384
 	maxAlignedMetricLength       = 128
 )
 

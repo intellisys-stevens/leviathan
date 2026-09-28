@@ -2,6 +2,7 @@ package api
 
 import (
 	"bufio"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -769,5 +770,32 @@ func TestSnapshotOmitsOrphanedProcessWorkloadReferenceWithoutMutatingSource(t *t
 	}
 	if source.snapshot.Processes[0].WorkloadRef == "" {
 		t.Fatal("wire normalization mutated the source snapshot")
+	}
+}
+
+func TestAlignedHistoryAcceptsBoundedPluginGenerationKeys(t *testing.T) {
+	source := newStubSource()
+	server := newTestServer(source, nil)
+	entity := "example/" + strings.Repeat("r", 512) + "@plugin:" + strings.Repeat("%2F", 4096)
+	input := history.AlignedRequest{Window: "1m", MaxPoints: 50, Series: []history.SeriesDescriptor{{Key: "gi:" + entity, Entity: entity, Metrics: []string{"sm_activity"}}}}
+	body, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/history/aligned", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || len(source.alignedRequest) != 1 || source.alignedRequest[0].Entity != entity {
+		t.Fatalf("plugin generation rejected: code=%d body=%s", response.Code, response.Body.String())
+	}
+	input.Series[0].Entity = strings.Repeat("x", maxAlignedEntityLength+1)
+	if _, message := server.validateAlignedHistory(input); message == "" {
+		t.Fatal("unbounded entity accepted")
+	}
+	input.Series[0].Entity = entity
+	input.Series[0].Key = strings.Repeat("x", maxAlignedKeyLength+1)
+	if _, message := server.validateAlignedHistory(input); message == "" {
+		t.Fatal("unbounded key accepted")
 	}
 }
