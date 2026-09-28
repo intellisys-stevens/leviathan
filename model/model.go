@@ -17,6 +17,7 @@ const (
 type MetricSource string
 
 const (
+	SourceUnknown   MetricSource = "unknown"
 	SourceNVML      MetricSource = "nvml"
 	SourceNVMLGPM   MetricSource = "nvml_gpm"
 	SourceDCGM      MetricSource = "dcgm"
@@ -67,8 +68,8 @@ type Process struct {
 	CommandLine string     `json:"commandLine,omitempty"`
 	StartTime   *time.Time `json:"startTime,omitempty"`
 	WorkloadRef string     `json:"workloadRef,omitempty"`
-	// ScopeRef is an internal, opaque join key derived from a Kubernetes Pod
-	// UID. It must never cross the public API boundary.
+	// ScopeRef is a private, opaque execution-scope join supplied by an
+	// environment adapter. It must never cross the public API boundary.
 	ScopeRef string       `json:"-"`
 	Status   MetricStatus `json:"status"`
 	Message  string       `json:"message,omitempty"`
