@@ -1,5 +1,12 @@
 import * as THREE from 'three';
 import { GPU_CHIP_COLORS, type GPUChipAppearance } from './gpu-chip-appearance';
+import {
+  createActivityParticles,
+  createActivityParticleTexture,
+  GPU_PARTICLE_LIMIT,
+  particleBudgets,
+  type ActivityParticles,
+} from './hardware-activity-particles';
 
 /** Logical chip compartments. Geometry does not represent physical MIG slice placement. */
 export type BoardRegion = {
@@ -31,11 +38,10 @@ type RegionHighlight = {
   targetEmissive: THREE.Color;
   fromIntensity: number;
   targetIntensity: number;
-  particles: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>;
+  particles: ActivityParticles;
+  particleBudget: number;
   halo: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   bounds: { x: number; z: number; width: number; depth: number };
-  phase: number;
-  seed: number;
 };
 
 /** A locally constructed, fanless accelerator PCB. Each instance owns its resources. */
@@ -55,6 +61,7 @@ export function createGPUBoard(
   let highlighted: string | null = null;
   let elapsed = HIGHLIGHT_MS;
   let motionEnabled = true;
+  let particleBudget = GPU_PARTICLE_LIMIT;
 
   function geometry<T extends THREE.BufferGeometry>(value: T): T {
     geometries.add(value);
@@ -224,6 +231,8 @@ export function createGPUBoard(
       name,
     );
     edge.renderOrder = name === 'PCB edge halo' ? 1 : 2;
+    edge.userData.excludeFromFraming = true;
+    edge.raycast = () => {};
   }
 
   // Mounting rail and connector housings reveal the thickness of the board.
@@ -562,23 +571,7 @@ export function createGPUBoard(
     labelPlane.rotation.x = -Math.PI / 2;
   }
 
-  // A tiny local radial texture softens each particle without postprocessing.
-  const particlePixels = new Uint8Array(16 * 16 * 4);
-  for (let y = 0; y < 16; y++) {
-    for (let x = 0; x < 16; x++) {
-      const index = (y * 16 + x) * 4;
-      const radius = Math.hypot((x - 7.5) / 7.5, (y - 7.5) / 7.5);
-      particlePixels.set(
-        [255, 255, 255, Math.round(255 * Math.max(0, 1 - radius) ** 2)],
-        index,
-      );
-    }
-  }
-  const particleTexture = new THREE.DataTexture(particlePixels, 16, 16);
-  particleTexture.colorSpace = THREE.SRGBColorSpace;
-  particleTexture.minFilter = THREE.LinearFilter;
-  particleTexture.magFilter = THREE.LinearFilter;
-  particleTexture.needsUpdate = true;
+  const particleTexture = createActivityParticleTexture();
   textures.add(particleTexture);
   const haloPixels = new Uint8Array(32 * 32 * 4);
   for (let y = 0; y < 32; y++) {
@@ -638,43 +631,22 @@ export function createGPUBoard(
     group.add(line);
     chipLabel(region?.label ?? 'GPU', width, depth, x, z);
     if (region) {
-      const particleGeometry = geometry(new THREE.BufferGeometry());
-      particleGeometry.setAttribute(
-        'position',
-        new THREE.Float32BufferAttribute(new Float32Array(12), 3),
-      );
-      particleGeometry.setAttribute(
-        'color',
-        new THREE.Float32BufferAttribute(new Float32Array(16), 4),
-      );
-      particleGeometry.setDrawRange(0, 0);
-      // All effect vertices remain on the die, below labels and inside its margins.
-      particleGeometry.boundingBox = new THREE.Box3(
-        new THREE.Vector3(x - width * 0.42, CHIP_TOP + 0.003, z - depth * 0.42),
-        new THREE.Vector3(x + width * 0.42, CHIP_TOP + 0.03, z + depth * 0.42),
-      );
-      const particles = new THREE.Points(
-        particleGeometry,
-        material(
-          new THREE.PointsMaterial({
-            map: particleTexture,
-            color: idle,
-            size: Math.min(0.07, width * 0.1, depth * 0.1),
-            transparent: true,
-            opacity: 0,
-            vertexColors: true,
-            depthWrite: false,
-            toneMapped: false,
-          }),
-        ),
-      );
-      particles.name = 'Chip activity particles';
-      particles.userData.excludeFromFraming = true;
-      particles.userData.regionId = region.id;
-      particles.raycast = () => {};
-      particles.visible = false;
-      particles.frustumCulled = false;
-      group.add(particles);
+      const maximum =
+        Math.floor(GPU_PARTICLE_LIMIT / regions.length) +
+        (highlights.length < GPU_PARTICLE_LIMIT % regions.length ? 1 : 0);
+      const particles = createActivityParticles({
+        id: region.id,
+        bounds: { x, y: CHIP_TOP, z, width, depth },
+        maximum,
+        // Hardware remains dark in either page theme, so sparks need a luminous hue.
+        color: theme === 'dark' ? '#98d633' : '#83bc24',
+        theme,
+        texture: particleTexture,
+      });
+      particles.points.name = 'Chip activity particles';
+      geometries.add(particles.points.geometry);
+      materials.add(particles.points.material);
+      group.add(particles.points);
       const halo = new THREE.Mesh(
         geometry(new THREE.PlaneGeometry(width * 0.985, depth * 0.985)),
         material(
@@ -697,10 +669,6 @@ export function createGPUBoard(
       group.add(halo);
       chip.userData.regionId = region.id;
       pickables.push(chip);
-      let seed = 0;
-      for (let index = 0; index < region.id.length; index++) {
-        seed = (seed * 31 + region.id.charCodeAt(index)) >>> 0;
-      }
       const state: RegionHighlight = {
         id: region.id,
         material: face,
@@ -717,10 +685,9 @@ export function createGPUBoard(
         fromIntensity: 0,
         targetIntensity: 0,
         particles,
+        particleBudget: maximum,
         halo,
         bounds: { x, z, width, depth },
-        phase: 0,
-        seed: (seed % 1000) / 1000,
       };
       paintParticles(state);
       highlights.push(state);
@@ -735,46 +702,54 @@ export function createGPUBoard(
     region.edge.color.copy(region.material.emissive).lerp(activeEdge, amount);
     region.edge.opacity = 0.62 + amount * 0.38;
   }
-  function paintParticles(region: RegionHighlight) {
+  function paintParticles(region: RegionHighlight, deltaMs = 0) {
     const activity = region.appearance.activity;
-    const count =
-      motionEnabled && activity !== null && activity > 0
-        ? Math.ceil(activity / 25)
-        : 0;
-    region.particles.visible = count > 0;
-    region.particles.geometry.setDrawRange(0, count);
-    region.particles.material.color.copy(region.material.emissive);
+    const maximumGlow = theme === 'dark' ? 0.122 : 0.083;
+    const intensity = Math.min(
+      1,
+      region.material.emissiveIntensity / maximumGlow,
+    );
     region.halo.material.color.copy(region.material.emissive);
     region.halo.material.opacity =
       region.material.emissiveIntensity * (theme === 'dark' ? 1.8 : 1.5);
-    region.particles.material.opacity =
-      (theme === 'dark' ? 0.22 : 0.15) *
-      Math.min(
-        1,
-        region.material.emissiveIntensity / (theme === 'dark' ? 0.122 : 0.083),
-      );
-    const positions = region.particles.geometry.getAttribute('position');
-    const colors = region.particles.geometry.getAttribute('color');
-    for (let index = 0; index < 4; index++) {
-      const angle =
-        region.phase * (0.55 + (activity ?? 0) / 200) +
-        region.seed * Math.PI * 2 +
-        index * 1.9;
-      const life = (region.phase * 0.35 + region.seed + index * 0.25) % 1;
-      positions.setXYZ(
-        index,
-        region.bounds.x +
-          region.bounds.width * (-0.3 + index * 0.2 + Math.sin(angle) * 0.035),
-        CHIP_TOP + 0.003 + life * 0.023,
-        region.bounds.z +
-          region.bounds.depth *
-            ((index % 2 === 0 ? -1 : 1) *
-              (0.32 + Math.cos(angle * 0.7) * 0.035)),
-      );
-      colors.setXYZW(index, 1, 1, 1, Math.sin(life * Math.PI) ** 2);
+    region.particles.paint(
+      intensity,
+      motionEnabled && activity != null && activity > 0,
+      region.particleBudget,
+      deltaMs,
+    );
+  }
+  function getParticleDemand() {
+    return highlights.reduce(
+      (sum, region) =>
+        sum +
+        (motionEnabled &&
+        region.appearance.activity != null &&
+        region.appearance.activity > 0
+          ? region.particles.maximum
+          : 0),
+      0,
+    );
+  }
+  function setParticleBudget(next: number) {
+    particleBudget = Math.max(
+      0,
+      Math.min(GPU_PARTICLE_LIMIT, Math.floor(next)),
+    );
+    const budgets = particleBudgets(
+      highlights.map((region) =>
+        motionEnabled &&
+        region.appearance.activity != null &&
+        region.appearance.activity > 0
+          ? region.particles.maximum
+          : 0,
+      ),
+      particleBudget,
+    );
+    for (let index = 0; index < highlights.length; index++) {
+      highlights[index].particleBudget = budgets[index];
+      paintParticles(highlights[index]);
     }
-    positions.needsUpdate = true;
-    colors.needsUpdate = true;
   }
   function setAppearance(
     appearances: readonly GPUChipAppearance[] = [],
@@ -789,10 +764,11 @@ export function createGPUBoard(
       const input = byId.get(region.id);
       const state = input?.state ?? 'unknown';
       const activity =
-        (state === 'assigned' || state === 'unassigned') &&
         input?.activity != null &&
-        Number.isFinite(input.activity)
-          ? THREE.MathUtils.clamp(input.activity, 0, 100)
+        Number.isFinite(input.activity) &&
+        input.activity >= 0 &&
+        input.activity <= 100
+          ? input.activity
           : null;
       if (
         region.appearance.state === state &&
@@ -825,12 +801,13 @@ export function createGPUBoard(
       paintParticles(region);
       paintHighlight(region, region.current);
     }
+    if (changed) setParticleBudget(particleBudget);
     return changed;
   }
   function setMotionEnabled(enabled: boolean) {
     if (disposed || motionEnabled === enabled) return;
     motionEnabled = enabled;
-    for (const region of highlights) paintParticles(region);
+    setParticleBudget(particleBudget);
   }
   function setHighlight(id: string | null, immediate = false) {
     if (disposed) return;
@@ -852,7 +829,9 @@ export function createGPUBoard(
     );
   }
   function hasAmbientActivity() {
-    return !disposed && highlights.some((region) => region.particles.visible);
+    return (
+      !disposed && highlights.some((region) => region.particles.points.visible)
+    );
   }
   function update(deltaMs: number): boolean {
     if (disposed) return false;
@@ -883,8 +862,7 @@ export function createGPUBoard(
         region,
         region.from + (region.target - region.from) * amount,
       );
-      if (region.particles.visible) region.phase += delta / 1000;
-      paintParticles(region);
+      paintParticles(region, delta);
     }
     return isTransitioning() || hasAmbientActivity();
   }
@@ -893,10 +871,10 @@ export function createGPUBoard(
       ...region.appearance,
       emissiveIntensity: region.material.emissiveIntensity,
       haloOpacity: region.halo.material.opacity,
-      particleCount: region.particles.visible
-        ? region.particles.geometry.drawRange.count
+      particleCount: region.particles.points.visible
+        ? region.particles.points.geometry.drawRange.count
         : 0,
-      phase: region.phase,
+      phase: region.particles.phase,
       transitioning: region.appearanceElapsed < HIGHLIGHT_MS,
     }));
   }
@@ -920,6 +898,8 @@ export function createGPUBoard(
     isTransitioning,
     hasAmbientActivity,
     getActivityState,
+    getParticleDemand,
+    setParticleBudget,
     update,
     dispose,
   };

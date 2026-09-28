@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- A full-width Live GPU capacity panel above the Resources GPU boards shows
+  additional native and MIG allocations feasible for this host. Independent
+  read-only Kubernetes DRA state includes reservations from every namespace;
+  profile counts are alternatives and do not reserve resources.
+- Separate private bridge and public monitor capacity endpoints retain explicit
+  stale, unavailable, and unsupported states. Standard bridge chart installs
+  enable read-only capacity access, with `gpuCapacity.enabled` as an opt-out.
+- Utilization-driven GPU, CPU, RAM, and storage particles use bounded shared
+  rendering, stop for missing or stale telemetry, and respect reduced motion.
+
+### Changed
+
+- GPU details use a visible labeled control. The motherboard gains a soft edge
+  glow and stays centered beside long host details. Its static section headings
+  remain accessible navigation targets; Focus board toggles a CPU closeup and
+  the whole-board view.
+
+### Fixed
+
+- Chart hover positions update through a shared animation frame with cached
+  tooltip dimensions, preserving historical samples and missing-data gaps.
+- Full GPU workloads use the same chip icon as SM ACTIVE while retaining the
+  GPU ACTIVE label and its physical GPU activity measurement.
+
 ## 0.4.1 - 2026-09-07
 
 ### Fixed

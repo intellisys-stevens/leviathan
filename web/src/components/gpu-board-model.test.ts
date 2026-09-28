@@ -156,11 +156,10 @@ describe('procedural GPU board', () => {
         ).toBe(true);
         expect(value.getActivityState()[0]).toMatchObject({
           state,
-          activity: null,
-          particleCount: 0,
-          emissiveIntensity: 0,
+          activity: 100,
+          particleCount: 16,
         });
-        expect(value.update(1000)).toBe(false);
+        expect(value.update(1000)).toBe(true);
       }
     },
   );
@@ -209,7 +208,7 @@ describe('procedural GPU board', () => {
     expect(complete.phase).toBeGreaterThan(middle.phase);
   });
 
-  it('contains sparse soft particles and halos within each die region without affecting bounds or picking', () => {
+  it('keeps particles around die rims with fixed buffers and no effect on framing or picking', () => {
     const value = board();
     const before = new THREE.Box3().setFromObject(value.group);
     value.setAppearance(
@@ -227,21 +226,22 @@ describe('procedural GPU board', () => {
         const target = value.pickables.find(
           (pickable) => pickable.userData.regionId === object.userData.regionId,
         )!;
-        expect(object.geometry.drawRange.count).toBe(4);
+        expect(object.geometry.drawRange.count).toBe(16);
         const positions = object.geometry.getAttribute('position'),
           colors = object.geometry.getAttribute('color');
         for (let index = 0; index < positions.count; index++) {
           expect(
             Math.abs(positions.getX(index) - target.position.x),
-          ).toBeLessThan(0.6);
+          ).toBeLessThan(0.76);
           expect(
             Math.abs(positions.getZ(index) - target.position.z),
-          ).toBeGreaterThan(0.3);
+          ).toBeLessThan(0.57);
           expect(
-            Math.abs(positions.getZ(index) - target.position.z),
-          ).toBeLessThan(0.5);
+            Math.abs(positions.getX(index) - target.position.x) > 0.6 ||
+              Math.abs(positions.getZ(index) - target.position.z) > 0.47,
+          ).toBe(true);
           expect(positions.getY(index)).toBeGreaterThan(0.335);
-          expect(positions.getY(index)).toBeLessThan(0.365);
+          expect(positions.getY(index)).toBeLessThan(0.615);
           expect(colors.getW(index)).toBeGreaterThanOrEqual(0);
           expect(colors.getW(index)).toBeLessThanOrEqual(1);
         }
@@ -250,6 +250,39 @@ describe('procedural GPU board', () => {
     expect(new THREE.Box3().setFromObject(value.group).equals(before)).toBe(
       true,
     );
+  });
+
+  it('scales density and speed with measured activity and obeys per-board and shared budgets', () => {
+    const value = board([
+      { id: 'gpu', label: 'GPU', x: 0, y: 0, width: 1, height: 1 },
+    ]);
+    const particles = value.group.getObjectByName(
+      'Chip activity particles',
+    ) as THREE.Points;
+    const positions = particles.geometry.getAttribute('position').array;
+    const colors = particles.geometry.getAttribute('color').array;
+    let previousCount = 0;
+    let previousSpeed = 0;
+    for (const activity of [5, 50, 100]) {
+      value.setAppearance([{ id: 'gpu', state: 'unknown', activity }], true);
+      const before = value.getActivityState()[0];
+      value.update(1000);
+      const after = value.getActivityState()[0];
+      expect(after.particleCount).toBeGreaterThan(previousCount);
+      expect(after.phase - before.phase).toBeGreaterThan(previousSpeed);
+      previousCount = after.particleCount;
+      previousSpeed = after.phase - before.phase;
+      expect(particles.geometry.getAttribute('position').array).toBe(positions);
+      expect(particles.geometry.getAttribute('color').array).toBe(colors);
+    }
+    expect(previousCount).toBe(64);
+    value.setParticleBudget(11);
+    expect(value.getActivityState()[0].particleCount).toBe(11);
+    value.setParticleBudget(0);
+    expect(value.hasAmbientActivity()).toBe(false);
+    expect(value.getParticleDemand()).toBe(64);
+    value.setParticleBudget(64);
+    expect(value.hasAmbientActivity()).toBe(true);
   });
 
   it('retains static activity glow under reduced motion without ongoing updates', () => {

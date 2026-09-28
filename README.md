@@ -27,6 +27,11 @@ scheduler-authoritative workspace assignments.
 - Optional Coder/Kubernetes attribution and [per-owner resource charts](docs/workload-telemetry.md).
 - Twelve-hour telemetry history and 90-day persistent health records.
 
+Unreleased source changes add [live GPU allocation capacity](docs/kubernetes-attribution.md#live-gpu-capacity),
+hardware activity effects, and chart hover improvements. These features are not
+included in the published v0.4.1 installer below; see [Development](#development)
+to build from source.
+
 ## 🚀 Quick start
 
 ### Standalone monitoring

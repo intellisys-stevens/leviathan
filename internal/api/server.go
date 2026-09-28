@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/intellisys-stevens/leviathan/internal/gpucapacity"
 	"github.com/intellisys-stevens/leviathan/internal/health"
 	"github.com/intellisys-stevens/leviathan/internal/history"
 	"github.com/intellisys-stevens/leviathan/internal/model"
@@ -31,11 +33,14 @@ type DataSource interface {
 }
 
 type Server struct {
-	source       DataSource
-	assets       fs.FS
-	buildInfo    model.BuildInfo
-	statusSource interface{ Status() health.Report }
-	mux          *http.ServeMux
+	source         DataSource
+	assets         fs.FS
+	buildInfo      model.BuildInfo
+	statusSource   interface{ Status() health.Report }
+	capacitySource interface {
+		Read(context.Context, time.Time) (gpucapacity.Document, error)
+	}
+	mux *http.ServeMux
 
 	settingsMu          sync.Mutex
 	settingsSubscribers map[uint64]chan model.RuntimeSettings
@@ -54,6 +59,7 @@ func NewServer(source DataSource, assets fs.FS, buildInfo model.BuildInfo, statu
 		server.statusSource = statusSources[0]
 	}
 	server.mux.HandleFunc("GET /api/v1/status", server.status)
+	server.mux.HandleFunc("GET /api/v1/gpu-capacity", server.gpuCapacity)
 	server.mux.HandleFunc("GET /api/v1/snapshot", server.snapshot)
 	server.mux.HandleFunc("GET /api/v1/history", server.history)
 	server.mux.HandleFunc("POST /api/v1/history/aligned", server.alignedHistory)
@@ -68,6 +74,25 @@ func NewServer(source DataSource, assets fs.FS, buildInfo model.BuildInfo, statu
 	})
 	server.mux.HandleFunc("/", server.static)
 	return server
+}
+
+// WithGPUCapacity attaches the optional private bridge client without adding
+// Kubernetes data to immutable snapshots or the versioned uplink contract.
+func (s *Server) WithGPUCapacity(source interface {
+	Read(context.Context, time.Time) (gpucapacity.Document, error)
+}) *Server { s.capacitySource = source; return s }
+
+func (s *Server) gpuCapacity(writer http.ResponseWriter, request *http.Request) {
+	document := gpucapacity.Unavailable("Live GPU capacity is unavailable; configure the local DRA bridge")
+	if s.capacitySource != nil {
+		if current, err := s.capacitySource.Read(request.Context(), time.Now().UTC()); err == nil && current.Validate() == nil {
+			document = current.At(time.Now().UTC())
+		} else {
+			document = gpucapacity.Unavailable("Live GPU capacity is unavailable; check bridge support and read permissions")
+		}
+	}
+	writer.Header().Set("Cache-Control", "no-store")
+	writeJSON(writer, http.StatusOK, document)
 }
 
 func (s *Server) status(writer http.ResponseWriter, _ *http.Request) {

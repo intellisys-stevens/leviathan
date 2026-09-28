@@ -19,6 +19,7 @@ import (
 	"github.com/intellisys-stevens/leviathan/internal/collector"
 	"github.com/intellisys-stevens/leviathan/internal/config"
 	"github.com/intellisys-stevens/leviathan/internal/doctor"
+	"github.com/intellisys-stevens/leviathan/internal/gpucapacity"
 	"github.com/intellisys-stevens/leviathan/internal/health"
 	"github.com/intellisys-stevens/leviathan/internal/model"
 	"github.com/intellisys-stevens/leviathan/internal/render"
@@ -426,8 +427,17 @@ func (a *application) serveCommand() *cobra.Command {
 					fmt.Fprintln(a.stderr, "Health history flush:", err)
 				}
 			}()
+			handler := api.NewServer(engine, webui.FS(), buildInfo(), healthRecorder)
+			if a.cfg.GPUCapacity.Enabled && a.cfg.AttributionSocket != "" {
+				capacityClient, err := gpucapacity.NewClient(a.cfg.AttributionSocket)
+				if err != nil {
+					return err
+				}
+				defer capacityClient.Close()
+				handler.WithGPUCapacity(capacityClient)
+			}
 			server := &http.Server{
-				Handler:           api.NewServer(engine, webui.FS(), buildInfo(), healthRecorder),
+				Handler:           handler,
 				ReadHeaderTimeout: 5 * time.Second,
 				IdleTimeout:       2 * time.Minute,
 				// SSE connections are intentionally long-lived. Tie their base context

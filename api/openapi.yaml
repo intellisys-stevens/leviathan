@@ -9,6 +9,17 @@ info:
 servers:
   - url: http://127.0.0.1:1397
 paths:
+  /api/v1/gpu-capacity:
+    get:
+      operationId: getGPUCapacity
+      summary: Return current host-local GPU allocation alternatives.
+      description: Read-only DRA device feasibility against existing allocations and reservations. Rows are alternatives, not additive. This preview does not reserve devices or guarantee full Pod admission. Missing or stale sources return unavailable counts.
+      responses:
+        "200":
+          description: Aggregate capacity and source freshness; never workload or device identifiers.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GPUCapacity" }
   /api/v1/status:
     get:
       operationId: getHealthStatus
@@ -171,6 +182,32 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
   schemas:
+    GPUCapacity:
+      type: object
+      additionalProperties: false
+      required: [status, revision, rows]
+      properties:
+        status: { type: string, enum: [available, partial, stale, unavailable, unsupported] }
+        observedAt: { type: string, format: date-time }
+        revision: { type: integer, minimum: 0 }
+        rows:
+          type: array
+          maxItems: 128
+          items: { $ref: "#/components/schemas/GPUCapacityRow" }
+        message: { type: string, maxLength: 256 }
+    GPUCapacityRow:
+      type: object
+      additionalProperties: false
+      required: [id, mode, model, memoryBytes, available, status]
+      properties:
+        id: { type: string, pattern: "^capacity_[a-f0-9]{32}$" }
+        mode: { type: string, enum: [native, mig] }
+        model: { type: string, minLength: 1, maxLength: 128 }
+        profile: { type: string, maxLength: 128 }
+        memoryBytes: { type: [integer, "null"], minimum: 1 }
+        available: { type: [integer, "null"], minimum: 0, maximum: 16384 }
+        status: { type: string, enum: [available, unavailable, unsupported] }
+        message: { type: string, maxLength: 256 }
     HealthState:
       type: string
       enum: [operational, degraded, unavailable, unsupported, unknown]

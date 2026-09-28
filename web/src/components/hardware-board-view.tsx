@@ -200,22 +200,22 @@ export function HardwareBoardView({
         <button
           type="button"
           className={className('focus')}
-          disabled={
-            !ready || (!gpu && (!selectedId || !viewState.canFocusSelected))
-          }
-          aria-pressed={gpu ? viewState.focus === 'chip' : undefined}
+          disabled={!ready}
+          aria-pressed={viewState.focus === (gpu ? 'chip' : 'cpu')}
           onClick={() =>
             handle.current?.focus(
               gpu
                 ? viewState.focus === 'chip'
                   ? 'board'
                   : 'chip'
-                : selectedId!,
+                : viewState.focus === 'cpu'
+                  ? 'board'
+                  : 'cpu',
             )
           }
         >
           <Focus size={16} aria-hidden="true" />
-          {gpu ? ' Focus chip' : ' Focus selected'}
+          {gpu ? ' Focus chip' : ' Focus board'}
         </button>
         <button
           type="button"
@@ -233,7 +233,7 @@ export function HardwareBoardView({
         Arrow keys rotate, plus and minus zoom, and Home resets the view.{' '}
         {gpu
           ? 'Tap a chip region or use the resource buttons below to open its details.'
-          : 'Select a component on the board or use its section heading below. Focus selected moves the camera to that component.'}
+          : 'Select a component on the board to focus its details heading. Focus board toggles between the CPU closeup and the whole board.'}
       </p>
     </div>
   );

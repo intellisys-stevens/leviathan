@@ -97,7 +97,10 @@ function options(kind: HardwareScene['kind']): HardwareBoardViewOptions {
     scene:
       kind === 'gpu'
         ? { kind, regions: [] }
-        : { kind, appearance: { cpu: 50, memory: 20 } },
+        : {
+            kind,
+            appearance: { cpu: 50, memory: 20, storageBytesPerSecond: null },
+          },
     selectedId: kind === 'motherboard' ? 'cpu' : null,
     highlightedId: null,
     theme: 'dark',
@@ -165,6 +168,27 @@ afterEach(() => {
 });
 
 describe('mixed hardware renderer lifecycle', () => {
+  it('shares at most 256 particles between visible scenes and gives offscreen scenes no budget', () => {
+    const created: HardwareSceneModel[] = [];
+    mocks.create.mockImplementation((scene: HardwareScene) => {
+      const value = model(scene);
+      value.getParticleDemand = () => (scene.kind === 'gpu' ? 64 : 48);
+      value.setParticleBudget = vi.fn();
+      created.push(value);
+      return value;
+    });
+    for (let index = 0; index < 5; index++)
+      mount({ ...options('gpu'), sceneKey: `gpu-budget-${index}` });
+    mount(options('motherboard'));
+    mount({ ...options('gpu'), sceneKey: 'offscreen-gpu' }, 3000);
+    draw();
+    const budgets = created.map(
+      (value) => vi.mocked(value.setParticleBudget!).mock.lastCall![0],
+    );
+    expect(budgets.at(-1)).toBe(0);
+    expect(budgets.reduce((sum, budget) => sum + budget, 0)).toBe(256);
+    expect(budgets.slice(0, -1).every((budget) => budget > 0)).toBe(true);
+  });
   it('shares one canvas, retains independent cameras, and hides only after the last scene leaves', () => {
     const gpuOptions = options('gpu');
     const motherOptions = options('motherboard');

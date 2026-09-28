@@ -15,11 +15,13 @@ import (
 	"time"
 
 	"github.com/intellisys-stevens/leviathan/internal/attribution"
+	"github.com/intellisys-stevens/leviathan/internal/gpucapacity"
 )
 
 type Server struct {
 	state     *State
 	workloads *WorkloadState
+	capacity  *CapacityState
 	now       func() time.Time
 }
 
@@ -31,10 +33,30 @@ func NewServer(state *State) *Server {
 // legacy readiness semantics remain unchanged for older monitors.
 func (s *Server) WithWorkloads(state *WorkloadState) *Server { s.workloads = state; return s }
 
+// WithGPUCapacity adds an independent, aggregate-only private endpoint.
+func (s *Server) WithGPUCapacity(state *CapacityState) *Server { s.capacity = state; return s }
+
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/allocations", s.allocations)
 	mux.HandleFunc("GET /v2/allocations", s.allocationsV2)
+	if s.capacity != nil {
+		mux.HandleFunc("GET /v1/gpu-capacity", func(writer http.ResponseWriter, _ *http.Request) {
+			document := s.capacity.Document(s.now())
+			if err := document.Validate(); err != nil {
+				writeJSON(writer, http.StatusServiceUnavailable, map[string]string{"error": "GPU capacity is invalid"})
+				return
+			}
+			data, err := json.Marshal(document)
+			if err != nil || len(data) > gpucapacity.MaxDocumentBytes {
+				writeJSON(writer, http.StatusServiceUnavailable, map[string]string{"error": "GPU capacity exceeds its handoff limit"})
+				return
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			writer.WriteHeader(http.StatusOK)
+			_, _ = writer.Write(append(data, '\n'))
+		})
+	}
 	if s.workloads != nil {
 		mux.HandleFunc("GET /v1/workloads", func(writer http.ResponseWriter, _ *http.Request) {
 			document := s.workloads.Document(s.now())

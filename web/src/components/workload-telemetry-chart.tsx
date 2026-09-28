@@ -52,6 +52,7 @@ import {
 import {
   ChartTooltipPortal,
   chartTooltipPortalWrapperStyle,
+  sameChartTooltipPayload,
 } from './chart-tooltip-portal';
 import { ChartWindowControl } from './chart-window-control';
 import { useChartLegendStrip } from './chart-legend-strip';
@@ -213,16 +214,41 @@ export function AssignedTelemetryTooltip({
   unit?: TelemetryUnit;
   testId?: string;
 }) {
-  const visible = payload?.filter(
-    ({ value }) => typeof value === 'number' && Number.isFinite(value),
-  );
   return (
     <ChartTooltipPortal
-      active={active && Boolean(visible?.length)}
+      active={
+        active &&
+        payload?.some(
+          ({ value }) => typeof value === 'number' && Number.isFinite(value),
+        )
+      }
       anchorRef={anchorRef}
       coordinate={coordinate}
       testId={testId}
     >
+      <AssignedTelemetryTooltipContent
+        payload={payload}
+        label={label}
+        unit={unit}
+      />
+    </ChartTooltipPortal>
+  );
+}
+
+const AssignedTelemetryTooltipContent = memo(
+  function AssignedTelemetryTooltipContent({
+    payload,
+    label,
+    unit,
+  }: {
+    payload?: readonly TooltipDatum[];
+    label?: string | number;
+    unit: TelemetryUnit;
+  }) {
+    const visible = payload?.filter(
+      ({ value }) => typeof value === 'number' && Number.isFinite(value),
+    );
+    return (
       <div className="rounded-lg border border-border bg-popover px-3 py-2 text-[13px] shadow-xl">
         <p className="mb-1 font-mono text-muted-foreground">
           {new Date(Number(label)).toLocaleTimeString([], {
@@ -255,9 +281,13 @@ export function AssignedTelemetryTooltip({
           })}
         </div>
       </div>
-    </ChartTooltipPortal>
-  );
-}
+    );
+  },
+  (previous, next) =>
+    previous.label === next.label &&
+    previous.unit === next.unit &&
+    sameChartTooltipPayload(previous.payload, next.payload),
+);
 
 const AssignedTelemetryPlot = memo(function AssignedTelemetryPlot({
   rows,

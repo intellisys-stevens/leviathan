@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   MOTHERBOARD_COLORS,
   motherboardGlowIntensity,
+  storageActivityIntensity,
   type MotherboardAppearance,
   type MotherboardCategoryId,
 } from './motherboard-appearance';
@@ -10,6 +11,13 @@ export type {
   MotherboardAppearance,
   MotherboardCategoryId,
 } from './motherboard-appearance';
+
+import {
+  createActivityParticles,
+  createActivityParticleTexture,
+  MOTHERBOARD_PARTICLE_LIMIT,
+  particleBudgets,
+} from './hardware-activity-particles';
 
 type Point = readonly [number, number, number];
 type Channel = { value: number; from: number; target: number; elapsed: number };
@@ -29,7 +37,12 @@ export function createMotherboardModel(theme: 'dark' | 'light') {
   let motionEnabled = true;
   let selected: MotherboardCategoryId | null = null;
   let highlighted: MotherboardCategoryId | null = null;
-  const appearance: MotherboardAppearance = { cpu: null, memory: null };
+  let particleBudget = MOTHERBOARD_PARTICLE_LIMIT;
+  const appearance: MotherboardAppearance = {
+    cpu: null,
+    memory: null,
+    storageBytesPerSecond: null,
+  };
 
   function geometry<T extends THREE.BufferGeometry>(value: T): T {
     geometries.add(value);
@@ -47,13 +60,15 @@ export function createMotherboardModel(theme: 'dark' | 'light') {
   const pcb = standard(colors.pcb, 0.82, 0.12);
   const laminate = standard('#273b40', 0.73, 0.2);
   const black = standard('#171d21', 0.64, 0.12);
-  const packageTop = standard('#30393e', 0.61, 0.2);
   const steel = standard('#a9b5bc', 0.32, 0.72);
   const graphite = standard('#46535b', 0.42, 0.56);
   const gold = standard('#c5a25b', 0.36, 0.72);
   const copper = standard('#638e8c', 0.47, 0.4);
-  const cpuFace = standard('#64757c', 0.38, 0.62);
+  const cpuFace = standard('#64757c', 0.32, 0.68);
   const ramFace = standard('#28383d', 0.52, 0.3);
+  const storageFace = standard('#30393e', 0.42, 0.28);
+  storageFace.emissive.set(colors.accent);
+  storageFace.emissiveIntensity = 0;
   cpuFace.emissive.set(colors.accent);
   ramFace.emissive.set(colors.accent);
   cpuFace.emissiveIntensity = 0;
@@ -186,6 +201,39 @@ export function createMotherboardModel(theme: 'dark' | 'light') {
     group.add(edge);
   }
 
+  // Follow the exact chamfered laminate boundary without postprocessing or lights.
+  const edgePath = new THREE.CurvePath<THREE.Vector3>();
+  perimeter.forEach(([x, z], index) => {
+    const [nextX, nextZ] = perimeter[(index + 1) % perimeter.length];
+    edgePath.add(
+      new THREE.LineCurve3(
+        new THREE.Vector3(x, 0.105, z),
+        new THREE.Vector3(nextX, 0.105, nextZ),
+      ),
+    );
+  });
+  for (const [name, radius, opacity] of [
+    ['Motherboard edge halo', 0.065, theme === 'dark' ? 0.13 : 0.065],
+    ['Motherboard edge rim', 0.018, theme === 'dark' ? 0.64 : 0.4],
+  ] as const) {
+    const edge = mesh(
+      geometry(new THREE.TubeGeometry(edgePath, 160, radius, 6, true)),
+      material(
+        new THREE.MeshBasicMaterial({
+          color: colors.accent,
+          transparent: true,
+          opacity,
+          depthWrite: false,
+          toneMapped: false,
+        }),
+      ),
+      [0, 0, 0],
+      name,
+    );
+    edge.userData.excludeFromFraming = true;
+    edge.raycast = () => {};
+  }
+
   // CPU socket, retention frame, exposed heat spreader and locking arm.
   box(2.78, 0.19, 2.84, black, [-0.72, 0.2, -1.28], 'CPU socket substrate');
   box(2.5, 0.12, 2.54, laminate, [-0.72, 0.35, -1.28], 'CPU package substrate');
@@ -282,7 +330,7 @@ export function createMotherboardModel(theme: 'dark' | 'light') {
     0.66,
     0.17,
     0.8,
-    packageTop,
+    storageFace,
     [
       [0.52, 0.35, 2.34],
       [1.34, 0.35, 2.34],
@@ -505,7 +553,9 @@ export function createMotherboardModel(theme: 'dark' | 'light') {
     canvas.height = 128;
     const context = canvas.getContext('2d');
     if (!context) return;
-    context.font = '600 60px sans-serif';
+    context.font = '600 82px sans-serif';
+    context.shadowColor = 'rgba(0, 0, 0, 0.65)';
+    context.shadowBlur = 5;
     context.textAlign = 'center';
     context.textBaseline = 'middle';
     context.fillStyle = '#e8f3f6';
@@ -529,7 +579,7 @@ export function createMotherboardModel(theme: 'dark' | 'light') {
     plane.rotation.x = -Math.PI / 2;
     plane.raycast = () => undefined;
   }
-  label('CPU', [-0.72, 0.584, -1.28], 1.28, 0.34);
+  label('CPU', [-0.72, 0.584, -1.28], 1.65, 0.5);
   label('RAM', [2.43, 0.137, 1.68], 1.3, 0.33);
   label('STORAGE', [0.95, 0.14, 3.13], 1.86, 0.34);
   label('LEVIATHAN', [-2.25, 0.14, -4.74], 2.75, 0.34);
@@ -573,7 +623,12 @@ export function createMotherboardModel(theme: 'dark' | 'light') {
   function channel(): Channel {
     return { value: 0, from: 0, target: 0, elapsed: TRANSITION_MS };
   }
-  const glows = { cpu: channel(), memory: channel() };
+  const glows = { cpu: channel(), memory: channel(), storage: channel() };
+  const activityLevels = {
+    cpu: channel(),
+    memory: channel(),
+    storage: channel(),
+  };
   // A local, transparent ring catches the component rim. It is not bloom and
   // never lights unrelated hardware or changes the camera's measured bounds.
   const haloPixels = new Uint8Array(64 * 64 * 4);
@@ -603,8 +658,13 @@ export function createMotherboardModel(theme: 'dark' | 'light') {
       depth: 5.13,
       position: [2.455, 0.135, -1.395] as Point,
     },
+    storage: {
+      width: 3.46,
+      depth: 1.3,
+      position: [0.98, 0.437, 2.34] as Point,
+    },
   };
-  const haloMaterials = (['cpu', 'memory'] as const).map((id) => {
+  const haloMaterials = (['cpu', 'memory', 'storage'] as const).map((id) => {
     const bounds = halos[id];
     const haloMaterial = material(
       new THREE.MeshBasicMaterial({
@@ -648,6 +708,7 @@ export function createMotherboardModel(theme: 'dark' | 'light') {
     outline.position.copy(center);
     outline.name = `${id} selection outline`;
     outline.raycast = () => undefined;
+    outline.userData.excludeFromFraming = true;
     group.add(outline);
     return { id, material: outlineMaterial, channel: channel() };
   });
@@ -659,7 +720,14 @@ export function createMotherboardModel(theme: 'dark' | 'light') {
     );
   }
   group.updateMatrixWorld(true);
-  const wholeBounds = new THREE.Box3().setFromObject(group);
+  const wholeBounds = new THREE.Box3();
+  group.traverse((object) => {
+    if (
+      !object.userData.excludeFromFraming &&
+      (object instanceof THREE.Mesh || object instanceof THREE.Line)
+    )
+      wholeBounds.expandByObject(object);
+  });
   const frames = {
     board: {
       target: wholeBounds.getCenter(new THREE.Vector3()),
@@ -678,6 +746,64 @@ export function createMotherboardModel(theme: 'dark' | 'light') {
       points: corners(bounds.storage.clone().expandByScalar(0.18)),
     },
   };
+  const particleTexture = createActivityParticleTexture();
+  textures.add(particleTexture);
+  const particleFields = [
+    {
+      id: 'cpu',
+      maximum: 18,
+      bounds: { x: -0.72, y: 0.584, z: -1.28, width: 2.13, depth: 2.17 },
+    },
+    {
+      id: 'memory',
+      maximum: 18,
+      bounds: { x: 2.455, y: 1.305, z: -1.395, width: 2.13, depth: 4.7 },
+    },
+    {
+      id: 'storage',
+      maximum: 12,
+      bounds: { x: 0.98, y: 0.436, z: 2.34, width: 3.18, depth: 1.05 },
+    },
+  ].map(({ id, maximum, bounds }) => {
+    const particles = createActivityParticles({
+      id,
+      bounds,
+      maximum,
+      color: theme === 'dark' ? '#a1eef7' : '#50c0d0',
+      size: id === 'storage' ? 0.19 : 0.22,
+      theme,
+      texture: particleTexture,
+    });
+    geometries.add(particles.points.geometry);
+    materials.add(particles.points.material);
+    group.add(particles.points);
+    return { id: id as MotherboardCategoryId, particles, budget: maximum };
+  });
+  function active(id: MotherboardCategoryId) {
+    return motionEnabled && activityLevels[id].target > 0;
+  }
+  function getParticleDemand() {
+    return particleFields.reduce(
+      (sum, field) => sum + (active(field.id) ? field.particles.maximum : 0),
+      0,
+    );
+  }
+  function setParticleBudget(next: number) {
+    particleBudget = Math.max(
+      0,
+      Math.min(MOTHERBOARD_PARTICLE_LIMIT, Math.floor(next)),
+    );
+    const budgets = particleBudgets(
+      particleFields.map((field) =>
+        active(field.id) ? field.particles.maximum : 0,
+      ),
+      particleBudget,
+    );
+    for (let index = 0; index < particleFields.length; index++)
+      particleFields[index].budget = budgets[index];
+    paint();
+  }
+
   function target(value: Channel, next: number, immediate: boolean) {
     const snap = immediate || !motionEnabled;
     if (value.target === next && (!snap || value.value === next)) return false;
@@ -687,9 +813,17 @@ export function createMotherboardModel(theme: 'dark' | 'light') {
     if (snap) value.value = next;
     return true;
   }
-  function paint() {
+  function paint(deltaMs = 0) {
     cpuFace.emissiveIntensity = glows.cpu.value;
     ramFace.emissiveIntensity = glows.memory.value;
+    storageFace.emissiveIntensity = glows.storage.value;
+    for (const field of particleFields)
+      field.particles.paint(
+        activityLevels[field.id].value,
+        active(field.id),
+        field.budget,
+        deltaMs,
+      );
     for (const halo of haloMaterials)
       halo.material.opacity =
         glows[halo.id].value * (theme === 'dark' ? 0.65 : 0.5);
@@ -714,6 +848,7 @@ export function createMotherboardModel(theme: 'dark' | 'light') {
   }
   const allChannels = [
     ...Object.values(glows),
+    ...Object.values(activityLevels),
     ...outlines.map((outline) => outline.channel),
   ];
   function isTransitioning() {
@@ -745,8 +880,8 @@ export function createMotherboardModel(theme: 'dark' | 'light') {
       for (const id of ['cpu', 'memory'] as const) {
         const value = next[id];
         appearance[id] =
-          value != null && Number.isFinite(value)
-            ? Math.max(0, Math.min(100, value))
+          value != null && Number.isFinite(value) && value >= 0 && value <= 100
+            ? value
             : null;
         changed =
           target(
@@ -754,8 +889,27 @@ export function createMotherboardModel(theme: 'dark' | 'light') {
             motherboardGlowIntensity(appearance[id]),
             immediate,
           ) || changed;
+        changed =
+          target(activityLevels[id], (appearance[id] ?? 0) / 100, immediate) ||
+          changed;
       }
-      paint();
+      const rate = next.storageBytesPerSecond;
+      appearance.storageBytesPerSecond =
+        rate != null && Number.isFinite(rate) && rate >= 0 ? rate : null;
+      const storageLevel = storageActivityIntensity(
+        appearance.storageBytesPerSecond,
+      );
+      changed =
+        target(
+          glows.storage,
+          appearance.storageBytesPerSecond == null
+            ? 0
+            : 0.06 + storageLevel * 0.5,
+          immediate,
+        ) || changed;
+      changed =
+        target(activityLevels.storage, storageLevel, immediate) || changed;
+      setParticleBudget(particleBudget);
       return changed;
     },
     setMotionEnabled(enabled: boolean) {
@@ -765,8 +919,8 @@ export function createMotherboardModel(theme: 'dark' | 'light') {
           value.value = value.target;
           value.elapsed = TRANSITION_MS;
         }
-        paint();
       }
+      setParticleBudget(particleBudget);
     },
     update(deltaMs: number) {
       if (disposed) return false;
@@ -777,30 +931,41 @@ export function createMotherboardModel(theme: 'dark' | 'light') {
         const eased = 1 - (1 - value.elapsed / TRANSITION_MS) ** 3;
         value.value = value.from + (value.target - value.from) * eased;
       }
-      paint();
-      return isTransitioning();
+      paint(delta);
+      return (
+        isTransitioning() ||
+        particleFields.some((field) => field.particles.points.visible)
+      );
     },
     isTransitioning,
-    hasAmbientActivity: () => false,
+    hasAmbientActivity: () =>
+      !disposed &&
+      particleFields.some((field) => field.particles.points.visible),
+    getParticleDemand,
+    setParticleBudget,
     getActivityState: () =>
       (['cpu', 'memory', 'storage'] as const).map((id) => ({
         id,
         activity: id === 'storage' ? null : appearance[id],
+        ...(id === 'storage'
+          ? { bytesPerSecond: appearance.storageBytesPerSecond }
+          : {}),
+        particleCount: particleFields.find((field) => field.id === id)!
+          .particles.points.geometry.drawRange.count,
+        phase: particleFields.find((field) => field.id === id)!.particles.phase,
         emissiveIntensity:
           id === 'cpu'
             ? cpuFace.emissiveIntensity
             : id === 'memory'
               ? ramFace.emissiveIntensity
-              : 0,
+              : storageFace.emissiveIntensity,
         haloOpacity:
-          id === 'storage'
-            ? 0
-            : (haloMaterials.find((halo) => halo.id === id)?.material.opacity ??
-              0),
+          haloMaterials.find((halo) => halo.id === id)?.material.opacity ?? 0,
         selected: selected === id,
         highlighted: highlighted === id,
         transitioning:
-          id === 'storage' ? false : glows[id].elapsed < TRANSITION_MS,
+          glows[id].elapsed < TRANSITION_MS ||
+          activityLevels[id].elapsed < TRANSITION_MS,
       })),
     dispose() {
       if (disposed) return;

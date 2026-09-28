@@ -33,6 +33,7 @@ import { DiagnosticsPanel } from './components/diagnostics-panel';
 import { AmbientSnow } from './components/ambient-snow';
 import { ChartWindowControl } from './components/chart-window-control';
 import { GPUCard } from './components/gpu-card';
+import { GPUCapacityPanel } from './components/gpu-capacity-panel';
 import { buildGPUAllocationView } from './gpu-allocation';
 import { PerimeterLight } from './components/perimeter-light';
 import { PeopleView } from './components/people-view';
@@ -956,6 +957,7 @@ export function App() {
                   >
                     GPUs
                   </h2>
+                  <GPUCapacityPanel hostKey={snapshot.host.hostname} />
                   <GPUGrid
                     theme={theme}
                     snapshot={snapshot}

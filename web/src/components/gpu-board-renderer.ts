@@ -8,6 +8,10 @@ import {
   type HardwareSceneModel,
 } from './hardware-scene';
 import type { GPUChipAppearance } from './gpu-chip-appearance';
+import {
+  particleBudgets,
+  VISIBLE_PARTICLE_LIMIT,
+} from './hardware-activity-particles';
 
 export type BoardViewState = {
   focus: string;
@@ -933,6 +937,12 @@ class HardwareBoardRenderer {
     renderer.clear(true, true, true);
     renderer.setScissorTest(true);
     try {
+      const visible: {
+        view: View;
+        rect: DOMRect;
+        scissor: Rect;
+        demand: number;
+      }[] = [];
       for (const view of this.views) {
         if (!view.model) {
           this.setMode(view, false);
@@ -942,7 +952,29 @@ class HardwareBoardRenderer {
           const rect = view.element.getBoundingClientRect();
           const parentClip = visibleClip(view.element, clip);
           const scissor = parentClip && boardViewportBounds(rect, parentClip);
-          if (!scissor) continue;
+          if (!scissor) {
+            view.model.setParticleBudget?.(0);
+            continue;
+          }
+          visible.push({
+            view,
+            rect,
+            scissor,
+            demand: view.model.getParticleDemand?.() ?? 0,
+          });
+        } catch {
+          this.failModel(view);
+        }
+      }
+      const budgets = particleBudgets(
+        visible.map(({ demand }) => demand),
+        VISIBLE_PARTICLE_LIMIT,
+      );
+      for (let index = 0; index < visible.length; index++) {
+        const { view, rect, scissor } = visible[index];
+        if (!view.model) continue;
+        try {
+          view.model.setParticleBudget?.(budgets[index]);
           if (
             Math.abs(rect.width - view.rect.width) > 0.1 ||
             Math.abs(rect.height - view.rect.height) > 0.1

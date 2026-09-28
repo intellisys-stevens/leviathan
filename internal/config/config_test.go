@@ -21,6 +21,33 @@ func TestLoopbackEnforcement(t *testing.T) {
 	}
 }
 
+func TestGPUCapacityDefaultAndOptOut(t *testing.T) {
+	cfg := Defaults()
+	if !cfg.GPUCapacity.Enabled {
+		t.Fatal("GPU capacity must default to enabled")
+	}
+	file := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(file, []byte("[gpu_capacity]\nenabled = false\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := LoadFile(file, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.GPUCapacity.Enabled {
+		t.Fatal("TOML opt-out was ignored")
+	}
+	t.Setenv("LEVIATHAN_GPU_CAPACITY_ENABLED", "true")
+	if err := ApplyEnv(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.GPUCapacity.Enabled {
+		t.Fatal("environment override was ignored")
+	}
+	if err := Validate(cfg); err != nil {
+		t.Fatal("default capacity must permit an absent bridge:", err)
+	}
+}
+
 func TestWorkloadTelemetryRequiresOptInAndInventory(t *testing.T) {
 	cfg := Defaults()
 	if cfg.WorkloadTelemetry {

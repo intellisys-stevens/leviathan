@@ -3138,8 +3138,12 @@ test('covers required responsive widths with a concise header', async ({
     await page.keyboard.press('Escape');
     await expect(detail).toBeHidden();
 
-    await page.getByRole('link', { name: 'Workloads' }).click();
+    // Keyboard activation skips Playwright's click-navigation wait on this hash route.
+    await page.getByRole('link', { name: 'Workloads' }).focus();
+    await page.keyboard.press('Enter');
     const workloads = page.getByTestId('people-view');
+    await expect(page).toHaveURL(/#workloads$/u);
+    await expect(workloads).toBeVisible();
     const ownerSelect = page.getByLabel('Select user');
     const ownerTabs = page.getByRole('tablist', { name: 'Users' });
     if (width < 1024) {

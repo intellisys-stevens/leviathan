@@ -49,6 +49,7 @@ spec:
             - --node-name=$(NODE_NAME)
             - --namespaces={{ join "," .Values.workspaceNamespaces }}
             - --driver={{ .Values.driver }}
+            - --gpu-capacity={{ .Values.gpuCapacity.enabled }}
             {{- if .Values.workloadInventory.enabled }}
             - --workload-inventory
             {{- end }}

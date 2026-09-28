@@ -7,8 +7,8 @@
 | Workloads | Per-owner CPU, RAM, GPU, and storage I/O telemetry; workspace assignments and integration status |
 | Status | Yggdrasil connection and host/GPU telemetry, 90 days of minute observations, host uptime, monitor runtime, and diagnostic details |
 
-GPU availability means resources without assignments in the configured workspace
-integration. Allocated and reserved devices are excluded; incomplete or stale
+The Overview GPU availability tile counts resources without assignments in the
+configured workspace integration. Allocated and reserved devices are excluded; incomplete or stale
 observations stay explicit. It does not establish scheduler eligibility, quotas,
 or how many additional users can be admitted. Unused VRAM is not free allocation
 capacity. MIG capacity counts existing compute instances;
@@ -35,32 +35,48 @@ or Live returns to current values.
 
 Resources combines a motherboard on the left with all CPU, RAM, and Storage
 measurements on the right; smaller screens stack the view above the measurements.
-Select the CPU, RAM bank, or storage area to highlight its information, or use the
-matching heading button. Zoom, Focus selected, and Reset control the view without
-changing which measurements remain visible. CPU utilization and memory used
-control cyan glow on a fixed 0–100% scale. Missing, estimated, or stale readings
-use neutral styling. The board is illustrative: RAM modules represent aggregate
+Select the CPU, RAM bank, or storage area to focus its information heading.
+Headings are static, accessible navigation targets. Focus board toggles between
+a CPU closeup and the whole board while preserving the orbit angle; Zoom and
+Reset remain available. The board and its controls stay centered beside long
+details on desktop. CPU utilization and memory used control cyan glow and
+particles on a fixed 0–100% scale. Storage particles follow combined measured
+read/write throughput, using a bounded visual scale rather than a busy percentage.
+Missing, estimated, or stale readings use neutral styling. The board is illustrative: RAM modules represent aggregate
 memory and the SSD-shaped storage area represents mounted filesystems, not an
 observed inventory of slots or drives. Filesystem capacity, available space, and
 the most-utilized mount remain visible beside the board.
 Storage uses a compact summary and filesystem rows, with the fullest mount
 marked inline.
 
+A full-width **Live GPU capacity** panel sits above the GPU boards in Resources.
+It reports additional native and MIG allocations that the host's DRA resources
+can satisfy, including reservations from every namespace. Counts come from actual
+advertised models and profiles. These are alternatives, not additive, and do not
+reserve GPUs or establish complete workload admission. Kubernetes validates
+allocation when a workload starts. The panel refreshes every five seconds while
+visible, with a manual Refresh control. Stale, unavailable, and unsupported data
+show an explicit unknown count. See [DRA capacity](kubernetes-attribution.md#live-gpu-capacity)
+for installation and read-only access requirements.
+
 GPU boards use locally bundled Three.js with
 NVIDIA-green accents. Drag to rotate; use Zoom, Focus chip, or Reset view controls.
 On phones, tap Interact to rotate or pinch, then Done to restore page scrolling.
-Select a chip region or its keyboard-accessible button to open details. Hover or
-focus shows assignment and shared GI telemetry, never fabricated per-CI memory.
+Use the outlined Details control to inspect a GPU, or select a chip region or
+its keyboard-accessible button. Hover or focus shows assignment and shared GI telemetry, never fabricated per-CI memory.
 A static board and the same inspection buttons remain available without WebGL
 and in forced colors. Camera positions persist while navigating. Resources always
 shows every GPU, including when opened from the Overview capacity tile.
 
 Assigned chip regions and their badges use NVIDIA green; unassigned regions use
-grey. Fresh SM activity increases the glow and adds a soft particle shimmer.
+grey. Fresh SM activity increases glow, particle density, and speed, independently
+of whether workload ownership is known.
 MIG regions use their shared GI activity, not inferred per-CI utilization. Idle
 regions stay dim; unavailable readings remain distinct from zero in details.
 Reserved resources use amber and unknown assignments use a dashed neutral badge.
-Particles stop for stale data, hidden or offscreen views, and reduced motion.
+Particles stop for idle or stale data, hidden or offscreen views, and reduced
+motion. One renderer shares a maximum of 256 visible particles across GPU and
+motherboard scenes, with fixed per-board budgets and no additional animation loop.
 
 Accumulated snow has 1–2 piles per panel, with varied heights and spacing. Each
 page load generates fresh arrangements; polling, navigation, and resizing keep

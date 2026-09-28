@@ -131,10 +131,7 @@ function ResourceRow({
           <div>
             <span className="flex items-center justify-between gap-2 text-[13px] uppercase tracking-[0.1em] text-muted-foreground">
               <span className="inline-flex items-center gap-1">
-                <MetricIcon
-                  metric={physical ? 'gpu_activity' : 'sm_activity'}
-                  className="size-3"
-                />
+                <MetricIcon metric="sm_activity" className="size-3" />
                 <span className="mobile-only-label">
                   {physical ? 'GPU' : 'SM'}
                 </span>

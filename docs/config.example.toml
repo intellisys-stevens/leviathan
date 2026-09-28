@@ -46,3 +46,11 @@ interval = "15s"
 
 # Development only. Any non-empty fixture selects the fake provider.
 # fixture = "multi-ci"
+
+# Independent aggregate GPU feasibility from the attribution socket. The bridge
+# also needs gpuCapacity.enabled=true and its read-only cluster-wide DRA RBAC.
+# No socket means unavailable; sampling and the telemetry uplink stay independent.
+[gpu_capacity]
+enabled = true
+# Override: LEVIATHAN_GPU_CAPACITY_ENABLED. Remove this block before downgrading
+# to released v0.4.1 or an earlier configuration parser.

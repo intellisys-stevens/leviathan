@@ -649,6 +649,10 @@ html[data-ambient-paused='true'] .app-shell::after {
 
 .chart-tooltip-portal {
   position: fixed;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+  will-change: transform;
   z-index: 80;
   max-width: calc(100vw - 1rem);
   max-width: calc(100dvw - 1rem);

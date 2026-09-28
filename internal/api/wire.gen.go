@@ -106,6 +106,72 @@ func (e DiagnosticSeverity) Valid() bool {
 	}
 }
 
+// Defines values for GPUCapacityStatus.
+const (
+	GPUCapacityStatusAvailable   GPUCapacityStatus = "available"
+	GPUCapacityStatusPartial     GPUCapacityStatus = "partial"
+	GPUCapacityStatusStale       GPUCapacityStatus = "stale"
+	GPUCapacityStatusUnavailable GPUCapacityStatus = "unavailable"
+	GPUCapacityStatusUnsupported GPUCapacityStatus = "unsupported"
+)
+
+// Valid indicates whether the value is a known member of the GPUCapacityStatus enum.
+func (e GPUCapacityStatus) Valid() bool {
+	switch e {
+	case GPUCapacityStatusAvailable:
+		return true
+	case GPUCapacityStatusPartial:
+		return true
+	case GPUCapacityStatusStale:
+		return true
+	case GPUCapacityStatusUnavailable:
+		return true
+	case GPUCapacityStatusUnsupported:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GPUCapacityRowMode.
+const (
+	Mig    GPUCapacityRowMode = "mig"
+	Native GPUCapacityRowMode = "native"
+)
+
+// Valid indicates whether the value is a known member of the GPUCapacityRowMode enum.
+func (e GPUCapacityRowMode) Valid() bool {
+	switch e {
+	case Mig:
+		return true
+	case Native:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GPUCapacityRowStatus.
+const (
+	GPUCapacityRowStatusAvailable   GPUCapacityRowStatus = "available"
+	GPUCapacityRowStatusUnavailable GPUCapacityRowStatus = "unavailable"
+	GPUCapacityRowStatusUnsupported GPUCapacityRowStatus = "unsupported"
+)
+
+// Valid indicates whether the value is a known member of the GPUCapacityRowStatus enum.
+func (e GPUCapacityRowStatus) Valid() bool {
+	switch e {
+	case GPUCapacityRowStatusAvailable:
+		return true
+	case GPUCapacityRowStatusUnavailable:
+		return true
+	case GPUCapacityRowStatusUnsupported:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HealthStatus.
 const (
 	HealthStatusDegraded    HealthStatus = "degraded"
@@ -560,6 +626,36 @@ type GPU struct {
 	PciBusId   *string   `json:"pciBusId,omitempty"`
 	Uuid       string    `json:"uuid"`
 }
+
+// GPUCapacity defines model for GPUCapacity.
+type GPUCapacity struct {
+	Message    *string           `json:"message,omitempty"`
+	ObservedAt *time.Time        `json:"observedAt,omitempty"`
+	Revision   int               `json:"revision"`
+	Rows       []GPUCapacityRow  `json:"rows"`
+	Status     GPUCapacityStatus `json:"status"`
+}
+
+// GPUCapacityStatus defines model for GPUCapacity.Status.
+type GPUCapacityStatus string
+
+// GPUCapacityRow defines model for GPUCapacityRow.
+type GPUCapacityRow struct {
+	Available   *int                 `json:"available"`
+	Id          string               `json:"id"`
+	MemoryBytes *int                 `json:"memoryBytes"`
+	Message     *string              `json:"message,omitempty"`
+	Mode        GPUCapacityRowMode   `json:"mode"`
+	Model       string               `json:"model"`
+	Profile     *string              `json:"profile,omitempty"`
+	Status      GPUCapacityRowStatus `json:"status"`
+}
+
+// GPUCapacityRowMode defines model for GPUCapacityRow.Mode.
+type GPUCapacityRowMode string
+
+// GPUCapacityRowStatus defines model for GPUCapacityRow.Status.
+type GPUCapacityRowStatus string
 
 // GpuInstance defines model for GpuInstance.
 type GpuInstance struct {

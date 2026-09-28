@@ -20,7 +20,10 @@ vi.mock('./gpu-board-renderer', () => ({
 const props: HardwareBoardViewProps = {
   sceneKey: 'host:motherboard',
   topologyKey: 'motherboard-v1',
-  scene: { kind: 'motherboard', appearance: { cpu: 24, memory: 60 } },
+  scene: {
+    kind: 'motherboard',
+    appearance: { cpu: 24, memory: 60, storageBytesPerSecond: null },
+  },
   selectedId: 'cpu',
   highlightedId: null,
   theme: 'dark',
@@ -69,17 +72,15 @@ afterEach(() => {
 });
 
 describe('shared hardware view shell', () => {
-  it('keeps the full-board default and moves the camera only on Focus selected', async () => {
+  it('toggles CPU and board framing independently of the selected category', async () => {
     const handle = setup();
     const view = render(<HardwareBoardView {...props} />);
     const root = view.container.querySelector('.hardware-board-view');
     expect(root).toHaveAttribute('data-focus', 'board');
     expect(root).toHaveAttribute('data-selected-component', 'cpu');
     expect(view.container.querySelector('.gpu-board-view')).toBeNull();
-    expect(
-      screen.getByRole('button', { name: 'Focus selected' }),
-    ).toBeDisabled();
-    await ready();
+    expect(screen.getByRole('button', { name: 'Focus board' })).toBeDisabled();
+    const callbacks = await ready();
     expect(handle.focus).not.toHaveBeenCalled();
 
     view.rerender(
@@ -97,8 +98,21 @@ describe('shared hardware view shell', () => {
     );
     expect(handle.focus).not.toHaveBeenCalled();
     expect(root).toHaveAttribute('data-focus', 'board');
-    fireEvent.click(screen.getByRole('button', { name: 'Focus selected' }));
-    expect(handle.focus).toHaveBeenCalledExactlyOnceWith('memory');
+    const focus = screen.getByRole('button', { name: 'Focus board' });
+    expect(focus).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(focus);
+    expect(handle.focus).toHaveBeenCalledExactlyOnceWith('cpu');
+    act(() =>
+      callbacks.onViewState({
+        focus: 'cpu',
+        canZoomIn: true,
+        canZoomOut: true,
+      }),
+    );
+    expect(focus).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(focus);
+    expect(handle.focus).toHaveBeenLastCalledWith('board');
+    expect(screen.getByRole('button', { name: 'Focus board' })).toBe(focus);
     fireEvent.click(screen.getByRole('button', { name: 'Reset view' }));
     expect(handle.reset).toHaveBeenCalledOnce();
     expect(renderer.register).toHaveBeenCalledOnce();
@@ -111,12 +125,18 @@ describe('shared hardware view shell', () => {
     view.rerender(
       <HardwareBoardView
         {...props}
-        scene={{ kind: 'motherboard', appearance: { cpu: null, memory: null } }}
+        scene={{
+          kind: 'motherboard',
+          appearance: { cpu: null, memory: null, storageBytesPerSecond: null },
+        }}
       />,
     );
     expect(handle.update).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        scene: { kind: 'motherboard', appearance: { cpu: null, memory: null } },
+        scene: {
+          kind: 'motherboard',
+          appearance: { cpu: null, memory: null, storageBytesPerSecond: null },
+        },
       }),
     );
     expect(renderer.register).toHaveBeenCalledOnce();

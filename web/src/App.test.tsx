@@ -966,15 +966,20 @@ describe('Leviathan dashboard states', () => {
     await waitFor(() => expect(window.location.hash).toBe('#resources'));
     const memory = document.getElementById('resource-memory')!;
     await waitFor(() => expect(memory).toHaveFocus());
-    expect(memory).toHaveAttribute('aria-pressed', 'true');
+    expect(memory.tagName).toBe('H2');
+    expect(memory.closest('.motherboard-category')).toHaveAttribute(
+      'data-selected',
+      'true',
+    );
     expect(document.getElementById('resource-cpu')).toBeInTheDocument();
     expect(document.getElementById('resource-storage')).toBeInTheDocument();
     openView('Workloads');
     openView('Resources');
-    expect(document.getElementById('resource-memory')).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    expect(
+      document
+        .getElementById('resource-memory')
+        ?.closest('.motherboard-category'),
+    ).toHaveAttribute('data-selected', 'true');
     openView('Overview');
     fireEvent.click(
       screen.getByRole('button', { name: 'Inspect Storage resources' }),
@@ -982,10 +987,11 @@ describe('Leviathan dashboard states', () => {
     await waitFor(() =>
       expect(document.getElementById('resource-storage')).toHaveFocus(),
     );
-    expect(document.getElementById('resource-storage')).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    expect(
+      document
+        .getElementById('resource-storage')
+        ?.closest('.motherboard-category'),
+    ).toHaveAttribute('data-selected', 'true');
   });
 
   it('shows every applicable Overview chart without expansion in resource order', async () => {

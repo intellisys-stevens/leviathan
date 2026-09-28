@@ -48,6 +48,7 @@ func execute(arguments []string) error {
 	namespaceList := flags.String("namespaces", os.Getenv("WATCH_NAMESPACES"), "comma-separated Coder workspace namespaces")
 	driver := flags.String("driver", "gpu.nvidia.com", "DRA driver name")
 	workloadInventory := flags.Bool("workload-inventory", false, "enable metadata-only Coder Pod inventory")
+	gpuCapacity := flags.Bool("gpu-capacity", true, "enable aggregate GPU capacity using cluster-wide read-only DRA reservations")
 	if err := flags.Parse(arguments); err != nil || flags.NArg() != 0 {
 		return errors.New("invalid bridge arguments")
 	}
@@ -75,6 +76,15 @@ func execute(arguments []string) error {
 		return errors.New("invalid Kubernetes attribution configuration")
 	}
 	server := kubernetesbridge.NewServer(state)
+	var capacityController *kubernetesbridge.CapacityController
+	if *gpuCapacity {
+		capacityState := kubernetesbridge.NewCapacityState()
+		capacityController, err = kubernetesbridge.NewCapacityController(client, capacityState, options)
+		if err != nil {
+			return err
+		}
+		server.WithGPUCapacity(capacityState)
+	}
 	var workloadController *kubernetesbridge.WorkloadController
 	if *workloadInventory {
 		metadataClient, metadataErr := metadata.NewForConfig(kubernetesbridge.MetadataOnlyConfig(config))
@@ -95,6 +105,9 @@ func execute(arguments []string) error {
 	defer cancel()
 	workers := 2
 	if workloadController != nil {
+		workers++
+	}
+	if capacityController != nil {
 		workers++
 	}
 	results := make(chan error, workers)
@@ -125,6 +138,9 @@ func execute(arguments []string) error {
 	}()
 	if workloadController != nil {
 		go func() { results <- workloadController.Run(ctx) }()
+	}
+	if capacityController != nil {
+		go func() { results <- capacityController.Run(ctx) }()
 	}
 	go func() {
 		results <- kubernetesbridge.ServeUnix(ctx, *socketPath, server.Handler())

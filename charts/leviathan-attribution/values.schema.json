@@ -20,6 +20,12 @@
       "required": ["enabled"],
       "additionalProperties": false
     },
+    "gpuCapacity": {
+      "type": "object",
+      "properties": { "enabled": { "type": "boolean" } },
+      "required": ["enabled"],
+      "additionalProperties": false
+    },
     "socketPath": {
       "type": "string",
       "pattern": "^/run/leviathan/[A-Za-z0-9._-]+\\.sock$"

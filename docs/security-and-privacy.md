@@ -95,6 +95,12 @@ Kubernetes RBAC, then publishes sanitized assignments over a root-only Unix
 socket. The host service receives no Kubernetes credential and does not read
 Pods, Secrets, logs, exec data, or container-runtime metadata.
 
+The unreleased source chart enables aggregate GPU capacity by default. Its
+separate inventory reads ResourceClaims across all namespaces, DeviceClasses,
+and the current Node. The chart grants cluster-wide read access for those
+resources; only aggregate counts reach the host. Set `gpuCapacity.enabled=false`
+to remove these additional grants. See [GPU capacity](kubernetes-attribution.md#live-gpu-capacity).
+
 The opt-in workload inventory adds namespace-scoped Pod `get/list/watch` to the
 bridge only. Requests select this node's Coder Pods and require metadata-only
 responses; full Pod fallback is rejected. The private `/v1/workloads` handoff

@@ -17,6 +17,11 @@ driver: gpu.nvidia.com
 workloadInventory:
   enabled: false
 
+# Independent aggregate GPU feasibility. Reads ResourceClaims in ALL namespaces,
+# DeviceClasses, and the current Node; never writes claims or changes allocation.
+gpuCapacity:
+  enabled: true
+
 socketPath: /run/leviathan/attribution.sock
 
 serviceAccount:

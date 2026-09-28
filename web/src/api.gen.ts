@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/api/v1/gpu-capacity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return current host-local GPU allocation alternatives.
+         * @description Read-only DRA device feasibility against existing allocations and reservations. Rows are alternatives, not additive. This preview does not reserve devices or guarantee full Pod admission. Missing or stale sources return unavailable counts.
+         */
+        get: operations["getGPUCapacity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/status": {
         parameters: {
             query?: never;
@@ -165,6 +185,27 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        GPUCapacity: {
+            /** @enum {string} */
+            status: "available" | "partial" | "stale" | "unavailable" | "unsupported";
+            /** Format: date-time */
+            observedAt?: string;
+            revision: number;
+            rows: components["schemas"]["GPUCapacityRow"][];
+            message?: string;
+        };
+        GPUCapacityRow: {
+            id: string;
+            /** @enum {string} */
+            mode: "native" | "mig";
+            model: string;
+            profile?: string;
+            memoryBytes: number | null;
+            available: number | null;
+            /** @enum {string} */
+            status: "available" | "unavailable" | "unsupported";
+            message?: string;
+        };
         /** @enum {string} */
         HealthState: "operational" | "degraded" | "unavailable" | "unsupported" | "unknown";
         HealthComponent: {
@@ -616,6 +657,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getGPUCapacity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Aggregate capacity and source freshness; never workload or device identifiers. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GPUCapacity"];
+                };
+            };
+        };
+    };
     getHealthStatus: {
         parameters: {
             query?: never;

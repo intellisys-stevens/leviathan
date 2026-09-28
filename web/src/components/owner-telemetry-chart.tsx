@@ -40,6 +40,8 @@ import { useChartLegendStrip } from './chart-legend-strip';
 import {
   ChartTooltipPortal,
   chartTooltipPortalWrapperStyle,
+  sameChartTooltipPayload,
+  type ChartTooltipDatum,
 } from './chart-tooltip-portal';
 
 const definitions = {
@@ -69,6 +71,38 @@ const labels: Record<OwnerMetricKey, string> = {
   storage_write_bps: 'Write',
 };
 const colors = ['var(--chart-1)', 'var(--chart-2)'];
+
+const OwnerTooltipContent = memo(
+  function OwnerTooltipContent({
+    payload,
+    label,
+  }: {
+    payload?: readonly ChartTooltipDatum[];
+    label?: string | number;
+  }) {
+    return (
+      <div className="rounded-lg border border-border bg-popover px-3 py-2 text-[13px] shadow-xl">
+        <p className="font-mono text-muted-foreground">
+          {new Date(Number(label)).toLocaleTimeString()}
+        </p>
+        {payload?.map((item) => (
+          <p key={String(item.dataKey)} className="flex justify-between gap-4">
+            <span>{item.name}</span>
+            <span className="font-mono">
+              {formatOwnerValue(
+                item.dataKey as OwnerMetricKey,
+                Number(item.value),
+              )}
+            </span>
+          </p>
+        ))}
+      </div>
+    );
+  },
+  (previous, next) =>
+    previous.label === next.label &&
+    sameChartTooltipPayload(previous.payload, next.payload),
+);
 
 export function formatOwnerValue(
   key: OwnerMetricKey,
@@ -288,27 +322,10 @@ export const OwnerTelemetryPanel = memo(function OwnerTelemetryPanel({
                         coordinate={tooltip.coordinate}
                         testId={`owner-${kind}-tooltip`}
                       >
-                        <div className="rounded-lg border border-border bg-popover px-3 py-2 text-[13px] shadow-xl">
-                          <p className="font-mono text-muted-foreground">
-                            {new Date(
-                              Number(tooltip.label),
-                            ).toLocaleTimeString()}
-                          </p>
-                          {tooltip.payload?.map((item) => (
-                            <p
-                              key={String(item.dataKey)}
-                              className="flex justify-between gap-4"
-                            >
-                              <span>{item.name}</span>
-                              <span className="font-mono">
-                                {formatOwnerValue(
-                                  item.dataKey as OwnerMetricKey,
-                                  Number(item.value),
-                                )}
-                              </span>
-                            </p>
-                          ))}
-                        </div>
+                        <OwnerTooltipContent
+                          label={tooltip.label}
+                          payload={tooltip.payload}
+                        />
                       </ChartTooltipPortal>
                     )}
                   />

@@ -22,7 +22,7 @@ describe('procedural whole-machine motherboard', () => {
     'keeps detailed %s hardware in finite board and component frames',
     (theme) => {
       const value = board(theme);
-      const bounds = new THREE.Box3().setFromObject(value.group);
+      const bounds = new THREE.Box3().setFromPoints(value.frames.board.points);
       const size = bounds.getSize(new THREE.Vector3());
       expect(size.x).toBeGreaterThan(8);
       expect(size.x).toBeLessThan(10);
@@ -84,7 +84,10 @@ describe('procedural whole-machine motherboard', () => {
     const children = [...value.group.children];
     const frames = value.frames;
     for (const utilization of [0, 50, 100]) {
-      value.updateState({ cpu: utilization, memory: utilization }, true);
+      value.updateState(
+        { cpu: utilization, memory: utilization, storageBytesPerSecond: null },
+        true,
+      );
       expect(
         value.getActivityState().map((item) => item.emissiveIntensity),
       ).toEqual([
@@ -94,10 +97,13 @@ describe('procedural whole-machine motherboard', () => {
       ]);
       expect(value.group.children).toEqual(children);
       expect(value.frames).toBe(frames);
-      expect(value.hasAmbientActivity()).toBe(false);
-      expect(value.update(1000)).toBe(false);
+      expect(value.hasAmbientActivity()).toBe(utilization > 0);
+      expect(value.update(1000)).toBe(utilization > 0);
     }
-    value.updateState({ cpu: null, memory: Number.NaN }, true);
+    value.updateState(
+      { cpu: null, memory: Number.NaN, storageBytesPerSecond: null },
+      true,
+    );
     expect(
       value.getActivityState().every((item) => item.emissiveIntensity === 0),
     ).toBe(true);
@@ -105,7 +111,10 @@ describe('procedural whole-machine motherboard', () => {
 
   it('changes selection and hover outlines without falsifying activity', () => {
     const value = board();
-    value.updateState({ cpu: 20, memory: 70 }, true);
+    value.updateState(
+      { cpu: 20, memory: 70, storageBytesPerSecond: null },
+      true,
+    );
     const emission = value
       .getActivityState()
       .map((item) => item.emissiveIntensity);
@@ -117,7 +126,8 @@ describe('procedural whole-machine motherboard', () => {
     ) as THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial>;
     expect(storage.material.opacity).toBeGreaterThan(0);
     value.setHighlight('cpu');
-    expect(value.update(90)).toBe(false);
+    expect(value.update(90)).toBe(true);
+    expect(value.isTransitioning()).toBe(false);
     expect(storage.material.opacity).toBeCloseTo(0.98);
     expect(
       value.getActivityState().map((item) => item.emissiveIntensity),
@@ -128,39 +138,136 @@ describe('procedural whole-machine motherboard', () => {
     expect(storage.material.opacity).toBe(0);
   });
 
-  it('finishes 180ms transitions, deduplicates polling and never schedules ambient frames', () => {
+  it('finishes 180ms transitions, deduplicates polling and continues only measured activity', () => {
     const value = board();
-    expect(value.updateState({ cpu: 100, memory: 50 })).toBe(true);
+    expect(
+      value.updateState({ cpu: 100, memory: 50, storageBytesPerSecond: null }),
+    ).toBe(true);
     expect(value.update(90)).toBe(true);
     const halfway = value.getActivityState()[0].emissiveIntensity;
-    expect(value.updateState({ cpu: 100, memory: 50 })).toBe(false);
-    expect(value.update(90)).toBe(false);
+    expect(
+      value.updateState({ cpu: 100, memory: 50, storageBytesPerSecond: null }),
+    ).toBe(false);
+    expect(value.update(90)).toBe(true);
     expect(value.getActivityState()[0].emissiveIntensity).toBeGreaterThan(
       halfway,
     );
     expect(value.getActivityState()[0].emissiveIntensity).toBeCloseTo(0.8);
     expect(value.isTransitioning()).toBe(false);
-    expect(value.hasAmbientActivity()).toBe(false);
-    expect(value.update(10_000)).toBe(false);
+    expect(value.hasAmbientActivity()).toBe(true);
+    expect(value.update(10_000)).toBe(true);
     expect(
       value.group.children.some((child) => child instanceof THREE.Points),
-    ).toBe(false);
+    ).toBe(true);
+    value.updateState(
+      { cpu: null, memory: null, storageBytesPerSecond: null },
+      true,
+    );
+    expect(value.hasAmbientActivity()).toBe(false);
+    expect(value.update(1000)).toBe(false);
+  });
+
+  it('scales CPU, RAM, and SSD particle density from their independent measured activity', () => {
+    const value = board();
+    const frames = value.frames;
+    const children = [...value.group.children];
+    const buffers = children
+      .filter((child) => child instanceof THREE.Points)
+      .map((child) => child.geometry.getAttribute('position').array);
+    let previous = [0, 0, 0];
+    for (const activity of [5, 50, 100]) {
+      value.updateState(
+        {
+          cpu: activity,
+          memory: activity,
+          storageBytesPerSecond: (1025 ** (activity / 100) - 1) * 1024 ** 2,
+        },
+        true,
+      );
+      value.update(1000);
+      const states = value.getActivityState();
+      states.forEach((state, index) =>
+        expect(state.particleCount).toBeGreaterThan(previous[index]),
+      );
+      previous = states.map((state) => state.particleCount);
+      expect(states[2].activity).toBeNull();
+      expect(states[2].bytesPerSecond).toBeGreaterThan(0);
+      expect(value.frames).toBe(frames);
+      expect(value.group.children).toEqual(children);
+    }
+    expect(previous.reduce((sum, count) => sum + count, 0)).toBe(48);
+    children
+      .filter((child) => child instanceof THREE.Points)
+      .forEach((child, index) => {
+        expect(child.geometry.getAttribute('position').array).toBe(
+          buffers[index],
+        );
+        expect(child.userData.excludeFromFraming).toBe(true);
+        expect(value.pickables).not.toContain(child);
+      });
+    value.setParticleBudget(9);
+    expect(
+      value
+        .getActivityState()
+        .reduce((sum, state) => sum + state.particleCount, 0),
+    ).toBe(9);
+    value.setMotionEnabled(false);
+    expect(value.hasAmbientActivity()).toBe(false);
+    expect(value.getParticleDemand()).toBe(0);
+    expect(value.update(1000)).toBe(false);
+    expect(
+      value.getActivityState().every((state) => state.emissiveIntensity > 0),
+    ).toBe(true);
+  });
+
+  it('keeps a static cyan rim on the actual chamfered board perimeter outside framing and raycasts', () => {
+    const value = board();
+    for (const name of ['Motherboard edge halo', 'Motherboard edge rim']) {
+      const edge = value.group.getObjectByName(name) as THREE.Mesh<
+        THREE.TubeGeometry,
+        THREE.MeshBasicMaterial
+      >;
+      expect(edge.userData.excludeFromFraming).toBe(true);
+      expect(edge.raycast(new THREE.Raycaster(), [])).toBeUndefined();
+      expect(value.pickables).not.toContain(edge);
+      expect(edge.material.opacity).toBeGreaterThan(0);
+      expect(edge.material.depthWrite).toBe(false);
+      const path = edge.geometry.parameters
+        .path as THREE.CurvePath<THREE.Vector3>;
+      expect(path.curves).toHaveLength(7);
+      expect(path.curves[1].getPoint(0).toArray()).toEqual([4.1, 0.105, -5.15]);
+      expect(path.curves[1].getPoint(1).toArray()).toEqual([4.45, 0.105, -4.8]);
+      const opacity = edge.material.opacity;
+      value.setSelected('cpu', true);
+      value.updateState(
+        { cpu: 100, memory: 100, storageBytesPerSecond: 1024 ** 3 },
+        true,
+      );
+      expect(edge.material.opacity).toBe(opacity);
+    }
   });
 
   it('applies reduced motion immediately to activity and inspection outlines', () => {
     const value = board();
-    value.updateState({ cpu: 90, memory: 30 });
+    value.updateState({ cpu: 90, memory: 30, storageBytesPerSecond: null });
     value.setSelected('memory');
     value.setMotionEnabled(false);
     expect(value.isTransitioning()).toBe(false);
     expect(value.getActivityState()[0].emissiveIntensity).toBeCloseTo(0.735);
-    expect(value.updateState({ cpu: 0, memory: null })).toBe(true);
+    expect(
+      value.updateState({ cpu: 0, memory: null, storageBytesPerSecond: null }),
+    ).toBe(true);
     value.setHighlight('cpu');
     expect(value.isTransitioning()).toBe(false);
     expect(
       value.getActivityState().map((item) => item.emissiveIntensity),
     ).toEqual([0.15, 0, 0]);
-    expect(value.updateState({ cpu: 0, memory: null }, true)).toBe(false);
+    expect(
+      value.updateState(
+        { cpu: 0, memory: null, storageBytesPerSecond: null },
+        true,
+      ),
+    ).toBe(false);
   });
 
   it('keeps soft local halos independent of selection, neutral when unavailable and out of picking', () => {
@@ -182,10 +289,13 @@ describe('procedural whole-machine motherboard', () => {
       expect(data[(32 * 64 + 32) * 4 + 3]).toBe(0);
       expect(data[(32 * 64 + 57) * 4 + 3]).toBeGreaterThan(200);
     }
-    value.updateState({ cpu: 0, memory: 0 }, true);
+    value.updateState({ cpu: 0, memory: 0, storageBytesPerSecond: null }, true);
     const idle = halos.map((halo) => halo.material.opacity);
     expect(idle.every((opacity) => opacity > 0)).toBe(true);
-    value.updateState({ cpu: 100, memory: 100 }, true);
+    value.updateState(
+      { cpu: 100, memory: 100, storageBytesPerSecond: null },
+      true,
+    );
     const active = halos.map((halo) => halo.material.opacity);
     expect(
       active.every((opacity, index) => opacity > idle[index] && opacity < 0.6),
@@ -193,7 +303,10 @@ describe('procedural whole-machine motherboard', () => {
     value.setSelected('cpu', true);
     value.setHighlight('memory', true);
     expect(halos.map((halo) => halo.material.opacity)).toEqual(active);
-    value.updateState({ cpu: null, memory: null }, true);
+    value.updateState(
+      { cpu: null, memory: null, storageBytesPerSecond: null },
+      true,
+    );
     expect(halos.every((halo) => halo.material.opacity === 0)).toBe(true);
     expect(value.hasAmbientActivity()).toBe(false);
   });
@@ -208,7 +321,11 @@ describe('procedural whole-machine motherboard', () => {
       | THREE.Texture
     >();
     first.group.traverse((object) => {
-      if (object instanceof THREE.Mesh || object instanceof THREE.Line) {
+      if (
+        object instanceof THREE.Mesh ||
+        object instanceof THREE.Line ||
+        object instanceof THREE.Points
+      ) {
         resources.add(object.geometry);
         for (const material of Array.isArray(object.material)
           ? object.material
@@ -229,7 +346,10 @@ describe('procedural whole-machine motherboard', () => {
     expect(first.group.children).toHaveLength(0);
     expect(first.pickables).toHaveLength(0);
     expect(first.update(90)).toBe(false);
-    second.updateState({ cpu: 50, memory: 50 }, true);
+    second.updateState(
+      { cpu: 50, memory: 50, storageBytesPerSecond: null },
+      true,
+    );
     expect(second.getActivityState()[0].emissiveIntensity).toBeCloseTo(0.475);
   });
 });
