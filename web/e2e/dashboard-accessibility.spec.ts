@@ -10,7 +10,7 @@ import {
   selectWorkloadOwner,
 } from './fixtures/dashboard';
 
-configureDashboardTests();
+configureDashboardTests({ cpuCompositing: true });
 
 for (const view of ['Overview', 'Resources', 'Workloads', 'Status']) {
   test(`${view} has no serious or critical authored accessibility violations`, async ({
