@@ -3,10 +3,10 @@ package collector
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"runtime"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/intellisys-stevens/leviathan/internal/plugins"
@@ -66,7 +66,7 @@ func (e *Engine) AcceptObservation(event plugins.Event) {
 		if prior, next := previous.value, event.Observation; prior != nil && next != nil {
 			wasStale := previous.event.At.Sub(prior.ObservedAt) > 3*previous.event.Interval
 			isStale := event.At.Sub(next.ObservedAt) > 3*event.Interval
-			cached = previous.event.Err == nil && prior.SessionID == next.SessionID && prior.Revision == next.Revision && prior.ObservedAt.Equal(next.ObservedAt) && prior.Status == next.Status && wasStale == isStale
+			cached = prior.SessionID == next.SessionID && prior.Revision == next.Revision && prior.ObservedAt.Equal(next.ObservedAt) && prior.Status == next.Status && wasStale == isStale
 		}
 		previous.event = event
 		if event.Observation != nil {
@@ -89,13 +89,6 @@ func (e *Engine) AcceptObservation(event plugins.Event) {
 		domain = domainMetadata
 	}
 	e.storeSnapshot(snapshot, true, domain, event)
-}
-
-func qualified(instance string, native bool, id string) string {
-	if id == "" || native || strings.Contains(id, "/") {
-		return id
-	}
-	return instance + "/" + id
 }
 
 func (e *Engine) assemblePlugins(at time.Time) model.Snapshot {
@@ -160,19 +153,13 @@ func (e *Engine) assemblePlugins(at time.Time) model.Snapshot {
 		}
 		if value.GPU != nil {
 			gpuStates++
-			if !stale(entry) && len(value.GPU.GPUs) > 0 {
-				gpuAvailable++
-			}
 			state := value.GPU.Capabilities
 			if stale(entry) {
 				state = staleCapabilities(state, "Plugin observation is stale")
 			}
-			// Keep NVIDIA profiling precedence within its built-in implementation.
-			if native || gpuStates == 1 {
-				snapshot.Capabilities.NVML = state.NVML
-				snapshot.Capabilities.GPM = state.GPM
-				snapshot.Capabilities.DCGM = state.DCGM
-			}
+			snapshot.Capabilities.NVML = mergePluginProvider(snapshot.Capabilities.NVML, state.NVML)
+			snapshot.Capabilities.GPM = mergePluginProvider(snapshot.Capabilities.GPM, state.GPM)
+			snapshot.Capabilities.DCGM = mergePluginProvider(snapshot.Capabilities.DCGM, state.DCGM)
 			snapshot.Capabilities.ProfileMetrics = snapshot.Capabilities.ProfileMetrics || state.ProfileMetrics
 			snapshot.Diagnostics = append(snapshot.Diagnostics, value.GPU.Diagnostics...)
 			for _, original := range value.GPU.GPUs {
@@ -182,24 +169,26 @@ func (e *Engine) assemblePlugins(at time.Time) model.Snapshot {
 				}
 				gpu := original
 				gpu.UUID = definedID(id, native, original.UUID)
-				gpu.Generation = definedID(id, native, original.Generation)
+				gpu.Generation = pluginGeneration(gpu.UUID, native, original.Generation)
 				resources[id+"/"+original.UUID] = resourceIdentity{id: gpu.UUID, generation: original.Generation, kind: model.AllocationEntityPhysicalGPU}
 				gpu.GPUInstances = append([]model.GPUInstance{}, original.GPUInstances...)
 				for giIndex := range gpu.GPUInstances {
 					gi := &gpu.GPUInstances[giIndex]
 					gi.UUID = definedID(id, native, gi.UUID)
-					gi.Generation = definedID(id, native, gi.Generation)
+					gi.Generation = pluginGeneration(gi.UUID, native, gi.Generation)
 					gi.ComputeInstances = append([]model.ComputeInstance{}, gi.ComputeInstances...)
 					for ciIndex := range gi.ComputeInstances {
 						ci := &gi.ComputeInstances[ciIndex]
-						raw := ci.UUID
+						raw, generation := ci.UUID, ci.Generation
 						ci.UUID = definedID(id, native, ci.UUID)
-						ci.Generation = definedID(id, native, ci.Generation)
-						resources[id+"/"+raw] = resourceIdentity{id: ci.UUID, generation: strings.TrimPrefix(ci.Generation, id+"/"), kind: model.AllocationEntityComputeInstance}
+						ci.Generation = pluginGeneration(ci.UUID, native, generation)
+						resources[id+"/"+raw] = resourceIdentity{id: ci.UUID, generation: generation, kind: model.AllocationEntityComputeInstance}
 					}
 				}
 				if stale(entry) {
 					gpu = staleSnapshot(model.Snapshot{GPUs: []model.GPU{gpu}}, at, "Plugin observation is stale").GPUs[0]
+				} else {
+					gpuAvailable++
 				}
 				snapshot.GPUs = append(snapshot.GPUs, gpu)
 			}
@@ -216,9 +205,18 @@ func (e *Engine) assemblePlugins(at time.Time) model.Snapshot {
 	}
 	workloads := map[string]model.WorkloadAttribution{}
 	workloadOwner := map[string]string{}
+	workloadObserved := map[string]time.Time{}
 	ambiguousWorkloads := map[string]bool{}
 	scopes := map[string]string{}
 	ambiguousScopes := map[string]bool{}
+	var pendingScopes []struct {
+		entry pluginObservation
+		join  v1.ScopeAssignment
+	}
+	var pendingResolutions []struct {
+		entry pluginObservation
+		item  model.WorkloadAssignmentResolution
+	}
 	var allocations []struct {
 		entry      pluginObservation
 		assignment v1.Assignment
@@ -256,8 +254,10 @@ func (e *Engine) assemblePlugins(at time.Time) model.Snapshot {
 					resolution.Status = incoming.Status
 				}
 				for _, item := range incoming.Workloads {
-					item.WorkloadRef = qualified(id, native, item.WorkloadRef)
-					resolution.Workloads = append(resolution.Workloads, item)
+					pendingResolutions = append(pendingResolutions, struct {
+						entry pluginObservation
+						item  model.WorkloadAssignmentResolution
+					}{entry, item})
 				}
 			}
 		}
@@ -277,27 +277,69 @@ func (e *Engine) assemblePlugins(at time.Time) model.Snapshot {
 		}
 		for _, workload := range inventory {
 			workload.Ref = definedID(id, native, workload.Ref)
-			if previous, exists := workloads[workload.Ref]; exists && (workloadOwner[workload.Ref] != id || previous != workload) {
-				ambiguousWorkloads[workload.Ref] = true
-				diagnostic("plugin_identity_conflict", id, "Conflicting workload identity "+workload.Ref)
+			if _, exists := workloads[workload.Ref]; exists {
+				if workloadOwner[workload.Ref] != id {
+					ambiguousWorkloads[workload.Ref] = true
+					diagnostic("plugin_identity_conflict", id, "Conflicting workload identity "+workload.Ref)
+					continue
+				}
+				// Capability reads are independent. Within one owner, newer
+				// metadata wins; sorted capability order breaks timestamp ties.
+				if value.ObservedAt.Before(workloadObserved[workload.Ref]) {
+					continue
+				}
 			}
 			workloads[workload.Ref] = workload
 			workloadOwner[workload.Ref] = id
+			workloadObserved[workload.Ref] = value.ObservedAt
 		}
 		if stale(entry) {
 			continue
 		} // never attach stale ownership to a new process
 		for _, join := range joins {
-			ref := qualified(id, native, join.WorkloadRef)
-			if previous, exists := scopes[join.ScopeRef]; exists && previous != ref {
-				ambiguousScopes[join.ScopeRef] = true
-				diagnostic("plugin_scope_conflict", id, "Ambiguous execution scope; process join withheld")
-			}
-			scopes[join.ScopeRef] = ref
+			pendingScopes = append(pendingScopes, struct {
+				entry pluginObservation
+				join  v1.ScopeAssignment
+			}{entry, join})
 		}
 	}
 	for ref := range ambiguousWorkloads {
 		delete(workloads, ref)
+	}
+	resolveWorkload := func(entry pluginObservation, ref string) string {
+		if ref == "" {
+			return ""
+		}
+		local := definedID(entry.event.InstanceID, entry.event.Native, ref)
+		_, localExists := workloads[local]
+		_, explicitExists := workloads[ref]
+		explicitExists = explicitExists && workloadOwner[ref] != entry.event.InstanceID
+		if localExists && explicitExists && local != ref {
+			diagnostic("plugin_ambiguous_reference", entry.event.InstanceID, "Workload reference matches both local and external identities: "+ref)
+			return ""
+		}
+		if explicitExists && !localExists {
+			return ref
+		}
+		return local
+	}
+	for _, pending := range pendingScopes {
+		ref := resolveWorkload(pending.entry, pending.join.WorkloadRef)
+		if ref == "" {
+			ambiguousScopes[pending.join.ScopeRef] = true
+			continue
+		}
+		if previous, exists := scopes[pending.join.ScopeRef]; exists && previous != ref {
+			ambiguousScopes[pending.join.ScopeRef] = true
+			diagnostic("plugin_scope_conflict", pending.entry.event.InstanceID, "Ambiguous execution scope; process join withheld")
+		}
+		scopes[pending.join.ScopeRef] = ref
+	}
+	for _, pending := range pendingResolutions {
+		pending.item.WorkloadRef = resolveWorkload(pending.entry, pending.item.WorkloadRef)
+		if pending.item.WorkloadRef != "" {
+			resolution.Workloads = append(resolution.Workloads, pending.item)
+		}
 	}
 	for scope := range ambiguousScopes {
 		delete(scopes, scope)
@@ -317,7 +359,7 @@ func (e *Engine) assemblePlugins(at time.Time) model.Snapshot {
 		conflicts := map[string]bool{}
 		for _, item := range allocations {
 			a := item.assignment
-			ref := qualified(item.entry.event.InstanceID, item.entry.event.Native, a.WorkloadRef)
+			ref := resolveWorkload(item.entry, a.WorkloadRef)
 			resource, exists := resources[a.Resource.InstanceID+"/"+a.Resource.ID]
 			if _, known := workloads[ref]; !known || !exists || resource.kind != a.EntityType || a.Resource.Generation != "" && a.Resource.Generation != resource.generation {
 				diagnostic("plugin_unresolved_reference", item.entry.event.InstanceID, "Allocation target or generation is unresolved")
@@ -375,8 +417,8 @@ func (e *Engine) assemblePlugins(at time.Time) model.Snapshot {
 					continue
 				}
 				process.ScopeRef = record.ScopeRef
-				process.WorkloadRef = qualified(id, native, process.WorkloadRef)
-				if process.WorkloadRef == "" {
+				process.WorkloadRef = resolveWorkload(entry, process.WorkloadRef)
+				if record.Process.WorkloadRef == "" {
 					process.WorkloadRef = scopes[record.ScopeRef]
 				}
 				if _, valid := workloads[process.WorkloadRef]; !valid {
@@ -416,9 +458,14 @@ func (e *Engine) assemblePlugins(at time.Time) model.Snapshot {
 				}
 				ownerRefs[owner.Ref] = true
 				owner.Workspaces = append([]model.WorkloadAttribution{}, owner.Workspaces...)
-				for index := range owner.Workspaces {
-					owner.Workspaces[index].Ref = qualified(id, native, owner.Workspaces[index].Ref)
+				workspaces := owner.Workspaces[:0]
+				for _, workspace := range owner.Workspaces {
+					workspace.Ref = resolveWorkload(entry, workspace.Ref)
+					if workspace.Ref != "" {
+						workspaces = append(workspaces, workspace)
+					}
 				}
+				owner.Workspaces = workspaces
 				if stale(entry) {
 					owner.Status = model.WorkloadTelemetryStale
 					owner.Metrics = staleMetrics(owner.Metrics, "Plugin observation is stale")
@@ -470,6 +517,26 @@ func definedID(instance string, native bool, id string) string {
 		return id
 	}
 	return instance + "/" + id
+}
+
+func pluginGeneration(resource string, native bool, generation string) string {
+	if generation == "" || native {
+		return generation
+	}
+	return resource + "@plugin:" + url.QueryEscape(generation)
+}
+
+// Provider groups are optional. An empty external group cannot erase a native
+// provider, and a healthy provider wins over another source's unavailable group.
+// Iteration order supplies a deterministic tie-break for equivalent states.
+func mergePluginProvider(current, incoming model.ProviderState) model.ProviderState {
+	if incoming == (model.ProviderState{}) {
+		return current
+	}
+	if current == (model.ProviderState{}) || incoming.Available && !current.Available {
+		return incoming
+	}
+	return current
 }
 
 func stalePluginSystem(system model.System) model.System {

@@ -131,6 +131,19 @@ resource ID, and optional generation. Missing targets or changed generations
 remain unresolved; allocation records never establish GPU execution. Capacity
 profile counts describe alternatives and are not additive admission guarantees.
 
+Workload definitions use source-local IDs, including IDs containing `/`. A
+workload reference resolves against both that source's definitions and an exact
+qualified ID defined by another source. If both identify different workloads,
+the monitor reports `plugin_ambiguous_reference` and withholds the join. A slash
+alone does not establish a cross-source reference.
+
+The public snapshot qualifies external generations by resource UUID, so two
+GPUs reporting generation `1` retain separate histories. Use returned generation
+IDs for history requests; allocation `ResourceRef.generation` still carries the
+producer's raw generation. Independent inventory and allocation reads from one
+instance may update workload labels; the newer source timestamp wins, with
+inventory taking precedence on equal timestamps.
+
 Go implementations implement `plugin/v1.Source`. `ServeUnix` handles the local
 HTTP server and session ID; `CheckSource` provides lifecycle and advertised
 capability checks for tests. Sources must honor context cancellation and allow

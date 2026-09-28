@@ -20,6 +20,7 @@ import (
 	"github.com/intellisys-stevens/leviathan/internal/uplink"
 	"github.com/intellisys-stevens/leviathan/internal/workload"
 	"github.com/intellisys-stevens/leviathan/model"
+	v1 "github.com/intellisys-stevens/leviathan/plugin/v1"
 )
 
 type Engine struct {
@@ -461,10 +462,21 @@ func (e *Engine) storeSnapshot(snapshot model.Snapshot, topologyChanged bool, do
 	immutable := snapshot
 	e.current.Store(&immutable)
 	observation := e.HealthObservation()
-	if domain == domainSystem || (domain == domainGPU && e.system == nil && e.plugins == nil) {
+	healthDomain := domain
+	if len(events) > 0 {
+		// Recovery and cached reads update health without recording a second
+		// measurement at an already observed source timestamp.
+		switch events[0].Capability {
+		case v1.Host:
+			healthDomain = domainSystem
+		case v1.GPU:
+			healthDomain = domainGPU
+		}
+	}
+	if healthDomain == domainSystem || (healthDomain == domainGPU && e.system == nil && e.plugins == nil) {
 		observation.System = health.ProviderComponent("system", "Host telemetry", snapshot.Capabilities.System, snapshot.System.SampledAt)
 	}
-	if domain == domainGPU {
+	if healthDomain == domainGPU {
 		observation.GPU = health.GPUComponent(snapshot)
 		e.mu.Lock()
 		attributionEvaluated := e.gpuErr == nil
@@ -845,16 +857,12 @@ func (e *Engine) Current() (model.Snapshot, bool) {
 }
 
 func (e *Engine) History(entity string, metrics []string, window time.Duration, now time.Time) history.Series {
+	requested := entity
 	if snapshot, ok := e.Current(); ok {
 		entity = resolveHistoryEntity(snapshot, entity)
 	}
 	result := e.history.Query(entity, metrics, window, now)
-	if at := len(result.Entity); at > 0 {
-		// Keep the requested stable UUID in the response, not the internal generation key.
-		if index := lastGenerationSeparator(result.Entity); index > 0 {
-			result.Entity = result.Entity[:index]
-		}
-	}
+	result.Entity = requested
 	return result
 }
 
@@ -901,15 +909,6 @@ func resolveHistoryEntity(snapshot model.Snapshot, entity string) string {
 		}
 	}
 	return entity
-}
-
-func lastGenerationSeparator(value string) int {
-	for i := len(value) - 1; i >= 0; i-- {
-		if value[i] == '@' && i+2 < len(value) && value[i+1] == 'g' {
-			return i
-		}
-	}
-	return -1
 }
 
 func (e *Engine) Subscribe() (<-chan model.Snapshot, func()) {
