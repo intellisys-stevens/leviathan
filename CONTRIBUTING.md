@@ -70,9 +70,10 @@ routing uses repository-scoped Brokkr services for same-repository jobs and
 reruns when `BROKKR_ENABLED=true`; fork PRs remain hosted. To use hosted
 runners, disable that repository variable before starting a fresh run. Each
 Brokkr service supplies a separate `PLAYWRIGHT_PORT`, and CI starts its own
-server. Hardware-GPU
-browser experiments remain separate, explicit manual runs. Release validation
-retains signing, provenance, archive, and dependency checks.
+server. The four software-rendered browser projects use independent hosted
+runners. Native NVIDIA browser experiments remain separate, explicit manual
+runs. Release validation retains signing, provenance, archive, and dependency
+checks.
 
 Use synthetic fixtures and report the platform, hardware path, and checks actually
 run. See [AGENTS.md](AGENTS.md) for the source map and
