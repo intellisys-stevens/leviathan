@@ -16,8 +16,8 @@ export default defineConfig({
   reporter: 'list',
   expect: {
     toHaveScreenshot: {
-      // Reviewed NVIDIA captures differ by at most three rasterized edge pixels
-      // in icons and WebGL boards. Preserve the software baselines and threshold.
+      // NVIDIA rasterizes some icon and WebGL edges differently. Allow three
+      // pixels by default, preserving the software baselines and threshold.
       maxDiffPixels:
         process.env.PLAYWRIGHT_HARDWARE_GPU === '1' ? 3 : undefined,
     },

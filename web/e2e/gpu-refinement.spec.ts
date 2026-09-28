@@ -1,5 +1,6 @@
 /// <reference types="node" />
 import AxeBuilder from '@axe-core/playwright';
+import process from 'node:process';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import type { GPU, Snapshot } from '../src/types';
 import { systemCapability, systemFixture } from '../src/test/system-fixture';
@@ -626,6 +627,9 @@ test('full and MIG boards render real WebGL scenes through one shared clipped ca
       'gpu-board-assignment-badges.png',
       {
         animations: 'disabled',
+        // This combined card adds the NVIDIA icon edge to the three reviewed
+        // board/reset edge pixels. Assignment badges match the baseline.
+        maxDiffPixels: process.env.PLAYWRIGHT_HARDWARE_GPU === '1' ? 4 : 0,
       },
     );
   } finally {
