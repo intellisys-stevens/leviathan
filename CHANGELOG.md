@@ -20,6 +20,10 @@
 
 ### Changed
 
+- Local API and CLI snapshot projections share empty-collection and unresolved
+  reference normalization. Source, platform, and workload-kind identifiers are
+  extensible; strict generated clients need regeneration. The separate Yggdrasil
+  uplink schema remains locked, with local diagnostics for omitted observations.
 - Build commands bundle and compile; deterministic checks, tests, specialized
   integration lanes, and dependency audits are separate. CI selects dependent
   jobs and rejects an unexpectedly skipped required lane.

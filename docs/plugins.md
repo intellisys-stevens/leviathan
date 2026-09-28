@@ -185,3 +185,26 @@ Before downgrading to v0.4.1, remove `[[plugins]]` and unreleased `[gpu_capacity
 configuration; its older parser rejects them. Re-enable supported legacy
 settings explicitly. Plugin-private identity and diagnostics are not added to
 the separate versioned [Yggdrasil uplink](uplink-v1.md).
+
+## Local client migration
+
+Regenerate strict clients from `api/openapi.yaml` before using this source build.
+Metric sources, workload platforms, and workload kinds accept additional strings;
+the existing built-in values and fields remain valid. GPU resources may include a
+`generation`, and `capabilities.gpu` describes GPU availability independently of
+NVML. External resource IDs are qualified by configured instance ID; use returned
+IDs and generations rather than constructing NVIDIA-specific identifiers.
+
+HTTP snapshots, `snapshot -f json`, and `watch -f jsonl` now share normalization.
+Collection fields use empty arrays rather than null; metric maps use empty objects.
+Unresolved process workload references are omitted until their inventory exists.
+Absent provider and measurement groups report unsupported, with null quantities
+and source `unknown`; normalization preserves actual source timestamps, including
+zero timestamps for never-observed fields. These changes affect consumers that
+previously distinguished null from an empty collection or accepted dangling joins.
+
+The Yggdrasil uplink retains its separately locked schema. Unsupported optional
+observations are omitted with the local `uplink_omitted_observations` diagnostic.
+If required host sources, units, or scopes cannot be represented, no envelope is
+sent and `uplink_incompatible_host` explains the omission locally. A custom plugin
+source is never relabeled as NVML, procfs, or synthetic to fit the uplink contract.
