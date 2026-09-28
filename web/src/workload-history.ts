@@ -83,7 +83,7 @@ export function buildWorkloadTelemetryEntities(
         const label = `GPU ${selection.gpu.index}`;
         entities.set(key, {
           key,
-          entity: selection.gpu.uuid,
+          entity: selection.gpu.generation || selection.gpu.uuid,
           label: sharedAcrossOwners ? `${label} · shared` : label,
           accessibleLabel: sharedAcrossOwners
             ? `${label}, shared assigned physical GPU telemetry`

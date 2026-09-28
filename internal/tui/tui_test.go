@@ -11,8 +11,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/intellisys-stevens/leviathan/internal/history"
-	"github.com/intellisys-stevens/leviathan/internal/model"
 	"github.com/intellisys-stevens/leviathan/internal/provider/fake"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 type tuiSource struct {

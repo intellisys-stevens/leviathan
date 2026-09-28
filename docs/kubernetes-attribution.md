@@ -77,19 +77,24 @@ world-writable.
 
 ## RBAC and runtime security
 
-By default, the chart creates two independent read-only grants:
+Attribution uses two independent read-only grants:
 
 - `get`, `list`, and `watch` for cluster-scoped
   `resourceslices.resource.k8s.io`;
-- `get`, `list`, and `watch` for `resourceclaims.resource.k8s.io`, bound only in
+- `get`, `list`, and `watch` for `resourceclaims.resource.k8s.io`, bound in
   each configured workspace namespace.
+
+The unreleased source chart also enables [GPU capacity](#live-gpu-capacity)
+by default. That separate inventory requires cluster-wide ResourceClaim and
+DeviceClass reads plus Node `get`. Disable it with `gpuCapacity.enabled=false`
+to retain the attribution-only grants.
 
 The opt-in `workloadInventory.enabled=true` adds Pod `get/list/watch` only in
 those workspace namespaces. Requests select the current node and Coder label,
 negotiate metadata-only JSON, and reject ordinary Pod responses. The bridge
 does not request Pod specs, environments, logs, or exec. RBAC itself authorizes
 whole Pod reads, so the metadata-only restriction is also enforced in the
-dedicated client's transport. No wildcard permissions, Nodes, Secrets, or
+dedicated client's transport. No wildcard permissions, Secrets, or
 mutation APIs are granted. Kubernetes RBAC cannot restrict ResourceSlice
 reads by node field selector, so the bridge can read cluster-wide slice device
 metadata and filters it to its Downward-API node name in memory.
@@ -172,6 +177,54 @@ verified direct assignments remain readable, but completeness is unknown. On
 rollback, restore the previous monitor configuration (remove the new setting for
 older strict parsers) and binary, then the prior Helm revision as needed. V1
 handoffs, workload telemetry, and existing 90-day health journals remain intact.
+
+## Live GPU capacity
+
+GPU capacity is an unreleased source feature; the published v0.4.1 bridge and
+chart do not include it. Use a matching source-built bridge image and the local
+chart when evaluating it. The source chart enables `gpuCapacity.enabled=true`
+by default. An independent reader observes complete latest-generation GPU
+ResourceSlice pools, NVIDIA's
+`gpu.nvidia.com` and `mig.nvidia.com` DeviceClasses, the current Node, and
+ResourceClaims across **all namespaces**, without the Coder label filter.
+The chart grants read-only cluster-wide ResourceClaim and DeviceClass access
+and Node `get` access. The client reads only its current Node. Pod permissions
+and workload attribution retain their existing namespace scopes.
+
+`GET /v1/gpu-capacity` on the existing private socket and
+`GET /api/v1/gpu-capacity` on the local dashboard expose aggregate rows only.
+Native and MIG counts are calculated using the version-matched Kubernetes DRA
+allocator and hypothetical exclusive claims. Each profile starts from the same
+allocated/reserved baseline; partition counters prevent overlapping placements.
+Allocated claims remain occupied even without a running Pod or Coder labels.
+The preview neither creates claims nor reserves resources, and GPU device
+feasibility does not guarantee Pod admission, CPU/memory fit, or scheduling.
+
+Counts are alternatives, not additive. Shared modes, VFIO, opaque DeviceClass
+configuration, unresolved reservations, missing classes, incomplete newest
+pools, and failed watches return unavailable counts, never optimistic zeros.
+No DRA pool and older bridges also return an unavailable state. A complete empty
+pool or a fully occupied supported profile can validly report zero capacity.
+No workload names, claim identifiers, raw device references, or Node names
+cross this handoff, and snapshot/uplink contracts remain unchanged.
+
+The controller checks source access every five seconds, caches calculations by
+source revision, cancels superseded work, and bounds each calculation to two
+seconds. Source observations expire after 15 seconds. Refresh reads the cached
+source result without changing telemetry sampling or querying Kubernetes from
+the browser.
+
+Capacity caches discard claim specs, workload labels, consumer identities, and
+opaque driver parameters. Evaluation is refused rather than truncating the
+baseline above 20,000 claims, 4,096 slices, or 1,024 classes. These bounds limit
+evaluation work; informer memory still depends on cluster inventory. Large
+clusters should size the bridge memory limit for their actual cache size.
+
+Set Helm `gpuCapacity.enabled=false` to remove its additional cluster-wide
+permissions and disable the private capacity route. Set `enabled = false` in
+the monitor configuration's `[gpu_capacity]` section (or
+`LEVIATHAN_GPU_CAPACITY_ENABLED=false`) to disable its capacity socket reads.
+Remove that TOML block before rolling back to an older strict parser.
 
 ## Limits and rollback
 

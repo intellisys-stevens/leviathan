@@ -5,6 +5,7 @@ import { Progress } from '@/components/ui/progress';
 import {
   buildPeopleAttributionView,
   type AssignedResource,
+  type AttributedPerson,
 } from '../attribution';
 import {
   formatBytes,
@@ -26,6 +27,15 @@ const WorkloadTelemetryChart = lazy(() => import('./workload-telemetry-chart'));
 
 function countLabel(count: number, singular: string, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function workloadCount(person: AttributedPerson) {
+  return countLabel(
+    person.workspaces.length,
+    person.workspaces.every(({ workload }) => workload.kind === 'workspace')
+      ? 'workspace'
+      : 'workload',
+  );
 }
 
 function ResourceRow({
@@ -131,10 +141,7 @@ function ResourceRow({
           <div>
             <span className="flex items-center justify-between gap-2 text-[13px] uppercase tracking-[0.1em] text-muted-foreground">
               <span className="inline-flex items-center gap-1">
-                <MetricIcon
-                  metric={physical ? 'gpu_activity' : 'sm_activity'}
-                  className="size-3"
-                />
+                <MetricIcon metric="sm_activity" className="size-3" />
                 <span className="mobile-only-label">
                   {physical ? 'GPU' : 'SM'}
                 </span>
@@ -386,7 +393,7 @@ function PeopleViewComponent({
                     {person.ownerName}
                   </span>
                   <span className="mt-0.5 block font-mono text-[13px]">
-                    {countLabel(person.workspaces.length, 'workspace')}
+                    {workloadCount(person)}
                   </span>
                 </button>
               );
@@ -422,7 +429,7 @@ function PeopleViewComponent({
             </div>
             <p className="flex items-center gap-1.5 font-mono text-[13px] text-muted-foreground">
               <Boxes className="size-3" aria-hidden="true" />
-              {countLabel(selectedPerson.workspaces.length, 'workspace')} ·{' '}
+              {workloadCount(selectedPerson)} ·{' '}
               {countLabel(selectedPerson.resourceCount, 'device')}
             </p>
           </div>

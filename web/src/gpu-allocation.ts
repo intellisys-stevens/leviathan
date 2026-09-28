@@ -50,7 +50,7 @@ export function buildGPUAllocationView(
   { stale = false }: { stale?: boolean } = {},
 ): GPUAllocationView {
   const attribution = snapshot.attribution;
-  const provider = snapshot.capabilities.nvml;
+  const provider = snapshot.capabilities.gpu ?? snapshot.capabilities.nvml;
   let conflictingTopology = false;
   const topologies = new Map<string, string>();
   for (const gpu of snapshot.gpus) {

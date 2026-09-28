@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"runtime"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -20,13 +19,11 @@ import (
 	"github.com/intellisys-stevens/leviathan/internal/config"
 	"github.com/intellisys-stevens/leviathan/internal/doctor"
 	"github.com/intellisys-stevens/leviathan/internal/health"
-	"github.com/intellisys-stevens/leviathan/internal/model"
 	"github.com/intellisys-stevens/leviathan/internal/render"
-	systemtelemetry "github.com/intellisys-stevens/leviathan/internal/system"
 	"github.com/intellisys-stevens/leviathan/internal/tui"
 	"github.com/intellisys-stevens/leviathan/internal/uplink"
 	"github.com/intellisys-stevens/leviathan/internal/webui"
-	"github.com/intellisys-stevens/leviathan/internal/workload"
+	"github.com/intellisys-stevens/leviathan/model"
 	"github.com/spf13/cobra"
 )
 
@@ -37,23 +34,23 @@ var (
 )
 
 type application struct {
-	stdout io.Writer
-	stderr io.Writer
-	flags  config.Config
-	cfg    config.Config
-	path   string
+	errorFormat string
+	errorCode   string
+	stdout      io.Writer
+	stderr      io.Writer
+	flags       config.Config
+	cfg         config.Config
+	path        string
 }
 
 func Execute(ctx context.Context, stdout, stderr io.Writer, args []string) error {
-	if err := config.RejectLegacyEnv(); err != nil {
-		return err
-	}
-	application := &application{stdout: stdout, stderr: stderr, flags: config.Defaults()}
+	application := &application{stdout: stdout, stderr: stderr, flags: config.Defaults(), errorFormat: "text", errorCode: "command_failed"}
 	root := application.command()
 	root.SetArgs(args)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
-	return root.ExecuteContext(ctx)
+	err := root.ExecuteContext(ctx)
+	return commandError(err, application.errorCode, application.errorFormat == "json")
 }
 
 func (a *application) command() *cobra.Command {
@@ -68,6 +65,7 @@ func (a *application) command() *cobra.Command {
 		RunE: func(command *cobra.Command, _ []string) error { return a.runTUI(command.Context()) },
 	}
 	flags := root.PersistentFlags()
+	flags.StringVar(&a.errorFormat, "error-format", "text", "stderr error format: text or json")
 	flags.StringVar(&a.path, "config", "", "optional XDG TOML configuration file")
 	flags.DurationVar(&a.flags.Interval, "interval", a.flags.Interval, "sampling interval (250ms–60s)")
 	flags.DurationVar(&a.flags.ProfileInterval, "profile-interval", a.flags.ProfileInterval, "expensive per-entity telemetry interval (250ms–60s)")
@@ -88,11 +86,15 @@ func (a *application) command() *cobra.Command {
 	flags.BoolVar(&a.flags.Health.Enabled, "health-history", a.flags.Health.Enabled, "save 30 days of local health observations during serve")
 	flags.StringVar(&a.flags.Health.Directory, "health-dir", a.flags.Health.Directory, "private local health history directory")
 
-	root.AddCommand(a.tuiCommand(), a.snapshotCommand(), a.watchCommand(), a.serveCommand(), a.doctorCommand(), a.configCheckCommand(), versionCommand(a.stdout))
+	root.AddCommand(a.tuiCommand(), a.snapshotCommand(), a.watchCommand(), a.serveCommand(), a.doctorCommand(), a.configCheckCommand(), a.pluginsCommand(), a.joinCommand(), versionCommand(a.stdout))
 	return root
 }
 
 func (a *application) prepareConfig(command *cobra.Command) error {
+	a.errorCode = "invalid_config"
+	if a.errorFormat != "text" && a.errorFormat != "json" {
+		return errors.New("error-format must be text or json")
+	}
 	path := config.DefaultPath()
 	if value := os.Getenv("LEVIATHAN_CONFIG"); value != "" {
 		path = value
@@ -112,6 +114,10 @@ func (a *application) prepareConfig(command *cobra.Command) error {
 		return err
 	}
 	a.cfg = cfg
+	a.errorCode = "command_failed"
+	if command.Parent() != nil && command.Parent().Name() == "plugins" {
+		a.errorCode = "plugin_check_failed"
+	}
 	return nil
 }
 
@@ -210,7 +216,7 @@ func (a *application) snapshotCommand() *cobra.Command {
 			if format == "json" {
 				encoder := json.NewEncoder(a.stdout)
 				encoder.SetIndent("", "  ")
-				return encoder.Encode(snapshot)
+				return encoder.Encode(model.NormalizeSnapshot(snapshot))
 			}
 			render.SnapshotTable(a.stdout, snapshot, a.cfg.ASCII)
 			return nil
@@ -221,117 +227,27 @@ func (a *application) snapshotCommand() *cobra.Command {
 }
 
 func (a *application) sample(ctx context.Context) (model.Snapshot, error) {
-	source, err := app.Provider(a.cfg)
+	engine, sources, err := app.NewEngine(a.cfg)
 	if err != nil {
 		return model.Snapshot{}, err
 	}
-	hostSampler := a.systemSampler()
-	var hostSystem model.System
-	var hostDiagnostics []model.Diagnostic
-	var hostErr error
-	if hostSampler != nil {
-		hostSystem, hostDiagnostics, hostErr = hostSampler.Sample(ctx, time.Now().UTC())
+	warmup := min(max(a.cfg.Interval, 250*time.Millisecond), time.Second)
+	if !a.cfg.NoProfile {
+		warmup = max(warmup, a.cfg.ProfileInterval)
 	}
-	if err := source.Open(ctx); err != nil {
-		if hostSampler != nil && hostErr == nil {
-			hostSystem, hostDiagnostics = a.finishOneShotSystemSample(ctx, hostSampler, hostSystem, hostDiagnostics)
-			return systemOnlySnapshot(source, hostSystem, hostDiagnostics, err), nil
-		}
-		return model.Snapshot{}, err
-	}
-	defer source.Close()
-	snapshot, err := source.Sample(ctx, time.Now().UTC())
-	if err != nil {
-		if hostSampler != nil && hostErr == nil {
-			return systemOnlySnapshot(source, hostSystem, hostDiagnostics, err), nil
-		}
-		return snapshot, err
-	}
-	if snapshot.Capabilities.GPM.Available && !a.cfg.NoProfile {
-		timer := time.NewTimer(maxDuration(a.cfg.ProfileInterval, maxDuration(a.cfg.Interval, 250*time.Millisecond)))
-		defer timer.Stop()
-		select {
-		case <-ctx.Done():
-			return model.Snapshot{}, ctx.Err()
-		case <-timer.C:
-		}
-		snapshot, err = source.Sample(ctx, time.Now().UTC())
-	}
-	if hostSampler != nil {
-		if latest, diagnostics, systemErr := hostSampler.Sample(ctx, time.Now().UTC()); systemErr == nil {
-			hostSystem, hostDiagnostics, hostErr = latest, diagnostics, nil
-		} else if hostErr != nil {
-			hostErr = systemErr
+	if err := sources.Collect(ctx, warmup, engine.AcceptObservation); err != nil {
+		if _, ok := engine.Current(); !ok {
+			return model.Snapshot{}, err
 		}
 	}
-	if hostSampler != nil {
-		if hostErr == nil {
-			snapshot.System = hostSystem
-			snapshot.Capabilities.System = systemProviderState(hostSystem)
-			snapshot.Diagnostics = append(snapshot.Diagnostics, hostDiagnostics...)
-		} else {
-			snapshot.Capabilities.System = model.ProviderState{Name: "Linux host telemetry", Available: false, Status: model.StatusError, Message: hostErr.Error()}
-			snapshot.Diagnostics = append(snapshot.Diagnostics, model.Diagnostic{Code: "system_sample", Severity: "warning", Component: "system", Summary: "Host telemetry is unavailable", Detail: hostErr.Error(), Status: model.StatusError})
-		}
+	if ctx.Err() != nil {
+		return model.Snapshot{}, ctx.Err()
 	}
-	snapshot.Sequence = 1
-	snapshot.SchemaVersion = "v1"
-	return snapshot, err
-}
-
-func (a *application) systemSampler() systemtelemetry.Sampler {
-	if a.cfg.Provider == "fake" || a.cfg.Fixture != "" {
-		return nil
+	snapshot, ok := engine.Current()
+	if !ok {
+		return model.Snapshot{}, errors.New("no plugin observations available")
 	}
-	return systemtelemetry.Default()
-}
-
-func (a *application) finishOneShotSystemSample(ctx context.Context, sampler systemtelemetry.Sampler, fallback model.System, fallbackDiagnostics []model.Diagnostic) (model.System, []model.Diagnostic) {
-	delay := a.cfg.Interval
-	if delay < 250*time.Millisecond {
-		delay = 250 * time.Millisecond
-	}
-	if delay > time.Second {
-		delay = time.Second
-	}
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return fallback, fallbackDiagnostics
-	case <-timer.C:
-	}
-	latest, diagnostics, err := sampler.Sample(ctx, time.Now().UTC())
-	if err != nil {
-		return fallback, fallbackDiagnostics
-	}
-	return latest, diagnostics
-}
-
-func systemOnlySnapshot(source interface {
-	Capabilities() model.Capabilities
-	Name() string
-}, system model.System, diagnostics []model.Diagnostic, gpuErr error) model.Snapshot {
-	hostname, _ := os.Hostname()
-	capabilities := source.Capabilities()
-	capabilities.System = systemProviderState(system)
-	if capabilities.NVML.Status == "" {
-		capabilities.NVML = model.ProviderState{Name: source.Name(), Available: false, Status: model.StatusError, Message: gpuErr.Error()}
-	}
-	diagnostics = append(diagnostics, model.Diagnostic{
-		Code: "gpu_provider_unavailable", Severity: "warning", Component: "GPU provider", Summary: "GPU telemetry is unavailable",
-		Detail: gpuErr.Error(), Remedy: "run `leviathan doctor --require-gpu` when this machine is expected to have an NVIDIA GPU", Status: capabilities.NVML.Status,
-	})
-	return model.Snapshot{
-		SchemaVersion: "v1", Sequence: 1, SampledAt: system.SampledAt,
-		Host: model.Host{Hostname: hostname, OS: runtime.GOOS, Arch: runtime.GOARCH}, System: system,
-		GPUs: []model.GPU{}, Processes: []model.Process{}, Capabilities: capabilities, Diagnostics: diagnostics,
-	}
-}
-
-func systemProviderState(system model.System) model.ProviderState {
-	available := !system.SampledAt.IsZero() && (system.Status == model.StatusAvailable || system.Status == model.StatusEstimated || system.Status == model.StatusStale)
-	return model.ProviderState{Name: "Linux host telemetry", Available: available, Status: system.Status, Message: system.Message}
+	return snapshot, nil
 }
 
 func (a *application) watchCommand() *cobra.Command {
@@ -359,7 +275,7 @@ func (a *application) watchCommand() *cobra.Command {
 						return nil
 					}
 					if format == "jsonl" {
-						if err := encoder.Encode(snapshot); err != nil {
+						if err := encoder.Encode(model.NormalizeSnapshot(snapshot)); err != nil {
 							return err
 						}
 					} else {
@@ -426,8 +342,10 @@ func (a *application) serveCommand() *cobra.Command {
 					fmt.Fprintln(a.stderr, "Health history flush:", err)
 				}
 			}()
+			handler := api.NewServer(engine, webui.FS(), buildInfo(), healthRecorder)
+			handler.WithGPUCapacity(engine)
 			server := &http.Server{
-				Handler:           api.NewServer(engine, webui.FS(), buildInfo(), healthRecorder),
+				Handler:           handler,
 				ReadHeaderTimeout: 5 * time.Second,
 				IdleTimeout:       2 * time.Minute,
 				// SSE connections are intentionally long-lived. Tie their base context
@@ -553,29 +471,11 @@ func versionCommand(stdout io.Writer) *cobra.Command {
 }
 
 func (a *application) startEngine(ctx context.Context) (*collector.Engine, error) {
-	source, err := app.Provider(a.cfg)
+	engine, _, err := app.NewEngine(a.cfg)
 	if err != nil {
 		return nil, err
 	}
-	var ownerSampler workload.Sampler
-	if a.cfg.WorkloadTelemetry && a.cfg.Provider != "fake" && a.cfg.Fixture == "" {
-		ownerSampler, err = workload.NewSampler(workload.Options{SocketPath: a.cfg.AttributionSocket})
-		if err != nil {
-			return nil, err
-		}
-	}
-	engine := collector.NewWithOptions(source, collector.Options{
-		SamplingInterval: a.cfg.Interval,
-		HistoryWindow:    a.cfg.HistoryWindow,
-		ProfileInterval:  maxDuration(a.cfg.ProfileInterval, a.cfg.Interval),
-		ProcessInterval:  maxDuration(a.cfg.ProcessInterval, a.cfg.Interval),
-		SystemSampler:    a.systemSampler(),
-		WorkloadSampler:  ownerSampler,
-	})
 	if err := engine.Start(ctx); err != nil {
-		if ownerSampler != nil {
-			_ = ownerSampler.Close()
-		}
 		return nil, err
 	}
 	return engine, nil

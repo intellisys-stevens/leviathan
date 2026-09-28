@@ -1,5 +1,56 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Yggdrasil enrollment saves and renews per-machine credentials, with durable
+  recovery after lost responses. Portable uplink v2 retains custom plugin metric
+  sources, units, and scopes; existing token-file deployments keep uplink v1.
+- Versioned external environment plugins use the public telemetry model and
+  independently sampled capabilities, with a non-Coder fixture example.
+- Explicit plugin composition, offline configuration inspection, bounded
+  endpoint checks, structured CLI errors, and `/api/v1/plugins` health reporting.
+- A full-width Live GPU capacity panel above the Resources GPU boards shows
+  additional native and MIG allocations feasible for this host. Independent
+  read-only Kubernetes DRA state includes reservations from every namespace;
+  profile counts are alternatives and do not reserve resources.
+- Separate private bridge and public monitor capacity endpoints retain explicit
+  stale, unavailable, and unsupported states. Standard bridge chart installs
+  enable read-only capacity access, with `gpuCapacity.enabled` as an opt-out.
+- Utilization-driven GPU, CPU, RAM, and storage particles use bounded shared
+  rendering, stop for missing or stale telemetry, and respect reduced motion.
+
+### Changed
+
+- Uplink connections honor `HTTPS_PROXY` and `NO_PROXY`, including existing v1
+  token-file deployments; TLS continues to verify the configured server origin.
+- Local API and CLI snapshot projections share empty-collection and unresolved
+  reference normalization. Source, platform, and workload-kind identifiers are
+  extensible; strict generated clients need regeneration. The separate Yggdrasil
+  uplink v1 schema remains locked, with local compatibility diagnostics for
+  observations it cannot represent. Enrolled agents use the separately locked v2 schema.
+- Build commands bundle and compile; deterministic checks, tests, specialized
+  integration lanes, and dependency audits are separate. CI selects dependent
+  jobs and rejects an unexpectedly skipped required lane.
+- Public model types and Kubernetes attribution now have explicit package
+  boundaries. Current contributor/agent instructions replace validation diaries
+  and obsolete rename/branding checks.
+- GPU details use a visible labeled control. The motherboard gains a soft edge
+  glow and stays centered beside long host details. Its static section headings
+  remain accessible navigation targets; Focus board toggles a CPU closeup and
+  the whole-board view.
+
+### Fixed
+
+- Long-range history retains successful skipped samples and aggregates a resource
+  once when several requested series refer to it. Explicit outages stay visible.
+- Detail panels complete closing when background scheduling stalls their animation.
+- Chart hover positions update through a shared animation frame with cached
+  tooltip dimensions, preserving historical samples and missing-data gaps.
+- Full GPU workloads use the same chip icon as SM ACTIVE while retaining the
+  GPU ACTIVE label and its physical GPU activity measurement.
+
 ## 0.4.1 - 2026-09-07
 
 ### Fixed

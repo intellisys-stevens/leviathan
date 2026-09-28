@@ -1,0 +1,591 @@
+openapi: 3.1.0
+info:
+  title: Leviathan plugin protocol
+  version: '1'
+  description: >-
+    Private HTTP over a configured Unix socket, independently supervised by systemd or Kubernetes. The
+    URL below is an HTTP placeholder; it is not a TCP listener. Sources publish typed observations. The
+    host owns scheduling, freshness, history, resource ownership, and joins. JSON documents are limited
+    to 4 MiB. Unknown protocol or capability revisions are rejected. New metric source, workload
+    platform, and workload kind identifiers are permitted. The Plugin-prefixed schemas retain sparse Go
+    groups accepted by the SDK. Empty provider and metric groups mean no observation; they do not
+    establish zero use. Nonempty groups preserve canonical units, scope, source, status, and
+    timestamps. Stateful ordering, duplicate identities, finite numbers, control characters, total
+    entity budget, and allocation joins are also checked by the SDK/runtime.
+servers:
+  - url: http://unix
+paths:
+  /plugin/v1/manifest:
+    get:
+      operationId: getPluginManifest
+      summary: Describe the implementation and supported capability revisions.
+      responses:
+        '200':
+          description: Descriptor, revalidated when the observation session changes.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Manifest'}
+  /plugin/v1/observations/{capability}:
+    get:
+      operationId: getPluginObservation
+      summary: Read one capability without refreshing cached source timestamps.
+      parameters:
+        - name: capability
+          in: path
+          required: true
+          schema: {$ref: '#/components/schemas/Capability'}
+      responses:
+        '200':
+          description: Exactly one payload matching the requested capability.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Observation'}
+        '404':
+          description: The implementation does not advertise this capability.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '503':
+          description: The source could not return a valid observation.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+components:
+  schemas:
+    Capability: {type: string, enum: [host, gpu, processes, workload-inventory, allocations, workload-measurements, gpu-capacity]}
+    InstanceID:
+      type: string
+      minLength: 1
+      maxLength: 128
+      pattern: ^[^/\\\s\p{Cc}]+$
+      description: >-
+        Stable configured producer identity. Host configuration further restricts IDs to 1–64 ASCII
+        letters, digits, dots, underscores, or hyphens, starting with a letter or digit.
+    LocalID:
+      type: string
+      minLength: 1
+      maxLength: 512
+      description: >-
+        Source-local opaque identity. A slash remains part of this local ID; resource and
+        definition IDs cannot claim another producer's namespace.
+    EntityID:
+      allOf:
+        - $ref: '#/components/schemas/LocalID'
+      not:
+        pattern: '^[\u0009-\u000D\u0020\u0085\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]|[\u0009-\u000D\u0020\u0085\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]$'
+      description: >-
+        A source-local GPU, GPU-instance, compute-instance, workload, or owner identity.
+        Leading and trailing Unicode whitespace are forbidden so history queries can address
+        the entity. Internal whitespace and slashes remain part of the identity. Display labels
+        and opaque scope joins do not use this restriction.
+    Reference:
+      allOf:
+        - $ref: '#/components/schemas/EntityID'
+      description: >-
+        Resolve against the complete inventory. The producer-local definition is
+        one candidate; an existing fully qualified instance/id definition owned
+        by another producer is another candidate. Exactly one distinct candidate
+        resolves. If both exist, the join is ambiguous and withheld; if neither
+        exists, it remains unresolved. A slash alone does not prove another
+        producer owns the definition. GPU targets use explicit ResourceRef instead.
+    Manifest:
+      type: object
+      required: ["protocol_version","id","version","capabilities"]
+      properties:
+        protocol_version: {type: string, const: '1'}
+        id:
+          allOf:
+            - $ref: '#/components/schemas/InstanceID'
+          description: >-
+            Implementation/package identity, distinct from the configured instance ID.
+        version: {type: string, minLength: 1, maxLength: 128}
+        capabilities:
+          type: object
+          minProperties: 1
+          maxProperties: 7
+          propertyNames: {$ref: '#/components/schemas/Capability'}
+          additionalProperties: {type: string, const: '1'}
+    Observation:
+      type: object
+      required: ["capability","instance_id","session_id","revision","observed_at","status"]
+      description: >-
+        instance_id must equal the configured producer. session_id changes when the producer
+        process restarts. revision is positive and monotone within each capability/session; a new
+        session permits restart at 1. Timestamps may not move backward within that session or
+        exceed current time by more than five seconds. Cached responses retain both revision and
+        observed_at. Only the selected payload is present. Source payloads use the common model's
+        camelCase fields; this envelope and private joins use snake_case.
+      properties:
+        capability: {$ref: '#/components/schemas/Capability'}
+        instance_id: {$ref: '#/components/schemas/InstanceID'}
+        session_id: {$ref: '#/components/schemas/InstanceID'}
+        revision: {type: integer, format: uint64, minimum: 1}
+        observed_at: {type: string, format: date-time}
+        status: {type: string, enum: [available, partial, stale, unavailable, unsupported, error]}
+        message: {type: string, maxLength: 4096}
+        host: {$ref: '#/components/schemas/HostData'}
+        gpu: {$ref: '#/components/schemas/GPUData'}
+        processes: {$ref: '#/components/schemas/ProcessData'}
+        workload_inventory: {$ref: '#/components/schemas/InventoryData'}
+        allocations: {$ref: '#/components/schemas/AllocationData'}
+        workload_measurements: {$ref: '#/components/schemas/PluginWorkloadTelemetry'}
+        gpu_capacity: {$ref: ./openapi.yaml#/components/schemas/GPUCapacity}
+      oneOf:
+        - required:
+            - host
+          properties:
+            capability: {const: host}
+        - required:
+            - gpu
+          properties:
+            capability: {const: gpu}
+        - required:
+            - processes
+          properties:
+            capability: {const: processes}
+        - required:
+            - workload_inventory
+          properties:
+            capability: {const: workload-inventory}
+        - required:
+            - allocations
+          properties:
+            capability: {const: allocations}
+        - required:
+            - workload_measurements
+          properties:
+            capability: {const: workload-measurements}
+        - required:
+            - gpu_capacity
+          properties:
+            capability: {const: gpu-capacity}
+      allOf:
+        - oneOf:
+            - required:
+                - host
+            - required:
+                - gpu
+            - required:
+                - processes
+            - required:
+                - workload_inventory
+            - required:
+                - allocations
+            - required:
+                - workload_measurements
+            - required:
+                - gpu_capacity
+    HostData:
+      type: object
+      required: ["system"]
+      properties:
+        system: {$ref: '#/components/schemas/PluginSystem'}
+        diagnostics: {$ref: '#/components/schemas/Diagnostics'}
+    GPUData:
+      type: object
+      required: ["gpus","capabilities"]
+      properties:
+        gpus:
+          type:
+            - array
+            - 'null'
+          maxItems: 4096
+          items: {$ref: '#/components/schemas/PluginGPU'}
+        capabilities: {$ref: '#/components/schemas/PluginCapabilities'}
+        diagnostics: {$ref: '#/components/schemas/Diagnostics'}
+    Diagnostics:
+      type: array
+      maxItems: 4096
+      items: {$ref: '#/components/schemas/PluginDiagnostic'}
+    ProcessRecord:
+      type: object
+      required: ["process"]
+      properties:
+        process:
+          allOf:
+            - $ref: ./openapi.yaml#/components/schemas/Process
+            - type: object
+              properties:
+                workloadRef:
+                  anyOf:
+                    - $ref: '#/components/schemas/Reference'
+                    - const: ''
+        scope_ref:
+          allOf:
+            - $ref: '#/components/schemas/LocalID'
+          description: >-
+            Private opaque execution-scope join. Never a cgroup path, Kubernetes Pod UID, or
+            public API field. It must match a ScopeAssignment from the environment producer.
+    ProcessData:
+      type: object
+      required: ["processes","capability"]
+      properties:
+        processes:
+          type:
+            - array
+            - 'null'
+          maxItems: 4096
+          items: {$ref: '#/components/schemas/ProcessRecord'}
+        capability: {$ref: '#/components/schemas/PluginProviderState'}
+        diagnostics: {$ref: '#/components/schemas/Diagnostics'}
+    WorkloadDefinition:
+      allOf:
+        - $ref: ./openapi.yaml#/components/schemas/WorkloadAttribution
+        - type: object
+          properties:
+            ref: {$ref: '#/components/schemas/EntityID'}
+      description: >-
+        Defines a workload in this producer's namespace; ref is source-local, including when it
+        contains a slash.
+    Owner:
+      type: object
+      required: ["ref","name","platform","workload_refs"]
+      properties:
+        ref: {$ref: '#/components/schemas/EntityID'}
+        name: {type: string, minLength: 1, maxLength: 128}
+        platform: {$ref: ./openapi.yaml#/components/schemas/WorkloadPlatform}
+        workload_refs:
+          type:
+            - array
+            - 'null'
+          maxItems: 4096
+          items: {$ref: '#/components/schemas/Reference'}
+    ScopeAssignment:
+      type: object
+      required: ["scope_ref","workload_ref"]
+      properties:
+        scope_ref: {$ref: '#/components/schemas/LocalID'}
+        workload_ref: {$ref: '#/components/schemas/Reference'}
+        owner_ref: {$ref: '#/components/schemas/Reference'}
+    InventoryData:
+      type: object
+      required: ["workloads","owners"]
+      properties:
+        workloads:
+          type:
+            - array
+            - 'null'
+          maxItems: 4096
+          items: {$ref: '#/components/schemas/WorkloadDefinition'}
+        owners:
+          type:
+            - array
+            - 'null'
+          maxItems: 4096
+          items: {$ref: '#/components/schemas/Owner'}
+        scopes:
+          type: array
+          maxItems: 4096
+          items: {$ref: '#/components/schemas/ScopeAssignment'}
+    ResourceRef:
+      type: object
+      required: ["instance_id","id"]
+      properties:
+        instance_id: {$ref: '#/components/schemas/InstanceID'}
+        id: {$ref: '#/components/schemas/EntityID'}
+        generation:
+          type: string
+          maxLength: 4096
+          description: >-
+            Optional source-local replacement identity. When present it must match the
+            referenced resource's generation; omitted or empty imposes no generation
+            constraint.
+    Assignment:
+      type: object
+      required: ["workload_ref","resource","entity_type","state"]
+      description: >-
+        Explicit scheduler ownership; it does not prove that a process is actively using this GPU
+        or compute instance.
+      properties:
+        workload_ref: {$ref: '#/components/schemas/Reference'}
+        resource: {$ref: '#/components/schemas/ResourceRef'}
+        entity_type: {$ref: ./openapi.yaml#/components/schemas/AllocationEntityType}
+        state: {$ref: ./openapi.yaml#/components/schemas/AllocationState}
+    AllocationData:
+      type: object
+      required: ["workloads","assignments"]
+      properties:
+        workloads:
+          type:
+            - array
+            - 'null'
+          maxItems: 4096
+          items: {$ref: '#/components/schemas/WorkloadDefinition'}
+        assignments:
+          type:
+            - array
+            - 'null'
+          maxItems: 4096
+          items: {$ref: '#/components/schemas/Assignment'}
+        scopes:
+          type: array
+          maxItems: 4096
+          items: {$ref: '#/components/schemas/ScopeAssignment'}
+        resolution: {$ref: '#/components/schemas/PluginAttributionResolution'}
+    PluginAttributionResolution:
+      allOf:
+        - $ref: ./openapi.yaml#/components/schemas/AttributionResolution
+        - type: object
+          properties:
+            workloads:
+              type: array
+              items:
+                allOf:
+                  - $ref: ./openapi.yaml#/components/schemas/WorkloadAssignmentResolution
+                  - type: object
+                    properties:
+                      workloadRef: {$ref: '#/components/schemas/Reference'}
+    Error:
+      type: object
+      required: ["error"]
+      properties:
+        error: {type: string}
+    UnsetMetric:
+      type: object
+      description: >-
+        Unpopulated Go metric group. A measured or unavailable metric uses the common Metric shape
+        instead.
+      required: ["value","unit","source","scope","sampledAt","status"]
+      properties:
+        value: {type: 'null'}
+        unit: {const: ''}
+        source: {const: ''}
+        scope: {const: ''}
+        sampledAt: {const: '0001-01-01T00:00:00Z'}
+        status: {const: ''}
+        message: {const: ''}
+    PluginMetric:
+      anyOf:
+        - allOf:
+            - $ref: ./openapi.yaml#/components/schemas/Metric
+            - type: object
+              properties:
+                unit: {enum: [percent, load, bytes, bytes_per_second, B/s, cores, celsius, watts, mhz, seconds]}
+        - $ref: '#/components/schemas/UnsetMetric'
+    UnsetMemory:
+      type: object
+      description: Unpopulated Go memory group; no quantity is inferred as zero.
+      required: ["totalBytes","usedBytes","freeBytes","source","scope","sampledAt","status"]
+      properties:
+        totalBytes: {type: 'null'}
+        usedBytes: {type: 'null'}
+        freeBytes: {type: 'null'}
+        source: {const: ''}
+        scope: {const: ''}
+        sampledAt: {const: '0001-01-01T00:00:00Z'}
+        status: {const: ''}
+        message: {const: ''}
+    PluginMemory:
+      anyOf:
+        - $ref: ./openapi.yaml#/components/schemas/Memory
+        - $ref: '#/components/schemas/UnsetMemory'
+    UnsetProviderState:
+      type: object
+      description: This capability supplies no state for that provider.
+      required: ["name","available","status"]
+      properties:
+        name: {const: ''}
+        available: {const: false}
+        status: {const: ''}
+        message: {const: ''}
+    PluginProviderState:
+      anyOf:
+        - $ref: ./openapi.yaml#/components/schemas/ProviderState
+        - $ref: '#/components/schemas/UnsetProviderState'
+    PluginMetricSet:
+      type:
+        - object
+        - 'null'
+      maxProperties: 256
+      additionalProperties: {$ref: '#/components/schemas/PluginMetric'}
+    PluginCapabilities:
+      type: object
+      required: ["system","nvml","gpm","dcgm","proc","profileMetrics"]
+      properties:
+        gpu: {$ref: '#/components/schemas/PluginProviderState'}
+        system: {$ref: '#/components/schemas/PluginProviderState'}
+        nvml: {$ref: '#/components/schemas/PluginProviderState'}
+        gpm: {$ref: '#/components/schemas/PluginProviderState'}
+        dcgm: {$ref: '#/components/schemas/PluginProviderState'}
+        proc: {$ref: '#/components/schemas/PluginProviderState'}
+        profileMetrics: {type: boolean}
+    PluginComputeInstance:
+      type: object
+      required: ["uuid","id","profile","memory","metrics","generation"]
+      properties:
+        uuid: &ref_0
+          $ref: '#/components/schemas/EntityID'
+        id: {type: integer, format: uint32, minimum: 0}
+        profile: {type: string}
+        memory: {$ref: '#/components/schemas/PluginMemory'}
+        metrics: {$ref: '#/components/schemas/PluginMetricSet'}
+        generation: {type: string}
+        diagnostics: {$ref: '#/components/schemas/Diagnostics'}
+    PluginGpuInstance:
+      type: object
+      required: ["uuid","id","profile","generation","memory","metrics","computeInstances"]
+      properties:
+        uuid: *ref_0
+        id: {type: integer, format: uint32, minimum: 0}
+        profile: {type: string}
+        generation: {type: string}
+        memory: {$ref: '#/components/schemas/PluginMemory'}
+        metrics: {$ref: '#/components/schemas/PluginMetricSet'}
+        computeInstances:
+          type:
+            - array
+            - 'null'
+          maxItems: 256
+          items: {$ref: '#/components/schemas/PluginComputeInstance'}
+    PluginGPU:
+      type: object
+      required: ["uuid","index","name","migEnabled","maxMigDevices","memory","metrics","gpuInstances"]
+      properties:
+        generation:
+          type: string
+          description: >-
+            Optional source resource generation for replacement identity and history.
+        uuid: *ref_0
+        index: {type: integer, minimum: 0}
+        name: {type: string}
+        pciBusId: {type: string}
+        migEnabled: {type: boolean}
+        maxMigDevices: {type: integer, minimum: 0}
+        memory: {$ref: '#/components/schemas/PluginMemory'}
+        metrics: {$ref: '#/components/schemas/PluginMetricSet'}
+        gpuInstances:
+          type:
+            - array
+            - 'null'
+          maxItems: 256
+          items: {$ref: '#/components/schemas/PluginGpuInstance'}
+    PluginCPU:
+      type: object
+      required: ["model","logicalProcessors","utilization","load1","load5","load15","source","sampledAt","status"]
+      properties:
+        model: {type: string}
+        logicalProcessors: {type: integer, minimum: 0}
+        utilization: {$ref: '#/components/schemas/PluginMetric'}
+        load1: {$ref: '#/components/schemas/PluginMetric'}
+        load5: {$ref: '#/components/schemas/PluginMetric'}
+        load15: {$ref: '#/components/schemas/PluginMetric'}
+        source: &ref_1
+          anyOf:
+            - $ref: ./openapi.yaml#/components/schemas/MetricSource
+            - const: ''
+        sampledAt: {type: string, format: date-time}
+        status: &ref_2
+          anyOf:
+            - $ref: ./openapi.yaml#/components/schemas/MetricStatus
+            - const: ''
+        message: {type: string}
+    PluginSystemMemory:
+      type: object
+      required: ["totalBytes","usedBytes","availableBytes","utilization","source","scope","sampledAt","status"]
+      properties:
+        totalBytes: {type: [integer, 'null'], format: uint64, minimum: 0}
+        usedBytes: {type: [integer, 'null'], format: uint64, minimum: 0}
+        availableBytes: {type: [integer, 'null'], format: uint64, minimum: 0}
+        utilization: {$ref: '#/components/schemas/PluginMetric'}
+        source: *ref_1
+        scope: &ref_3
+          anyOf:
+            - $ref: ./openapi.yaml#/components/schemas/MetricScope
+            - const: ''
+        sampledAt: {type: string, format: date-time}
+        status: *ref_2
+        message: {type: string}
+    PluginFilesystem:
+      type: object
+      required: ["id","mountPoint","fsType","totalBytes","usedBytes","availableBytes","source","scope","sampledAt","status"]
+      properties:
+        id: {$ref: '#/components/schemas/LocalID'}
+        mountPoint: {type: string}
+        fsType: {type: string}
+        totalBytes: {type: [integer, 'null'], format: uint64, minimum: 0}
+        usedBytes: {type: [integer, 'null'], format: uint64, minimum: 0}
+        availableBytes: {type: [integer, 'null'], format: uint64, minimum: 0}
+        source: *ref_1
+        scope: *ref_3
+        sampledAt: {type: string, format: date-time}
+        status: *ref_2
+        message: {type: string}
+    PluginStorage:
+      type: object
+      required: ["totalBytes","usedBytes","availableBytes","readBytesPerSecond","writeBytesPerSecond","filesystems","source","scope","sampledAt","status"]
+      properties:
+        totalBytes: {type: [integer, 'null'], format: uint64, minimum: 0}
+        usedBytes: {type: [integer, 'null'], format: uint64, minimum: 0}
+        availableBytes: {type: [integer, 'null'], format: uint64, minimum: 0}
+        readBytesPerSecond: {$ref: '#/components/schemas/PluginMetric'}
+        writeBytesPerSecond: {$ref: '#/components/schemas/PluginMetric'}
+        filesystems:
+          type:
+            - array
+            - 'null'
+          maxItems: 256
+          items: {$ref: '#/components/schemas/PluginFilesystem'}
+        source: *ref_1
+        scope: *ref_3
+        sampledAt: {type: string, format: date-time}
+        status: *ref_2
+        message: {type: string}
+    PluginSystem:
+      type: object
+      required: ["cpu","memory","storage","sampledAt","status"]
+      properties:
+        cpu: {$ref: '#/components/schemas/PluginCPU'}
+        memory: {$ref: '#/components/schemas/PluginSystemMemory'}
+        storage: {$ref: '#/components/schemas/PluginStorage'}
+        uptime: {$ref: '#/components/schemas/PluginMetric'}
+        sampledAt: {type: string, format: date-time}
+        status: *ref_2
+        message: {type: string}
+    PluginWorkloadOwnerTelemetry:
+      type: object
+      required: ["ref","name","platform","workspaces","sampledAt","status","metrics"]
+      properties:
+        ref: *ref_0
+        name: {type: string}
+        platform: *ref_1
+        workspaces:
+          type:
+            - array
+            - 'null'
+          maxItems: 4096
+          items: {$ref: '#/components/schemas/WorkloadDefinition'}
+        sampledAt: {type: string, format: date-time}
+        status: {$ref: ./openapi.yaml#/components/schemas/WorkloadTelemetryStatus}
+        message: {type: string}
+        metrics: {$ref: '#/components/schemas/PluginMetricSet'}
+      description: >-
+        Owner ref and embedded workload refs define source-local identities, not references to
+        another producer. Metrics keep their own source and workload_owner scope.
+    PluginWorkloadTelemetry:
+      type: object
+      required: ["sampledAt","status","owners"]
+      properties:
+        sampledAt: {type: string, format: date-time}
+        observedAt: {type: string, format: date-time}
+        status: {$ref: ./openapi.yaml#/components/schemas/WorkloadTelemetryStatus}
+        message: {type: string}
+        owners:
+          type:
+            - array
+            - 'null'
+          maxItems: 4096
+          items: {$ref: '#/components/schemas/PluginWorkloadOwnerTelemetry'}
+    PluginDiagnostic:
+      type: object
+      required: ["code","severity","component","summary","status"]
+      properties:
+        code: {type: string}
+        severity: {type: string, enum: [info, warning, error, '']}
+        component: {type: string}
+        summary: {type: string}
+        detail: {type: string}
+        remedy: {type: string}
+        status:
+          anyOf:
+            - $ref: ./openapi.yaml#/components/schemas/MetricStatus
+            - const: ''

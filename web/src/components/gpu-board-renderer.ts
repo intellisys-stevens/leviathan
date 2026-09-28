@@ -1,13 +1,15 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import type { BoardRegion } from './gpu-board-model';
 import {
   createHardwareScene,
   resolveHardwarePick,
   type HardwareScene,
   type HardwareSceneModel,
 } from './hardware-scene';
-import type { GPUChipAppearance } from './gpu-chip-appearance';
+import {
+  particleBudgets,
+  VISIBLE_PARTICLE_LIMIT,
+} from './hardware-activity-particles';
 
 export type BoardViewState = {
   focus: string;
@@ -15,11 +17,11 @@ export type BoardViewState = {
   canZoomIn: boolean;
   canZoomOut: boolean;
 };
-export type BoardViewOptions = {
-  gpuKey: string;
+export type HardwareBoardViewOptions = {
+  sceneKey: string;
   topologyKey: string;
-  regions: readonly BoardRegion[];
-  appearances?: readonly GPUChipAppearance[];
+  scene: HardwareScene;
+  selectedId: string | null;
   theme: 'dark' | 'light';
   highlightedId: string | null;
   interactive: boolean;
@@ -27,21 +29,6 @@ export type BoardViewOptions = {
   onSelect: (id: string) => void;
   onRenderMode: (mode: 'webgl' | 'fallback') => void;
   onViewState: (state: BoardViewState) => void;
-};
-export type BoardViewHandle = {
-  update: (options: BoardViewOptions) => void;
-  zoom: (direction: 'in' | 'out') => void;
-  focusChip: () => void;
-  reset: () => void;
-  dispose: () => void;
-};
-export type HardwareBoardViewOptions = Omit<
-  BoardViewOptions,
-  'gpuKey' | 'regions' | 'appearances'
-> & {
-  sceneKey: string;
-  scene: HardwareScene;
-  selectedId: string | null;
 };
 export type HardwareBoardViewHandle = {
   update: (options: HardwareBoardViewOptions) => void;
@@ -933,6 +920,12 @@ class HardwareBoardRenderer {
     renderer.clear(true, true, true);
     renderer.setScissorTest(true);
     try {
+      const visible: {
+        view: View;
+        rect: DOMRect;
+        scissor: Rect;
+        demand: number;
+      }[] = [];
       for (const view of this.views) {
         if (!view.model) {
           this.setMode(view, false);
@@ -942,7 +935,29 @@ class HardwareBoardRenderer {
           const rect = view.element.getBoundingClientRect();
           const parentClip = visibleClip(view.element, clip);
           const scissor = parentClip && boardViewportBounds(rect, parentClip);
-          if (!scissor) continue;
+          if (!scissor) {
+            view.model.setParticleBudget?.(0);
+            continue;
+          }
+          visible.push({
+            view,
+            rect,
+            scissor,
+            demand: view.model.getParticleDemand?.() ?? 0,
+          });
+        } catch {
+          this.failModel(view);
+        }
+      }
+      const budgets = particleBudgets(
+        visible.map(({ demand }) => demand),
+        VISIBLE_PARTICLE_LIMIT,
+      );
+      for (let index = 0; index < visible.length; index++) {
+        const { view, rect, scissor } = visible[index];
+        if (!view.model) continue;
+        try {
+          view.model.setParticleBudget?.(budgets[index]);
           if (
             Math.abs(rect.width - view.rect.width) > 0.1 ||
             Math.abs(rect.height - view.rect.height) > 0.1
@@ -1097,34 +1112,4 @@ export function registerHardwareBoardView(
 ): HardwareBoardViewHandle {
   shared ??= new HardwareBoardRenderer();
   return shared.add(element, options);
-}
-
-/** Preserve the GPU bridge and chip-focus defaults while sharing all scenes. */
-export function registerGPUBoardView(
-  element: HTMLElement,
-  options: BoardViewOptions,
-): BoardViewHandle {
-  let focus = 'chip';
-  const convert = (next: BoardViewOptions): HardwareBoardViewOptions => ({
-    ...next,
-    sceneKey: next.gpuKey,
-    scene: {
-      kind: 'gpu',
-      regions: next.regions,
-      appearances: next.appearances,
-    },
-    selectedId: null,
-    onViewState: (state) => {
-      focus = state.focus;
-      next.onViewState(state);
-    },
-  });
-  const handle = registerHardwareBoardView(element, convert(options));
-  return {
-    update: (next) => handle.update(convert(next)),
-    zoom: handle.zoom,
-    focusChip: () => handle.focus(focus === 'chip' ? 'board' : 'chip'),
-    reset: handle.reset,
-    dispose: handle.dispose,
-  };
 }

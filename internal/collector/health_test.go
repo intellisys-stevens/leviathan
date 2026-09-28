@@ -7,9 +7,9 @@ import (
 
 	"github.com/intellisys-stevens/leviathan/internal/health"
 	"github.com/intellisys-stevens/leviathan/internal/history"
-	"github.com/intellisys-stevens/leviathan/internal/model"
 	"github.com/intellisys-stevens/leviathan/internal/provider/fake"
 	systemtelemetry "github.com/intellisys-stevens/leviathan/internal/system"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 func TestCombinedProviderRefreshesHostTelemetry(t *testing.T) {

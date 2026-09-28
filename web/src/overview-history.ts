@@ -20,6 +20,7 @@ import {
 export type OverviewEntity = {
   key: string;
   uuid: string;
+  historyEntity: string;
   label: string;
   scope: 'physical_gpu' | 'gpu_instance';
   gpuUUID: string;
@@ -58,7 +59,7 @@ export function overviewTopologyKey(snapshot: Snapshot): string {
   return snapshot.gpus
     .map(
       (gpu) =>
-        `${gpu.uuid}:${gpu.gpuInstances
+        `${gpu.uuid}:${gpu.generation || gpu.uuid}:${gpu.gpuInstances
           .map((gi) => gi.generation || gi.uuid)
           .join(',')}`,
     )
@@ -72,6 +73,7 @@ export function buildOverviewEntities(snapshot: Snapshot): OverviewEntity[] {
     entities.push({
       key: `gpu:${gpu.uuid}`,
       uuid: gpu.uuid,
+      historyEntity: gpu.generation || gpu.uuid,
       label: `GPU ${gpu.index}`,
       scope: 'physical_gpu',
       gpuUUID: gpu.uuid,
@@ -82,6 +84,7 @@ export function buildOverviewEntities(snapshot: Snapshot): OverviewEntity[] {
       entities.push({
         key: `gi:${gi.generation || gi.uuid}`,
         uuid: gi.uuid,
+        historyEntity: gi.uuid,
         label: `GPU ${gpu.index} · GI ${gi.id}`,
         scope: 'gpu_instance',
         gpuUUID: gpu.uuid,

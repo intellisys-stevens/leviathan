@@ -119,6 +119,11 @@ before enabling it.
 
 ## ⬆️ Yggdrasil uplink
 
+The unreleased source supports [automatic enrollment](enrollment.md) with
+`leviathan join`. It saves renewable machine credentials and configures the
+matching installed root service with a separate `30-enrollment.conf` drop-in.
+Published v0.4.1 uses the manual token-file setup below.
+
 The optional uploader runs inside `leviathan serve` and consumes the same
 immutable snapshots as the local API. It sends the newest sanitized observation
 every 15 seconds by default, does not start another collector, and does not keep

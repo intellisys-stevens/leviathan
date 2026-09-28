@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/leviathan/internal/attribution"
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/adapters/kubernetes/attribution"
+	"github.com/intellisys-stevens/leviathan/model"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 )

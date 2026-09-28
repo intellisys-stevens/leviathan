@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/intellisys-stevens/leviathan/internal/health"
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 func TestConfigPrecedenceAndRedactedJSON(t *testing.T) {
@@ -153,11 +153,15 @@ func TestVersionDoesNotRequireRuntimeConfiguration(t *testing.T) {
 	}
 }
 
-func TestLegacyMIGLensEnvironmentFailsBeforeCommandExecution(t *testing.T) {
+func TestHelpAndVersionIgnoreLegacyEnvironment(t *testing.T) {
 	t.Setenv("MIGLENS_CONFIG", "/tmp/legacy-config.toml")
-	err := Execute(context.Background(), &bytes.Buffer{}, &bytes.Buffer{}, []string{"version"})
-	if err == nil || !strings.Contains(err.Error(), "MIGLENS_CONFIG") || !strings.Contains(err.Error(), "LEVIATHAN_CONFIG") {
-		t.Fatalf("legacy environment error = %v", err)
+	for _, args := range [][]string{{"version"}, {"--help"}, {"snapshot", "--help"}} {
+		if err := Execute(context.Background(), &bytes.Buffer{}, &bytes.Buffer{}, args); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	if err := Execute(context.Background(), &bytes.Buffer{}, &bytes.Buffer{}, []string{"config-check"}); err == nil {
+		t.Fatal("active configuration migration was not validated")
 	}
 }
 

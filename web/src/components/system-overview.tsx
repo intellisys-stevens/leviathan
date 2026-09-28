@@ -66,7 +66,7 @@ export function busiestFilesystem(
 }
 
 export function gpuCapacity(snapshot: Snapshot) {
-  const provider = snapshot.capabilities.nvml;
+  const provider = snapshot.capabilities.gpu ?? snapshot.capabilities.nvml;
   const providerAvailable = provider.available && usable(provider.status);
   const physical = [
     ...new Map(snapshot.gpus.map((gpu) => [gpu.uuid, gpu])).values(),

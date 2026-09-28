@@ -1,97 +1,75 @@
 # Contributing
 
-Leviathan is pre-1.0: one Linux host, read-only CPU, RAM, storage, and NVIDIA
-telemetry. CPU-only hosts are supported. Changes must preserve independent
-telemetry domains, the MIG hierarchy, and metric provenance.
-
-## Setup
-
-Install Go 1.27+, Node.js 24+, a C compiler, and `make`. NVIDIA hardware is
-optional because all interfaces can run against fixtures.
+Use Go 1.27+, Node.js 24+, a C compiler, Python 3, and `make`. Full monitor
+tests run on Linux; fixture-based tests do not require NVIDIA hardware.
+Helm and Chromium are needed only for their specialized checks.
 
 ```bash
 make bootstrap
+make check
 make test
+make build
 ```
 
-`make frontend` regenerates the embedded browser bundle. Commit changes under
-`internal/webui/dist` whenever browser source changes. `make generate` must
-leave both generated API type files clean.
+`make build` bundles the dashboard and compiles the monitor, updater, and bridge.
+It does not run tests or dependency audits. `make check` runs Go vet, frontend
+lint/format/type checks, and contract verification. `make test` runs deterministic
+Go/frontend unit tests and CI selection/gate tests. Once dependencies are installed,
+the ordinary tests do not query vulnerability or license services.
 
-## Before opening a change
+| Change | Additional check |
+| --- | --- |
+| Go concurrency or lifecycle | `make test-race` |
+| Plugin protocol or external adapter | `make test-conformance` |
+| Browser behavior, layout, or graphics | `make test-browser`; see [browser workbench](docs/browser-workbench.md) |
+| Installer/bootstrap | `make test-install test-updater-bootstrap` |
+| Kubernetes packaging | `make helm-check` |
+| Updater activation/recovery | Native systemd CI; [prepared-host procedure](docs/generated-updater-acceptance.md) |
+| Release preparation | `make check-release` and native archive dry runs |
 
-```bash
-make fmt
-make test
-make vulncheck
-git diff --check
-```
+`make test-systemd` runs the prepared `/root/updater-package/automatic-setup.test`
+fixture only when `LEVIATHAN_UPDATER_DISPOSABLE_HOST=1` is set. Use a disposable
+Linux systemd host and the exact-source fixtures from CI; the test checks its
+marker and refuses an existing installation. It is excluded from ordinary tests.
 
-Add a deterministic test when changing status precedence, topology grouping,
-history, attribution, wire output, TUI layout, or browser state. Live-host
-checks are useful but cannot replace a fixture for permission and architecture
-branches.
+## Tests and semantics
 
-New metrics must define:
+Preserve independent CPU, RAM, storage, and GPU telemetry, including CPU-only
+hosts. Metrics state their units, provider, hardware scope, sample time, and
+availability. Missing or stale readings remain distinct from measured zero.
+GPU assignment does not prove execution; capacity profile counts are alternatives,
+not additive scheduler admission guarantees.
 
-- a canonical name and unit;
-- the actual hardware scope;
-- provider precedence;
-- behavior for unsupported, denied, stale, and error states;
-- an OpenAPI update and regenerated Go/TypeScript types.
-
-Never parse `nvidia-smi`, make a runtime socket mutation request, expose an
-arbitrary label/environment field, or turn missing telemetry into zero.
-
-## Browser changes
-
-Keep the four views focused: Overview for whole-machine capacity and activity,
-Resources for hardware, Workloads for assignments, and
-Diagnostics for health observations and diagnostic details. Provider setup and
-status belong to their owning view rather than repeated overview panels.
-
-Use logical processor counts and measured RAM/storage usage. GPU capacity counts
-existing unassigned units from observed workspace assignments, not unused VRAM
-or scheduler admission. Allocated and reserved assignments both consume units.
-Missing or unresolved integration data must not imply free capacity.
-Accelerator artwork is schematic: it must not invent slice placement, hardware
-form factors, or per-CI measurements. Missing, estimated, stale, and partial data
-must remain distinguishable.
-
-Exercise keyboard and touch navigation, retained-history retries, changing
-topology, CPU-only hosts, and absent/stale attribution. Check light and dark
-themes, reduced motion, long labels, and narrow layouts including 390/430px
-phones and the 640–767px breakpoint range. A healthy chart screenshot does not
-replace tests for missing samples or asynchronous request races. Keep chart
-bundles lazy so opening Diagnostics does not initialize GPU charts. All Overview
-charts are visible immediately; one shared window controls their history. GPU
-boards use one shared Three.js renderer with independent cameras and visible,
-clipped scenes. Review actual WebGL renders separately from the static fallback;
-verify chip picking after rotation/zoom/scroll, touch scrolling outside Interact,
-and no accidental selection after dragging. Keep keyboard buttons functional
-without graphics and shared GI measurements separate from CI identities.
-Do not introduce continuous animation or external model/texture requests.
-Snow uses a single
-page-load seed and stable surface identities; set an explicit test seed for
-repeatable visual baselines and verify fresh arrangements on unseeded reloads.
-
-Health history records discrete observations. Tests must keep unknown and
-unsupported periods separate from the healthy-observation denominator and
-distinguish journal coverage, monitor runtime, and host uptime.
+Add behavioral coverage for changed history, protocol, ownership, status, and
+concurrency rules. Browser checks should cover keyboard/touch interaction,
+missing samples, retained-history races, reduced motion, and narrow layouts.
+Keep shared GI measurements distinct from CI identities and compare actual
+WebGL output separately from the static fallback. Decorative changes usually
+need visual review rather than exact source-text or geometry assertions.
 
 ## Generated files
 
-- `internal/api/wire.gen.go` from `api/openapi.yaml`.
-- `web/src/api.gen.ts` from `api/openapi.yaml`.
-- `internal/webui/dist/**` from `web/**`.
-- `docs/assets/architecture.svg` from
-  `docs/assets/architecture.mmd` using `pretty-mermaid`.
+`make generate` refreshes local Go/TypeScript API bindings and the vendored uplink
+types. `make frontend` refreshes `internal/webui/dist`; commit it with browser
+source changes. After editing `scripts/install-managed.py`, run
+`python3 scripts/sync-managed-installer.py` to refresh its embedded copy.
+Release installer pins are generated during packaging. The architecture SVG is
+generated from `docs/assets/architecture.mmd`.
 
-## Commit and review notes
+## CI
 
-Call out permission-bound behavior and the hardware/driver path you exercised.
-Do not include real hostnames, GPU UUIDs, pod names, image registries, command
-arguments, socket responses, or other production identifiers in fixtures.
+CI always validates its path classifier and scans changed commits for secrets.
+Relevant source paths select frontend, browser, Go/race, installer, Helm,
+container, and native systemd/archive jobs. Shared contracts include their
+consumers; unknown paths conservatively select every lane. The final `required`
+job fails if a selected job fails, is cancelled, or unexpectedly skips.
 
-Maintainers should follow the [release procedure](docs/releasing.md); branch
-and pull-request CI performs the same packaging work without publishing.
+Main-branch pushes, manual runs, and the weekly schedule run every lane, including
+dependency audits, license checks, and full-history secret scanning. Brokkr
+routing retains its trusted-source check and hosted rerun fallback. Hardware-GPU
+browser experiments remain separate, explicit manual runs. Release validation
+retains signing, provenance, archive, and dependency checks.
+
+Use synthetic fixtures and report the platform, hardware path, and checks actually
+run. See [AGENTS.md](AGENTS.md) for the source map and
+[releasing](docs/releasing.md) for packaging and publication procedures.

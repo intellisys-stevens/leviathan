@@ -37,6 +37,19 @@ func (c allocationResourceClient) ResourceSlices() resourceclient.ResourceSliceI
 func (c allocationResourceClient) ResourceClaims(ns string) resourceclient.ResourceClaimInterface {
 	return allocationClaimClient{c.ResourceV1Interface.ResourceClaims(ns), c.failed}
 }
+func (c allocationResourceClient) DeviceClasses() resourceclient.DeviceClassInterface {
+	return allocationClassClient{c.ResourceV1Interface.DeviceClasses(), c.failed}
+}
+
+type allocationClassClient struct {
+	resourceclient.DeviceClassInterface
+	failed func()
+}
+
+func (c allocationClassClient) Watch(ctx context.Context, o metav1.ListOptions) (watch.Interface, error) {
+	w, err := c.DeviceClassInterface.Watch(ctx, o)
+	return guardAllocationWatch(ctx, w, err, c.failed)
+}
 
 type allocationSliceClient struct {
 	resourceclient.ResourceSliceInterface

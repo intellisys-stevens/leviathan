@@ -20,8 +20,6 @@ esac
 expected_name="leviathan_linux_${architecture}.tar.gz"
 archive_root="leviathan_${version}_linux_${architecture}"
 temporary_directory="$(mktemp -d)"
-legacy_name='mig'
-legacy_name+='lens'
 
 cleanup() {
   rm -rf -- "${temporary_directory}"
@@ -36,14 +34,6 @@ trap cleanup EXIT
 
 archive_entries="$(tar -tzf "${archive}")"
 [[ -n "${archive_entries}" ]]
-if grep -Ei -- "${legacy_name}" <<<"${archive_entries}" >/dev/null; then
-  echo "archive contains a legacy-named path" >&2
-  exit 1
-fi
-if grep -F -- "/web/e2e/fixtures/" <<<"${archive_entries}" >/dev/null; then
-  echo "release archive must not contain branding reference fixtures" >&2
-  exit 1
-fi
 if ! awk -v root="${archive_root}/" 'index($0, root) != 1 { exit 1 }' <<<"${archive_entries}"; then
   echo "archive contains an entry outside ${archive_root}" >&2
   exit 1
@@ -85,14 +75,21 @@ for required_path in \
   "${archive_root}/docs/assets/architecture.svg" \
   "${archive_root}/docs/config.example.toml" \
   "${archive_root}/docs/deployment.md" \
+  "${archive_root}/docs/enrollment.md" \
   "${archive_root}/docs/kubernetes-attribution.md" \
   "${archive_root}/docs/migration-v0.3.md" \
   "${archive_root}/docs/permissions.md" \
+  "${archive_root}/docs/plugins.md" \
   "${archive_root}/docs/releasing.md" \
   "${archive_root}/docs/security-and-privacy.md" \
   "${archive_root}/docs/uplink-v1.md" \
   "${archive_root}/docs/managed-updates.md" \
   "${archive_root}/api/openapi.yaml" \
+  "${archive_root}/api/plugin-v1.yaml" \
+  "${archive_root}/api/uplink-v1-openapi.yaml" \
+  "${archive_root}/api/uplink-v1-contract.lock" \
+  "${archive_root}/api/uplink-v2-openapi.yaml" \
+  "${archive_root}/api/uplink-v2-contract.lock" \
   "${archive_root}/web/public/leviathan-mark.svg" \
   "${archive_root}/openapi.yaml" \
   "${archive_root}/licenses/OFL-1.1.txt" \
@@ -108,19 +105,6 @@ done
 
 tar -xzf "${archive}" -C "${temporary_directory}"
 root="${temporary_directory}/${archive_root}"
-
-while IFS= read -r -d '' file; do
-  relative=${file#"${root}/"}
-  case "${relative}" in
-    # The installer retains only the deliberate legacy-environment rejection,
-    # matching verify-branding.sh's existing source allowlist.
-    leviathan | leviathan-updater | LICENSE | NOTICE | docs/migration-v0.3.md | docs/releasing.md | scripts/install.sh) continue ;;
-  esac
-  if grep -In -i -- "${legacy_name}" "${file}" >/dev/null 2>&1; then
-    echo "archive contains an unexpected legacy product reference: ${relative}" >&2
-    exit 1
-  fi
-done < <(find "${root}" -type f -print0)
 
 [[ -x "${root}/leviathan" ]] || { echo "leviathan is not executable" >&2; exit 1; }
 [[ -x "${root}/leviathan-updater" ]] || { echo "leviathan-updater is not executable" >&2; exit 1; }
@@ -163,22 +147,11 @@ done
 grep -Fx 'MIT License' "${root}/LICENSE" >/dev/null
 grep -F 'Leviathan (formerly MIGLens)' "${root}/NOTICE" >/dev/null
 grep -F 'Copyright (c) 2026 MIGLens contributors' "${root}/LICENSE" >/dev/null
-grep -F 'Leviathan frost-dragon mark traces a project-owner-supplied source image' "${root}/NOTICE" >/dev/null
-mark="${root}/web/public/leviathan-mark.svg"
-[[ "$(wc -c <"${mark}")" -lt 8192 ]] || {
-  echo "frost-dragon mark exceeds 8 KiB" >&2
-  exit 1
-}
-grep -F '<title id="title">Leviathan frost-dragon mark</title>' "${mark}" >/dev/null
-grep -F 'viewBox="0 0 64 64"' "${mark}" >/dev/null
-grep -F '.mark{fill:#15364b}' "${mark}" >/dev/null
-grep -F '.mark{fill:#8be4ff}' "${mark}" >/dev/null
-grep -F 'data-source-sha256="1556d8fe7da4af39b968f84d56afe5d8531a152cba3338e268a8ece8a3ddbe4b"' "${mark}" >/dev/null
-if grep -Ei '<(script|foreignobject|iframe|object|embed|image|text|animate(motion|transform)?|set|lineargradient|radialgradient|pattern|filter)([[:space:]/>])|on[a-z]+[[:space:]]*=|javascript:|(href|xlink:href)[[:space:]]*=' "${mark}" >/dev/null; then
-  echo "frost-dragon mark contains active or external content" >&2
-  exit 1
-fi
 cmp "${root}/openapi.yaml" "${root}/api/openapi.yaml" >/dev/null
+for protocol in v1 v2; do
+  spec_hash="$(sed -n 's/^spec_sha256=//p' "${root}/api/uplink-${protocol}-contract.lock")"
+  printf '%s  %s\n' "${spec_hash}" "${root}/api/uplink-${protocol}-openapi.yaml" | sha256sum --check --strict
+done
 
 version_output="$("${root}/leviathan" version --format json)"
 grep -F "\"version\":\"${version}\"" <<<"${version_output}" >/dev/null

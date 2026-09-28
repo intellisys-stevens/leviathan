@@ -22,6 +22,8 @@
 }
 .gpu-hardware-heading {
   display: flex;
+  flex-wrap: wrap;
+  grid-column: 1 / -1;
   min-width: 0;
   gap: 8px;
   align-items: center;
@@ -47,14 +49,24 @@
   justify-content: center;
   min-width: 44px;
   min-height: 44px;
+  flex: none;
+  gap: 5px;
+  padding: 0 10px;
   margin-left: auto;
   color: var(--gpu-accent);
+  background: color-mix(in oklch, var(--gpu-accent) 9%, var(--card));
+  border: 1px solid color-mix(in oklch, var(--gpu-accent) 68%, var(--border));
   border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
+  transition:
+    background-color 160ms,
+    border-color 160ms;
 }
 .gpu-hardware-status {
   grid-column: 2;
-  grid-row: 1;
+  grid-row: 2;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -62,7 +74,8 @@
   gap: 6px;
 }
 .gpu-model-name {
-  grid-column: 1 / -1;
+  grid-column: 1;
+  grid-row: 2;
   font-size: 12px;
   color: var(--muted-foreground);
   line-height: 1.5;
@@ -266,6 +279,9 @@
   }
   .gpu-hardware-heading {
     gap: 6px;
+  }
+  .gpu-model-name {
+    grid-column: 1 / -1;
   }
   .gpu-hardware-status {
     grid-row: 3;

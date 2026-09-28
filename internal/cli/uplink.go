@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/intellisys-stevens/leviathan/internal/config"
-	"github.com/intellisys-stevens/leviathan/internal/model"
 	"github.com/intellisys-stevens/leviathan/internal/uplink"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 // newConfiguredUplink can only subscribe to a caller-owned source. It has no
@@ -15,7 +15,7 @@ import (
 // the single source of both local and uplink telemetry.
 func newConfiguredUplink(cfg config.UplinkConfig, source uplink.SnapshotSource, build model.BuildInfo, onAttempt func(uplink.AttemptResult)) (*uplink.Runner, error) {
 	return uplink.NewConfiguredRunner(uplink.Configuration{
-		Enabled: cfg.Enabled, BaseURL: cfg.BaseURL, TokenFile: cfg.TokenFile, Interval: cfg.Interval,
+		StateFile: cfg.StateFile, Schema: cfg.Schema, Enabled: cfg.Enabled, BaseURL: cfg.BaseURL, TokenFile: cfg.TokenFile, Interval: cfg.Interval,
 	}, source, build, onAttempt)
 }
 

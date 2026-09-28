@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/intellisys-stevens/leviathan/internal/config"
-	"github.com/intellisys-stevens/leviathan/internal/model"
 	"github.com/intellisys-stevens/leviathan/internal/uplink"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 func TestConfiguredUplinkSubscribesOnceToCallerOwnedSource(t *testing.T) {

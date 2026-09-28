@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 // ErrUnavailable marks an optional provider that cannot exist on this host.

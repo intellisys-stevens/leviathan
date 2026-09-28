@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/leviathan/internal/attribution"
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/adapters/kubernetes/attribution"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 func TestServerPublishesVersionedSanitizedDocument(t *testing.T) {

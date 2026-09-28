@@ -9,9 +9,11 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
-COPY internal/model/ ./internal/model/
+COPY model/ ./model/
+COPY plugin/v1/ ./plugin/v1/
 COPY internal/provider/*.go ./internal/provider/
-COPY internal/attribution/ ./internal/attribution/
+COPY adapters/kubernetes/ ./adapters/kubernetes/
+COPY internal/gpucapacity/ ./internal/gpucapacity/
 COPY internal/workload/ ./internal/workload/
 COPY internal/kubernetesbridge/ ./internal/kubernetesbridge/
 COPY cmd/leviathan-kubernetes-bridge/ ./cmd/leviathan-kubernetes-bridge/

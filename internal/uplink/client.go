@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 const (
@@ -38,6 +40,7 @@ var (
 )
 
 type ClientOptions struct {
+	Schema string
 	// Set at most one of HTTPClient and Transport. A supplied HTTPClient is
 	// copied before timeout, cookie, and redirect policy are enforced.
 	HTTPClient *http.Client
@@ -51,6 +54,7 @@ type ClientOptions struct {
 }
 
 type Client struct {
+	schema       string
 	endpoint     url.URL
 	credentials  TokenSource
 	httpClient   *http.Client
@@ -105,6 +109,12 @@ func NewClient(baseURL string, credentials TokenSource, options ClientOptions) (
 		return nil, err
 	}
 	parsed.Path = EndpointPath
+	if options.Schema != "" && options.Schema != string(Schema) && options.Schema != SchemaV2 {
+		return nil, ErrClientConfig
+	}
+	if options.Schema == SchemaV2 {
+		parsed.Path = EndpointPathV2
+	}
 
 	client := &http.Client{}
 	if options.HTTPClient != nil {
@@ -112,9 +122,9 @@ func NewClient(baseURL string, credentials TokenSource, options ClientOptions) (
 		client = &copy
 	} else if options.Transport == nil {
 		transport := http.DefaultTransport.(*http.Transport).Clone()
-		// Do not let ambient proxy variables choose another bearer-token
-		// recipient. Operators configure the trusted origin explicitly.
-		transport.Proxy = nil
+		// HTTPS_PROXY and NO_PROXY support managed hosts behind standard egress
+		// proxies; TLS still authenticates the configured control-plane origin.
+		transport.Proxy = http.ProxyFromEnvironment
 		if transport.TLSClientConfig == nil {
 			transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 		} else {
@@ -133,7 +143,7 @@ func NewClient(baseURL string, credentials TokenSource, options ClientOptions) (
 	if now == nil {
 		now = time.Now
 	}
-	return &Client{endpoint: *parsed, credentials: credentials, httpClient: client, requestLimit: limit, now: now}, nil
+	return &Client{schema: options.Schema, endpoint: *parsed, credentials: credentials, httpClient: client, requestLimit: limit, now: now}, nil
 }
 
 // ValidateBaseURL applies the same credential-free HTTPS-origin policy used by
@@ -141,6 +151,12 @@ func NewClient(baseURL string, credentials TokenSource, options ClientOptions) (
 func ValidateBaseURL(baseURL string) error {
 	_, err := parseBaseURL(baseURL)
 	return err
+}
+
+// projectSnapshot selects projection before any v1-only filtering can discard
+// custom provenance accepted by the v2 receiver.
+func (client *Client) projectSnapshot(snapshot model.Snapshot, build model.BuildInfo, streamID string, sequence uint64) (Envelope, error) {
+	return project(snapshot, build, streamID, sequence, projectionPolicy{portable: client.schema == SchemaV2})
 }
 
 // Send performs exactly one bounded request. Retry and latest-only scheduling
@@ -155,7 +171,11 @@ func (client *Client) Send(ctx context.Context, envelope Envelope) (Receipt, err
 	if err := validateEnvelope(envelope); err != nil {
 		return Receipt{}, err
 	}
-	document, err := json.Marshal(envelope)
+	var payload any = envelope
+	if client.schema == SchemaV2 {
+		payload = ToV2(envelope)
+	}
+	document, err := json.Marshal(payload)
 	if err != nil {
 		return Receipt{}, requestFailure(ErrEncode, false, 0)
 	}

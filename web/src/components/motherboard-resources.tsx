@@ -191,7 +191,7 @@ export function MotherboardResources({
   const [highlighted, setHighlighted] = useState<MotherboardCategoryId | null>(
     null,
   );
-  const headings = useRef(new Map<MotherboardCategoryId, HTMLButtonElement>());
+  const headings = useRef(new Map<MotherboardCategoryId, HTMLHeadingElement>());
   const appearance = buildMotherboardAppearance(snapshot, live);
   const category = (id: string | null): MotherboardCategoryId | null =>
     id === 'cpu' || id === 'memory' || id === 'storage' ? id : null;
@@ -246,28 +246,17 @@ export function MotherboardResources({
     status: string,
   ) => (
     <div className="motherboard-category-heading">
-      <h2>
-        <button
-          type="button"
-          id={`resource-${id}`}
-          className="motherboard-category-button"
-          aria-pressed={selected === id}
-          ref={(element) => {
-            if (element) headings.current.set(id, element);
-            else headings.current.delete(id);
-          }}
-          onClick={() => onSelect(id)}
-          onFocus={() => setHighlighted(id)}
-          onBlur={() => setHighlighted(null)}
-          onMouseEnter={() => setHighlighted(id)}
-          onMouseLeave={() => {
-            if (document.activeElement !== headings.current.get(id))
-              setHighlighted(null);
-          }}
-        >
-          {icon}
-          <span>{label}</span>
-        </button>
+      <h2
+        id={`resource-${id}`}
+        className="motherboard-category-title"
+        tabIndex={-1}
+        ref={(element) => {
+          if (element) headings.current.set(id, element);
+          else headings.current.delete(id);
+        }}
+      >
+        {icon}
+        <span>{label}</span>
       </h2>
       <Status status={status} measured />
     </div>

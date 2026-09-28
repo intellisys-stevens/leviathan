@@ -130,9 +130,7 @@ describe('procedural GPU board', () => {
           value.setAppearance([{ id: 'a', state, activity }], true);
           const face = regionMaterial(value.pickables[0]);
           expect(
-            face.emissive.equals(
-              new THREE.Color(GPU_CHIP_COLORS[theme][state]),
-            ),
+            face.emissive.equals(new THREE.Color(GPU_CHIP_COLORS.dark[state])),
           ).toBe(true);
           // Preserve neutral metal channels even when the assignment hue has no blue.
           expect(face.color.b).toBeGreaterThan(0.01);
@@ -151,23 +149,98 @@ describe('procedural GPU board', () => {
         value.setAppearance([{ id: 'a', state, activity: 100 }], true);
         expect(
           regionMaterial(value.pickables[0]).emissive.equals(
-            new THREE.Color(GPU_CHIP_COLORS[theme][state]),
+            new THREE.Color(GPU_CHIP_COLORS.dark[state]),
           ),
         ).toBe(true);
         expect(value.getActivityState()[0]).toMatchObject({
           state,
-          activity: null,
-          particleCount: 0,
-          emissiveIntensity: 0,
+          activity: 100,
+          particleCount: 8,
         });
-        expect(value.update(1000)).toBe(false);
+        expect(value.update(1000)).toBe(true);
       }
     },
   );
 
+  it.each(['dark', 'light'] as const)(
+    'keeps assigned %s chips visibly green at idle independently of utilization',
+    (theme) => {
+      const value = board(quadrants, theme);
+      let idleColor: THREE.Color | undefined;
+      for (const activity of [0, 50, 100, null]) {
+        value.setAppearance([{ id: 'a', state: 'assigned', activity }], true);
+        const face = regionMaterial(value.pickables[0]);
+        // Green must be the surface color, even with no emitted light or sparks.
+        expect(face.color.g).toBeGreaterThan(face.color.r * 2);
+        expect(face.color.g).toBeGreaterThan(face.color.b * 3);
+        if (idleColor) expect(face.color.equals(idleColor)).toBe(true);
+        else idleColor = face.color.clone();
+      }
+      expect(value.getActivityState()[0]).toMatchObject({
+        emissiveIntensity: 0,
+        particleCount: 0,
+      });
+      value.setAppearance(
+        [{ id: 'a', state: 'unassigned', activity: 0 }],
+        true,
+      );
+      expect(regionMaterial(value.pickables[0]).color.equals(idleColor!)).toBe(
+        false,
+      );
+    },
+  );
+
+  it('keeps light-theme emission visible on the dark die independently of status inks', () => {
+    const dark = board(quadrants, 'dark');
+    const light = board(quadrants, 'light');
+    const luminance = (color: THREE.Color) =>
+      color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722;
+    const edge = light.group.getObjectByName(
+      'Logical chip region boundary',
+    ) as THREE.LineLoop<THREE.BufferGeometry, THREE.LineBasicMaterial>;
+    // With reduced motion there are no sparks to hide a lost static glow.
+    dark.setMotionEnabled(false);
+    light.setMotionEnabled(false);
+    for (const state of [
+      'assigned',
+      'unassigned',
+      'reserved',
+      'unknown',
+    ] as const) {
+      for (const activity of [25, 50, 100]) {
+        dark.setAppearance([{ id: 'a', state, activity }], true);
+        light.setAppearance([{ id: 'a', state, activity }], true);
+        const darkFace = regionMaterial(dark.pickables[0]);
+        const lightFace = regionMaterial(light.pickables[0]);
+        expect(
+          luminance(lightFace.emissive) * lightFace.emissiveIntensity,
+        ).toBeGreaterThanOrEqual(
+          luminance(darkFace.emissive) * darkFace.emissiveIntensity,
+        );
+        expect(light.getActivityState()[0].haloOpacity).toBeGreaterThanOrEqual(
+          dark.getActivityState()[0].haloOpacity,
+        );
+        expect(
+          edge.material.color.equals(
+            new THREE.Color(GPU_CHIP_COLORS.light[state]),
+          ),
+        ).toBe(true);
+        expect(light.getActivityState()[0].particleCount).toBe(0);
+        expect(light.update(500)).toBe(false);
+      }
+    }
+  });
+
   it('keeps zero and missing readings static and stops stale particles immediately', () => {
     const value = board();
-    for (const activity of [0, null, Number.NaN, Number.POSITIVE_INFINITY]) {
+    for (const activity of [
+      0,
+      null,
+      -1,
+      101,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+    ]) {
       value.setAppearance([{ id: 'a', state: 'assigned', activity }], true);
       expect(value.hasAmbientActivity()).toBe(false);
       expect(value.update(180)).toBe(false);
@@ -209,7 +282,7 @@ describe('procedural GPU board', () => {
     expect(complete.phase).toBeGreaterThan(middle.phase);
   });
 
-  it('contains sparse soft particles and halos within each die region without affecting bounds or picking', () => {
+  it('keeps fine sparks clear of labels with fixed buffers and no effect on framing or picking', () => {
     const value = board();
     const before = new THREE.Box3().setFromObject(value.group);
     value.setAppearance(
@@ -227,21 +300,21 @@ describe('procedural GPU board', () => {
         const target = value.pickables.find(
           (pickable) => pickable.userData.regionId === object.userData.regionId,
         )!;
-        expect(object.geometry.drawRange.count).toBe(4);
+        expect(object.geometry.drawRange.count).toBe(8);
         const positions = object.geometry.getAttribute('position'),
           colors = object.geometry.getAttribute('color');
         for (let index = 0; index < positions.count; index++) {
           expect(
             Math.abs(positions.getX(index) - target.position.x),
-          ).toBeLessThan(0.6);
+          ).toBeLessThan(0.76);
           expect(
             Math.abs(positions.getZ(index) - target.position.z),
-          ).toBeGreaterThan(0.3);
+          ).toBeLessThan(0.57);
           expect(
             Math.abs(positions.getZ(index) - target.position.z),
-          ).toBeLessThan(0.5);
+          ).toBeGreaterThan(0.28);
           expect(positions.getY(index)).toBeGreaterThan(0.335);
-          expect(positions.getY(index)).toBeLessThan(0.365);
+          expect(positions.getY(index)).toBeLessThan(0.465);
           expect(colors.getW(index)).toBeGreaterThanOrEqual(0);
           expect(colors.getW(index)).toBeLessThanOrEqual(1);
         }
@@ -251,6 +324,48 @@ describe('procedural GPU board', () => {
       true,
     );
   });
+
+  it.each(['dark', 'light'] as const)(
+    'scales %s particle density, brightness and speed with measured activity within fixed budgets',
+    (theme) => {
+      const value = board(
+        [{ id: 'gpu', label: 'GPU', x: 0, y: 0, width: 1, height: 1 }],
+        theme,
+      );
+      const particles = value.group.getObjectByName(
+        'Chip activity particles',
+      ) as THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>;
+      const positions = particles.geometry.getAttribute('position').array;
+      const colors = particles.geometry.getAttribute('color').array;
+      let previousCount = 0;
+      let previousSpeed = 0;
+      let previousBrightness = 0;
+      for (const activity of [5, 50, 100]) {
+        value.setAppearance([{ id: 'gpu', state: 'unknown', activity }], true);
+        const before = value.getActivityState()[0];
+        value.update(1000);
+        const after = value.getActivityState()[0];
+        expect(after.particleCount).toBeGreaterThan(previousCount);
+        expect(after.phase - before.phase).toBeGreaterThan(previousSpeed);
+        expect(particles.material.opacity).toBeGreaterThan(previousBrightness);
+        previousCount = after.particleCount;
+        previousSpeed = after.phase - before.phase;
+        previousBrightness = particles.material.opacity;
+        expect(particles.geometry.getAttribute('position').array).toBe(
+          positions,
+        );
+        expect(particles.geometry.getAttribute('color').array).toBe(colors);
+      }
+      expect(previousCount).toBe(32);
+      value.setParticleBudget(11);
+      expect(value.getActivityState()[0].particleCount).toBe(11);
+      value.setParticleBudget(0);
+      expect(value.hasAmbientActivity()).toBe(false);
+      expect(value.getParticleDemand()).toBe(32);
+      value.setParticleBudget(32);
+      expect(value.hasAmbientActivity()).toBe(true);
+    },
+  );
 
   it('retains static activity glow under reduced motion without ongoing updates', () => {
     const value = board();

@@ -4,6 +4,43 @@
  */
 
 export interface paths {
+    "/api/v1/plugins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List configured plugin capabilities and independent observation health. */
+        get: operations["getPlugins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/gpu-capacity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return current host-local GPU allocation alternatives.
+         * @description Read-only DRA device feasibility against existing allocations and reservations. Rows are alternatives, not additive. This preview does not reserve devices or guarantee full Pod admission. Missing or stale sources return unavailable counts.
+         */
+        get: operations["getGPUCapacity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/status": {
         parameters: {
             query?: never;
@@ -67,7 +104,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Return multiple retained metric series on one shared timestamp set. */
+        /**
+         * Return multiple retained metric series on one shared timestamp set.
+         * @description Accepts at most 256 series, 1024 metrics in total, and a 9 MiB JSON body; aligned downsampling applies to all requested signals together.
+         */
         post: operations["getAlignedHistory"];
         delete?: never;
         options?: never;
@@ -165,6 +205,27 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        GPUCapacity: {
+            /** @enum {string} */
+            status: "available" | "partial" | "stale" | "unavailable" | "unsupported";
+            /** Format: date-time */
+            observedAt?: string;
+            revision: number;
+            rows: components["schemas"]["GPUCapacityRow"][];
+            message?: string;
+        };
+        GPUCapacityRow: {
+            id: string;
+            /** @enum {string} */
+            mode: "native" | "mig";
+            model: string;
+            profile?: string;
+            memoryBytes: number | null;
+            available: number | null;
+            /** @enum {string} */
+            status: "available" | "unavailable" | "unsupported";
+            message?: string;
+        };
         /** @enum {string} */
         HealthState: "operational" | "degraded" | "unavailable" | "unsupported" | "unknown";
         HealthComponent: {
@@ -220,10 +281,36 @@ export interface components {
             components: components["schemas"]["HealthComponent"][];
             days: components["schemas"]["HealthDay"][];
         };
+        PluginReport: {
+            plugins: components["schemas"]["PluginHealth"][];
+        };
+        PluginHealth: {
+            id: string;
+            implementation: string;
+            /** @enum {string} */
+            transport: "builtin" | "unix";
+            capabilities: components["schemas"]["PluginCapabilityHealth"][];
+            status: string;
+            message?: string;
+            dependencies: string[];
+            /** Format: int64 */
+            intervalMs: number;
+        };
+        PluginCapabilityHealth: {
+            capability: string;
+            revision: string;
+            enabled: boolean;
+            status: string;
+            /** Format: date-time */
+            observedAt?: string;
+            /** Format: date-time */
+            lastSuccess?: string;
+            message?: string;
+        };
         /** @enum {string} */
         MetricStatus: "available" | "unsupported" | "permission_denied" | "estimated" | "stale" | "error";
-        /** @enum {string} */
-        MetricSource: "nvml" | "nvml_gpm" | "dcgm" | "proc" | "procfs" | "statfs" | "cgroupfs" | "synthetic";
+        /** @description Open identifier supplied by the source. Built-in values include nvml, nvml_gpm, dcgm, proc, procfs, statfs, cgroupfs, synthetic. */
+        MetricSource: string;
         /** @enum {string} */
         MetricScope: "host" | "physical_gpu" | "gpu_instance" | "compute_instance" | "workload_owner";
         Metric: {
@@ -270,10 +357,10 @@ export interface components {
             status: components["schemas"]["MetricStatus"];
             message?: string;
         };
-        /** @enum {string} */
-        WorkloadPlatform: "coder";
-        /** @enum {string} */
-        WorkloadKind: "workspace";
+        /** @description Open identifier supplied by the source. Built-in values include coder. */
+        WorkloadPlatform: string;
+        /** @description Open identifier supplied by the source. Built-in values include workspace. */
+        WorkloadKind: string;
         /** @enum {string} */
         AllocationEntityType: "physical_gpu" | "compute_instance";
         /** @enum {string} */
@@ -363,6 +450,8 @@ export interface components {
             computeInstances: components["schemas"]["ComputeInstance"][];
         };
         GPU: {
+            /** @description Optional source resource generation for replacement identity and history. */
+            generation?: string;
             uuid: string;
             index: number;
             name: string;
@@ -380,6 +469,7 @@ export interface components {
             message?: string;
         };
         Capabilities: {
+            gpu?: components["schemas"]["ProviderState"];
             system: components["schemas"]["ProviderState"];
             nvml: components["schemas"]["ProviderState"];
             gpm: components["schemas"]["ProviderState"];
@@ -616,6 +706,46 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getPlugins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plugin state; source timestamps do not advance on cached responses. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginReport"];
+                };
+            };
+        };
+    };
+    getGPUCapacity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Aggregate capacity and source freshness; never workload or device identifiers. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GPUCapacity"];
+                };
+            };
+        };
+    };
     getHealthStatus: {
         parameters: {
             query?: never;

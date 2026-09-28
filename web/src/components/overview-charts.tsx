@@ -48,6 +48,7 @@ import {
 import {
   ChartTooltipPortal,
   chartTooltipPortalWrapperStyle,
+  sameChartTooltipPayload,
 } from './chart-tooltip-portal';
 import { MetricIcon, type MetricVisualKey } from './metric-icon';
 import {
@@ -184,75 +185,85 @@ export function latestSeriesValue(
   return null;
 }
 
-export function SeriesTooltip({
-  active,
-  payload,
-  label,
-  activeDataKey,
-  unit,
-  testId = 'overview-tooltip',
-}: {
-  active?: boolean;
-  payload?: readonly TooltipDatum[];
-  label?: string | number;
-  activeDataKey: string | null;
-  unit: ChartUnit;
-  testId?: string;
-}) {
-  if (!active || !payload?.length) return null;
+export const SeriesTooltip = memo(
+  function SeriesTooltip({
+    active,
+    payload,
+    label,
+    activeDataKey,
+    unit,
+    testId = 'overview-tooltip',
+  }: {
+    active?: boolean;
+    payload?: readonly TooltipDatum[];
+    label?: string | number;
+    activeDataKey: string | null;
+    unit: ChartUnit;
+    testId?: string;
+  }) {
+    if (!active || !payload?.length) return null;
 
-  const visible = payload.filter(
-    (item) =>
-      typeof item.value === 'number' &&
-      (!activeDataKey || String(item.dataKey) === activeDataKey),
-  );
-  if (visible.length === 0) return null;
+    const visible = payload.filter(
+      (item) =>
+        typeof item.value === 'number' &&
+        (!activeDataKey || String(item.dataKey) === activeDataKey),
+    );
+    if (visible.length === 0) return null;
 
-  return (
-    <div
-      className="max-w-[calc(100vw-2rem)] rounded border border-input bg-popover px-3 py-2 text-[13px] shadow-xl"
-      data-testid={testId}
-    >
-      <p className="mb-1 font-mono text-[13px] text-muted-foreground">
-        {new Date(Number(label)).toLocaleString()}
-      </p>
+    return (
       <div
-        className={
-          visible.length > 6
-            ? 'grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2'
-            : 'space-y-1'
-        }
+        className="max-w-[calc(100vw-2rem)] rounded border border-input bg-popover px-3 py-2 text-[13px] shadow-xl"
+        data-testid={testId}
       >
-        {visible.map((item) => {
-          const dataKey =
-            typeof item.dataKey === 'string' || typeof item.dataKey === 'number'
-              ? String(item.dataKey)
-              : null;
-          return (
-            <div
-              key={dataKey ?? String(item.name)}
-              className="flex min-w-36 items-center justify-between gap-4"
-            >
-              <span className="inline-flex min-w-0 items-center gap-1.5">
-                <span
-                  aria-hidden="true"
-                  className="h-0.5 w-3 shrink-0 rounded-full"
-                  style={{ backgroundColor: item.color }}
-                />
-                <span className="truncate text-muted-foreground">
-                  {item.name}
+        <p className="mb-1 font-mono text-[13px] text-muted-foreground">
+          {new Date(Number(label)).toLocaleString()}
+        </p>
+        <div
+          className={
+            visible.length > 6
+              ? 'grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2'
+              : 'space-y-1'
+          }
+        >
+          {visible.map((item) => {
+            const dataKey =
+              typeof item.dataKey === 'string' ||
+              typeof item.dataKey === 'number'
+                ? String(item.dataKey)
+                : null;
+            return (
+              <div
+                key={dataKey ?? String(item.name)}
+                className="flex min-w-36 items-center justify-between gap-4"
+              >
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  <span
+                    aria-hidden="true"
+                    className="h-0.5 w-3 shrink-0 rounded-full"
+                    style={{ backgroundColor: item.color }}
+                  />
+                  <span className="truncate text-muted-foreground">
+                    {item.name}
+                  </span>
                 </span>
-              </span>
-              <span className="text-right font-mono font-medium text-foreground">
-                {chartValueLabel(Number(item.value), unit)}
-              </span>
-            </div>
-          );
-        })}
+                <span className="text-right font-mono font-medium text-foreground">
+                  {chartValueLabel(Number(item.value), unit)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  },
+  (previous, next) =>
+    previous.active === next.active &&
+    previous.label === next.label &&
+    previous.activeDataKey === next.activeDataKey &&
+    previous.unit === next.unit &&
+    previous.testId === next.testId &&
+    sameChartTooltipPayload(previous.payload, next.payload),
+);
 
 export function overviewMetricValue(
   point: OverviewPoint,
@@ -659,7 +670,7 @@ function ChartPanel({
     () =>
       entities.map((entity) => ({
         key: entity.key,
-        entity: entity.uuid,
+        entity: entity.historyEntity,
         metrics: historyMetrics(metric, entity.scope),
       })),
     [entities, metric],

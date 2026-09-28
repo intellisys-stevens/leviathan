@@ -97,10 +97,23 @@ describe('motherboard resources', () => {
     ]) {
       expect(screen.getByRole('heading', { name: label })).toBeVisible();
       expect(
-        within(region(label as 'CPU' | 'RAM' | 'Storage')).getByRole('button', {
-          name: label,
-        }),
+        within(region(label as 'CPU' | 'RAM' | 'Storage')).getByRole(
+          'heading',
+          {
+            name: label,
+          },
+        ),
       ).toHaveAttribute('id', `resource-${id}`);
+      expect(screen.getByRole('heading', { name: label })).toHaveAttribute(
+        'tabindex',
+        '-1',
+      );
+      expect(
+        within(region(label as 'CPU' | 'RAM' | 'Storage')).queryByRole(
+          'button',
+          { name: label },
+        ),
+      ).toBeNull();
     }
     expect(region('CPU')).toHaveTextContent('Fixture CPU');
     expect(fact(region('CPU'), 'Logical processors')).toHaveTextContent('16');
@@ -129,7 +142,7 @@ describe('motherboard resources', () => {
     expect(container.textContent).not.toContain('/dev/');
   });
 
-  it('connects controlled selection and mirrored hover to native headings without replacing them on polling', () => {
+  it('lets board picks focus static headings without replacing them on polling', () => {
     const select = vi.fn();
     const data = fixture();
     function Harness({ snapshot }: { snapshot: Snapshot }) {
@@ -148,34 +161,42 @@ describe('motherboard resources', () => {
       );
     }
     const view = render(<Harness snapshot={data} />);
-    const ram = within(region('RAM')).getByRole('button', { name: 'RAM' });
+    const ram = within(region('RAM')).getByRole('heading', { name: 'RAM' });
     fireEvent.click(
       screen.getByRole('button', { name: 'Pick memory on board' }),
     );
     expect(select).toHaveBeenLastCalledWith('memory');
     expect(ram).toHaveFocus();
-    expect(ram).toHaveAttribute('aria-pressed', 'true');
+    expect(ram).not.toHaveAttribute('aria-pressed');
     expect(screen.getByTestId('motherboard-view')).toHaveAttribute(
       'data-selected',
       'memory',
     );
-    const storage = within(region('Storage')).getByRole('button', {
+    const storage = within(region('Storage')).getByRole('heading', {
       name: 'Storage',
     });
-    fireEvent.mouseEnter(storage);
+    fireEvent.mouseEnter(
+      screen.getByRole('button', { name: 'Pick storage on board' }),
+    );
     expect(screen.getByTestId('motherboard-view')).toHaveAttribute(
       'data-highlighted',
       'storage',
     );
-    fireEvent.mouseLeave(storage);
+    fireEvent.mouseLeave(
+      screen.getByRole('button', { name: 'Pick storage on board' }),
+    );
     fireEvent.click(storage);
+    expect(select).toHaveBeenLastCalledWith('memory');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Pick storage on board' }),
+    );
     expect(select).toHaveBeenLastCalledWith('storage');
-    expect(storage).toHaveAttribute('aria-pressed', 'true');
+    expect(storage).toHaveFocus();
     const next = structuredClone(data);
     next.sequence++;
     next.system.cpu.utilization.value = 58;
     view.rerender(<Harness snapshot={next} />);
-    expect(within(region('RAM')).getByRole('button', { name: 'RAM' })).toBe(
+    expect(within(region('RAM')).getByRole('heading', { name: 'RAM' })).toBe(
       ram,
     );
     expect(screen.getByTestId('motherboard-view')).toHaveAttribute(
@@ -200,7 +221,7 @@ describe('motherboard resources', () => {
   it('retains last-snapshot readings with stale labels while stopping motherboard activity', () => {
     const data = fixture();
     const view = render(panel(data));
-    const cpu = within(region('CPU')).getByRole('button', { name: 'CPU' });
+    const cpu = within(region('CPU')).getByRole('heading', { name: 'CPU' });
     act(() => cpu.focus());
     view.rerender(panel(data, false));
     expect(cpu).toHaveFocus();
@@ -217,7 +238,10 @@ describe('motherboard resources', () => {
       JSON.parse(
         screen.getByTestId('motherboard-view').getAttribute('data-scene')!,
       ),
-    ).toEqual({ kind: 'motherboard', appearance: { cpu: null, memory: null } });
+    ).toEqual({
+      kind: 'motherboard',
+      appearance: { cpu: null, memory: null, storageBytesPerSecond: null },
+    });
   });
 
   it('labels estimated RAM occupancy and capacity without animating it as measured activity', () => {
@@ -234,7 +258,11 @@ describe('motherboard resources', () => {
       JSON.parse(
         screen.getByTestId('motherboard-view').getAttribute('data-scene')!,
       ).appearance,
-    ).toEqual({ cpu: 37, memory: null });
+    ).toEqual({
+      cpu: 37,
+      memory: null,
+      storageBytesPerSecond: 252 * 1024 ** 2,
+    });
   });
 
   it('distinguishes measured zero from unavailable CPU, RAM, and rate readings', () => {

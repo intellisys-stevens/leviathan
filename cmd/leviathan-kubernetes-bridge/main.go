@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/intellisys-stevens/leviathan/internal/kubernetesbridge"
+	plugin "github.com/intellisys-stevens/leviathan/plugin/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/rest"
@@ -43,13 +44,19 @@ func execute(arguments []string) error {
 	}
 	flags := flag.NewFlagSet("leviathan-kubernetes-bridge", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
+	pluginID := flags.String("plugin-id", "coder-kubernetes", "configured plugin instance ID")
+	gpuInstanceID := flags.String("gpu-instance-id", "nvidia", "host GPU producer instance ID")
 	socketPath := flags.String("socket", "/run/leviathan/attribution.sock", "Unix socket handoff path")
 	nodeName := flags.String("node-name", os.Getenv("NODE_NAME"), "Kubernetes node name")
 	namespaceList := flags.String("namespaces", os.Getenv("WATCH_NAMESPACES"), "comma-separated Coder workspace namespaces")
 	driver := flags.String("driver", "gpu.nvidia.com", "DRA driver name")
 	workloadInventory := flags.Bool("workload-inventory", false, "enable metadata-only Coder Pod inventory")
+	gpuCapacity := flags.Bool("gpu-capacity", true, "enable aggregate GPU capacity using cluster-wide read-only DRA reservations")
 	if err := flags.Parse(arguments); err != nil || flags.NArg() != 0 {
 		return errors.New("invalid bridge arguments")
+	}
+	if !plugin.ValidID(*pluginID) || !plugin.ValidID(*gpuInstanceID) {
+		return errors.New("invalid plugin producer identity")
 	}
 	namespaces := splitNamespaces(*namespaceList)
 	if strings.TrimSpace(*socketPath) == "" || strings.TrimSpace(*nodeName) == "" || len(namespaces) == 0 {
@@ -74,7 +81,16 @@ func execute(arguments []string) error {
 	if err != nil {
 		return errors.New("invalid Kubernetes attribution configuration")
 	}
-	server := kubernetesbridge.NewServer(state)
+	server := kubernetesbridge.NewServer(state).WithPluginIdentity(*pluginID, *gpuInstanceID)
+	var capacityController *kubernetesbridge.CapacityController
+	if *gpuCapacity {
+		capacityState := kubernetesbridge.NewCapacityState()
+		capacityController, err = kubernetesbridge.NewCapacityController(client, capacityState, options)
+		if err != nil {
+			return err
+		}
+		server.WithGPUCapacity(capacityState)
+	}
 	var workloadController *kubernetesbridge.WorkloadController
 	if *workloadInventory {
 		metadataClient, metadataErr := metadata.NewForConfig(kubernetesbridge.MetadataOnlyConfig(config))
@@ -95,6 +111,9 @@ func execute(arguments []string) error {
 	defer cancel()
 	workers := 2
 	if workloadController != nil {
+		workers++
+	}
+	if capacityController != nil {
 		workers++
 	}
 	results := make(chan error, workers)
@@ -125,6 +144,9 @@ func execute(arguments []string) error {
 	}()
 	if workloadController != nil {
 		go func() { results <- workloadController.Run(ctx) }()
+	}
+	if capacityController != nil {
+		go func() { results <- capacityController.Run(ctx) }()
 	}
 	go func() {
 		results <- kubernetesbridge.ServeUnix(ctx, *socketPath, server.Handler())

@@ -1,0 +1,8 @@
+contract_version=2.0.0
+canonical_repository=https://github.com/intellisys-stevens/yggdrasil
+canonical_path=api/uplink-v2-openapi.yaml
+generator=github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0
+spec_sha256=4892391ab7d54dfdf35f1e340d8616c3e4611f33dc6936e4ad908c53fbb3f2ed
+uplink-v2.golden.json=30ca7c437e377f445176503674d384aeb0c7d700401584a280eeef71f8542457
+uplink-v2-amd.golden.json=221a36820c2cca67e47796a42f4ba7af52574621fa275559bf2e245696c1c3ac
+uplink-v2-cpu-only.golden.json=ed5e96d3db5b9174a38804f8ae350d22175b9213e0bbb3b96171c14eca94a637

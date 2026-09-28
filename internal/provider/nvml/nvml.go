@@ -16,8 +16,8 @@ import (
 	"time"
 
 	gonvml "github.com/NVIDIA/go-nvml/pkg/nvml"
-	"github.com/intellisys-stevens/leviathan/internal/model"
 	"github.com/intellisys-stevens/leviathan/internal/provider"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 type Options struct {

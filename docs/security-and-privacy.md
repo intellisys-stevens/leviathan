@@ -1,8 +1,8 @@
 # 🔐 Security and privacy
 
-Leviathan is a read-only Linux observability process. Its effective trust
-boundary is the Unix user, PID namespace, NVIDIA devices, and optional local
-services made visible to it.
+The Leviathan monitor reads Linux telemetry within its Unix user, PID namespace,
+device, and filesystem permissions. Optional bridges and the separate privileged
+updater have their own permissions; monitoring access does not grant update access.
 
 ## 🧭 Operating boundary
 
@@ -95,6 +95,12 @@ Kubernetes RBAC, then publishes sanitized assignments over a root-only Unix
 socket. The host service receives no Kubernetes credential and does not read
 Pods, Secrets, logs, exec data, or container-runtime metadata.
 
+The unreleased source chart enables aggregate GPU capacity by default. Its
+separate inventory reads ResourceClaims across all namespaces, DeviceClasses,
+and the current Node. The chart grants cluster-wide read access for those
+resources; only aggregate counts reach the host. Set `gpuCapacity.enabled=false`
+to remove these additional grants. See [GPU capacity](kubernetes-attribution.md#live-gpu-capacity).
+
 The opt-in workload inventory adds namespace-scoped Pod `get/list/watch` to the
 bridge only. Requests select this node's Coder Pods and require metadata-only
 responses; full Pod fallback is rejected. The private `/v1/workloads` handoff
@@ -112,7 +118,26 @@ workspace names, so treat them as multi-user operational metadata. See
 [Kubernetes and Coder attribution](kubernetes-attribution.md) for the RBAC,
 privacy, failure, and rollback details.
 
-## 🚨 Vulnerability reporting
+## External plugins
+
+Configured plugins supply versioned observations over local Unix sockets.
+Leviathan bounds requests and payloads and reports invalid or stale data; the
+plugin's supervisor owns its permissions, credentials, and lifecycle. A plugin
+is trusted to report telemetry for its assigned resources, and the protocol does
+not sandbox its executable. Keep environment credentials with the adapter and
+grant the monitor access only to its observation socket. See [plugins](plugins.md).
+
+## Managed updater
+
+The separate root updater can replace the installed monitor binary and restart
+its registered service. It checks signed release metadata, the authorized host
+and installation, archive contents, and sustained telemetry before reporting
+success. A failed startup triggers verified rollback; an unverified recovery
+blocks further updates for operator repair. Its credentials and transaction
+journal are separate from the monitor. See [managed updates](managed-updates.md)
+and the [native acceptance procedure](generated-updater-acceptance.md).
+
+## Vulnerability reporting
 
 Use GitHub's private security-advisory flow instead of a public issue. Include
 the affected version, impact, reproduction, and PID namespace, but do not attach

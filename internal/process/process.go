@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,11 +17,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/intellisys-stevens/leviathan/internal/attribution"
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/adapters/kubernetes/scope"
+	"github.com/intellisys-stevens/leviathan/model"
 )
-
-var podUIDInCgroup = regexp.MustCompile(`pod([[:xdigit:]]{8}[-_][[:xdigit:]]{4}[-_][[:xdigit:]]{4}[-_][[:xdigit:]]{4}[-_][[:xdigit:]]{12})`)
 
 type Inventory struct {
 	Processes   []model.Process
@@ -36,6 +33,7 @@ type Scanner struct {
 	SelfPID         uint32
 	ShowCommandLine bool
 	Attribution     bool
+	ScopeResolver   func(string) (string, bool)
 
 	mu        sync.Mutex
 	userNames map[string]string
@@ -48,8 +46,15 @@ func NewScanner(showCommandLine bool) *Scanner {
 func NewScannerWithAttribution(showCommandLine, attributionEnabled bool) *Scanner {
 	return &Scanner{
 		Root: "/proc", UVMPath: "/dev/nvidia-uvm", SelfPID: uint32(os.Getpid()),
-		ShowCommandLine: showCommandLine, Attribution: attributionEnabled, userNames: make(map[string]string),
+		ShowCommandLine: showCommandLine, Attribution: attributionEnabled, ScopeResolver: scope.FromCgroup, userNames: make(map[string]string),
 	}
+}
+
+// NewScannerWithScope injects an environment-specific execution-scope resolver.
+func NewScannerWithScope(showCommandLine bool, resolver func(string) (string, bool)) *Scanner {
+	scanner := NewScannerWithAttribution(showCommandLine, resolver != nil)
+	scanner.ScopeResolver = resolver
+	return scanner
 }
 
 func (s *Scanner) Scan() Inventory {
@@ -300,9 +305,9 @@ func (s *Scanner) resolve(root string, pid uint32, boot time.Time, bootErr error
 			fieldErrors = append(fieldErrors, fmt.Errorf("command line: %w", err))
 		}
 	}
-	if s.Attribution {
+	if s.Attribution && s.ScopeResolver != nil {
 		if data, err := os.ReadFile(filepath.Join(base, "cgroup")); err == nil {
-			result.ScopeRef, _ = scopeRefFromCgroup(string(data))
+			result.ScopeRef, _ = s.ScopeResolver(string(data))
 		}
 	}
 
@@ -318,34 +323,7 @@ func (s *Scanner) resolve(root string, pid uint32, boot time.Time, bootErr error
 	return result, false
 }
 
-func scopeRefFromCgroup(data string) (string, bool) {
-	resolved := ""
-	for _, line := range strings.Split(data, "\n") {
-		fields := strings.SplitN(line, ":", 3)
-		if len(fields) != 3 {
-			continue
-		}
-		path := fields[2]
-		for _, match := range podUIDInCgroup.FindAllStringSubmatchIndex(path, -1) {
-			if len(match) != 4 || (match[0] > 0 && !cgroupPathBoundary(path[match[0]-1])) || (match[1] < len(path) && !cgroupPathBoundary(path[match[1]])) {
-				continue
-			}
-			scopeRef, ok := attribution.ScopeRefForPodUID(path[match[2]:match[3]])
-			if !ok {
-				continue
-			}
-			if resolved != "" && resolved != scopeRef {
-				return "", false
-			}
-			resolved = scopeRef
-		}
-	}
-	return resolved, resolved != ""
-}
-
-func cgroupPathBoundary(character byte) bool {
-	return character == '/' || character == '_' || character == '.' || character == '-'
-}
+func scopeRefFromCgroup(data string) (string, bool) { return scope.FromCgroup(data) }
 
 func uidFromStatus(data string) string {
 	for _, line := range strings.Split(data, "\n") {

@@ -385,7 +385,11 @@ function result(
   return {
     snapshot: current,
     connection,
-    error,
+    snapshotError: current ? null : error,
+    streamError: current ? error : null,
+    settingsError: null,
+    retrySnapshot: vi.fn(),
+    retrySettings: vi.fn(),
     history: vi.fn(async (entity: string, metrics: string[]) => ({
       entity,
       metrics,
@@ -435,10 +439,6 @@ function result(
       commit: 'abc1234',
       buildDate: '2026-08-30T12:00:00Z',
     },
-    updateSamplingInterval: vi.fn(async (samplingIntervalMs: number) => ({
-      ...settings,
-      samplingIntervalMs,
-    })),
   };
 }
 
@@ -917,7 +917,7 @@ describe('Leviathan dashboard states', () => {
     mockUseLeviathan.mockReturnValue(result(snapshot([])));
     render(<App />);
     openView('Resources');
-    expect(screen.getByText('No NVIDIA GPUs detected')).toBeInTheDocument();
+    expect(screen.getByText('No GPUs detected')).toBeInTheDocument();
     openView('Workloads');
     expect(screen.queryByTestId('process-section')).not.toBeInTheDocument();
     expect(
@@ -966,15 +966,20 @@ describe('Leviathan dashboard states', () => {
     await waitFor(() => expect(window.location.hash).toBe('#resources'));
     const memory = document.getElementById('resource-memory')!;
     await waitFor(() => expect(memory).toHaveFocus());
-    expect(memory).toHaveAttribute('aria-pressed', 'true');
+    expect(memory.tagName).toBe('H2');
+    expect(memory.closest('.motherboard-category')).toHaveAttribute(
+      'data-selected',
+      'true',
+    );
     expect(document.getElementById('resource-cpu')).toBeInTheDocument();
     expect(document.getElementById('resource-storage')).toBeInTheDocument();
     openView('Workloads');
     openView('Resources');
-    expect(document.getElementById('resource-memory')).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    expect(
+      document
+        .getElementById('resource-memory')
+        ?.closest('.motherboard-category'),
+    ).toHaveAttribute('data-selected', 'true');
     openView('Overview');
     fireEvent.click(
       screen.getByRole('button', { name: 'Inspect Storage resources' }),
@@ -982,10 +987,11 @@ describe('Leviathan dashboard states', () => {
     await waitFor(() =>
       expect(document.getElementById('resource-storage')).toHaveFocus(),
     );
-    expect(document.getElementById('resource-storage')).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    expect(
+      document
+        .getElementById('resource-storage')
+        ?.closest('.motherboard-category'),
+    ).toHaveAttribute('data-selected', 'true');
   });
 
   it('shows every applicable Overview chart without expansion in resource order', async () => {
@@ -1048,7 +1054,6 @@ describe('Leviathan dashboard states', () => {
       expect(within(status).getByRole('radio', { name: '1s' })).toBeChecked();
     }
     expect(localStorage.getItem('leviathan.displayCadence.v1')).toBe('1000');
-    expect(dashboard.updateSamplingInterval).not.toHaveBeenCalled();
   });
 
   it('opens and dismisses the accessible mobile view-update popover', async () => {
@@ -1076,7 +1081,6 @@ describe('Leviathan dashboard states', () => {
     expect(mockUseLeviathan).toHaveBeenLastCalledWith(2000);
     expect(within(choices).getByRole('radio', { name: '2s' })).toBeChecked();
     expect(localStorage.getItem('leviathan.displayCadence.v1')).toBe('2000');
-    expect(dashboard.updateSamplingInterval).not.toHaveBeenCalled();
 
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -1522,7 +1526,6 @@ describe('Leviathan dashboard states', () => {
           screen.getByRole('radiogroup', { name: 'View updates' }),
         ).getByRole('radio', { checked: true }),
       ).toHaveAttribute('value', String(expected));
-      expect(dashboard.updateSamplingInterval).not.toHaveBeenCalled();
     },
   );
 

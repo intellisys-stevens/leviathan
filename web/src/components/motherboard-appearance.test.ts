@@ -4,6 +4,7 @@ import type { Snapshot } from '../types';
 import {
   buildMotherboardAppearance,
   motherboardGlowIntensity,
+  storageActivityIntensity,
 } from './motherboard-appearance';
 
 const snapshot = () =>
@@ -27,11 +28,13 @@ describe('motherboard measured utilization', () => {
     expect(buildMotherboardAppearance(value, true)).toEqual({
       cpu: 37,
       memory: 40.625,
+      storageBytesPerSecond: 252 * 1024 ** 2,
     });
     value.system!.cpu!.status = 'error';
     expect(buildMotherboardAppearance(value, true)).toEqual({
       cpu: null,
       memory: 40.625,
+      storageBytesPerSecond: 252 * 1024 ** 2,
     });
   });
 
@@ -44,6 +47,7 @@ describe('motherboard measured utilization', () => {
       expect(buildMotherboardAppearance(value, true)).toEqual({
         cpu: null,
         memory: null,
+        storageBytesPerSecond: 252 * 1024 ** 2,
       });
     },
   );
@@ -55,14 +59,17 @@ describe('motherboard measured utilization', () => {
     expect(buildMotherboardAppearance(value, true)).toEqual({
       cpu: 0,
       memory: null,
+      storageBytesPerSecond: 252 * 1024 ** 2,
     });
     expect(buildMotherboardAppearance(value, false)).toEqual({
       cpu: null,
       memory: null,
+      storageBytesPerSecond: null,
     });
     expect(buildMotherboardAppearance(null, true)).toEqual({
       cpu: null,
       memory: null,
+      storageBytesPerSecond: null,
     });
   });
 
@@ -73,6 +80,7 @@ describe('motherboard measured utilization', () => {
     expect(buildMotherboardAppearance(value, true)).toEqual({
       cpu: null,
       memory: null,
+      storageBytesPerSecond: 252 * 1024 ** 2,
     });
     value.system!.cpu!.utilization.value = 25;
     value.system!.cpu!.utilization.scope = 'physical_gpu';
@@ -81,6 +89,7 @@ describe('motherboard measured utilization', () => {
     expect(buildMotherboardAppearance(value, true)).toEqual({
       cpu: null,
       memory: null,
+      storageBytesPerSecond: 252 * 1024 ** 2,
     });
   });
 
@@ -101,6 +110,60 @@ describe('motherboard measured utilization', () => {
     expect(buildMotherboardAppearance(value, true)).toEqual({
       cpu: null,
       memory: null,
+      storageBytesPerSecond: 252 * 1024 ** 2,
     });
+  });
+  it('requires both fresh host rates and keeps throughput separate from capacity status', () => {
+    const value = snapshot();
+    value.system.storage.status = 'stale';
+    expect(buildMotherboardAppearance(value, true).storageBytesPerSecond).toBe(
+      252 * 1024 ** 2,
+    );
+    for (const status of [
+      'stale',
+      'estimated',
+      'error',
+      'unsupported',
+    ] as const) {
+      value.system.storage.writeBytesPerSecond.status = status;
+      expect(
+        buildMotherboardAppearance(value, true).storageBytesPerSecond,
+      ).toBeNull();
+    }
+    value.system.storage.writeBytesPerSecond.status = 'available';
+    value.system.storage.writeBytesPerSecond.scope = 'physical_gpu';
+    expect(
+      buildMotherboardAppearance(value, true).storageBytesPerSecond,
+    ).toBeNull();
+    value.system.storage.writeBytesPerSecond.scope = 'host';
+    value.system.storage.readBytesPerSecond.unit = 'percent';
+    expect(
+      buildMotherboardAppearance(value, true).storageBytesPerSecond,
+    ).toBeNull();
+    value.system.storage.readBytesPerSecond.unit = 'bytes_per_second';
+    for (const rate of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      value.system.storage.readBytesPerSecond.value = rate;
+      expect(
+        buildMotherboardAppearance(value, true).storageBytesPerSecond,
+      ).toBeNull();
+    }
+    value.system.storage.readBytesPerSecond.value = 0;
+    value.system.storage.writeBytesPerSecond.value = 0;
+    expect(buildMotherboardAppearance(value, true).storageBytesPerSecond).toBe(
+      0,
+    );
+  });
+
+  it('normalizes storage throughput monotonically without claiming disk utilization', () => {
+    const levels = [0, 1024 ** 2, 100 * 1024 ** 2, 1024 ** 3].map(
+      storageActivityIntensity,
+    );
+    expect(levels[0]).toBe(0);
+    expect(levels[1]).toBeGreaterThan(levels[0]);
+    expect(levels[2]).toBeGreaterThan(levels[1]);
+    expect(levels[3]).toBe(1);
+    expect(storageActivityIntensity(10 * 1024 ** 3)).toBe(1);
+    expect(storageActivityIntensity(null)).toBe(0);
+    expect(storageActivityIntensity(Number.NaN)).toBe(0);
   });
 });

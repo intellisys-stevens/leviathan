@@ -2,7 +2,8 @@
 
 ![Leviathan data flow](assets/architecture.svg)
 
-The editable diagram source is `assets/architecture.mmd`.
+The editable diagram source is `assets/architecture.mmd`. It shows the built-in
+monitoring path; the plugin composition below extends that path.
 
 ## Runtime shape
 
@@ -12,18 +13,24 @@ coordinator. The TUI, streaming CLI, HTTP server, history buffer, and optional
 uplink consume those snapshots; they never start another collector. A blocked
 GPU call cannot delay CPU, RAM, or storage publication. Slow consumers receive
 the newest complete snapshot rather than building a queue. An optional
-Kubernetes bridge is a separate least-privilege process and communicates only
-through a configured local Unix socket.
+Kubernetes bridge is a separate process and communicates only through a
+configured local Unix socket.
 
-Each domain loop is synchronous within that domain. Expensive GPM/DCGM entities
-are staggered across ticks, `/proc` GPU-process inventory is cached at its own
-default two-second cadence, and filesystem discovery defaults to ten seconds.
-Cached metrics retain their true sample time and expire to `stale`. If a poll
-takes longer than its interval, the next deadline is advanced past the current
-time, so overlapping calls and accumulated lag are impossible. A GPU provider
-error triggers one immediate full retry. Persistent errors publish a
-retained-topology snapshot whose formerly available dynamic values are `stale`
-and `null`, while the other telemetry domain remains current.
+The unreleased plugin runtime schedules each enabled capability independently
+and assembles its observations into the same snapshot model. Public `model/`
+types describe telemetry; `plugin/v1/` defines transport and compatibility;
+`internal/plugins/` owns scheduling and health; `adapters/kubernetes/` owns
+Kubernetes-specific identity resolution. Built-ins remain the default. External
+plugins are supervised by systemd or Kubernetes and cannot replace an entire
+snapshot. See [plugin configuration and protocol](plugins.md).
+
+Each capability has at most one read in flight. Expensive GPM/DCGM entities
+are staggered across ticks, `/proc` GPU-process inventory defaults to a separate
+two-second cadence, and filesystem discovery defaults to ten seconds. Cached
+metrics retain their true sample time and expire to `stale`. The next capability
+read waits until the previous read has ended, so slow providers cannot accumulate
+overlapping requests. Failed sources retain explanatory topology while their
+dynamic values become stale and null; other capabilities remain independent.
 
 The browser receives every server-sent snapshot. Each browser independently
 chooses whether React commits every sample or only the newest pending snapshot
@@ -143,13 +150,18 @@ The compact tier is independent of sampling cadence. Capacity never shrinks
 during the process lifetime, so a later slower cadence cannot discard already
 retained samples. Queries still enforce custom operator retention.
 
-The history API maps a stable current UUID to its internal generation key and
-then removes that suffix from the response. Old generations naturally expire
+The history API maps a stable current UUID to its current generation key while
+preserving the exact requested entity in the response. Old generations expire
 but cannot contaminate the current chart. Windows through one hour return raw
 samples. Four-hour queries return 30-second means (at most 480 points), and
 twelve-hour queries use count-weighted two-minute rollups (at most 360 points).
 Only plotted means cross the existing wire format; gaps, unavailable metrics,
 and generation boundaries remain absent rather than being interpolated.
+Successful polls that skip individual sampling ticks still contribute to these
+means. An inferred long-range outage requires silence longer than a 30-second
+bucket or 1.5 times the configured sampling interval, whichever is greater;
+explicit failures and unavailable measurements remain gaps. Multiple request
+descriptors for one entity share its aggregation before selecting their metrics.
 
 `POST /api/v1/history/aligned` serves overview history for multiple requested
 entities on one shared timestamp grid. Every response row represents one
@@ -171,11 +183,16 @@ no disk queue. Its default 15-second cadence has randomized startup and jitter;
 retry backoff starts at five seconds, honors bounded `Retry-After`, and caps at
 five minutes. Network requests run outside both collector workers.
 
-The local snapshot model and the `uplink-v1` wire model are independent
-contracts. The projection omits processes, users, command lines, workload
+The local snapshot model and the versioned uplink wire models are independent
+contracts. Their projections omit processes, users, command lines, workload
 attribution, provider machine identity, device paths, filesystem UUIDs, and raw
 diagnostic detail. Yggdrasil resolves the authoritative machine identity from
-the bearer credential rather than trusting a payload field.
+the bearer credential rather than trusting a payload field. Token-file deployments
+keep the strict v1 vocabulary by default. [Enrollment](enrollment.md) selects
+portable v2 and renews its credential through durable pending-state recovery.
+V2 preserves bounded plugin provenance and metric identifiers before conversion
+to accelerator/partition objects; the v1 projection still withholds observations
+it cannot represent.
 
 ## API and browser boundary
 
@@ -183,7 +200,9 @@ the bearer credential rather than trusting a payload field.
 produces its Go wire types and `npm run generate:api` produces TypeScript types.
 The independent uplink uses the provenance-locked vendor copy at
 `api/uplink-v1-openapi.yaml`; `go generate ./internal/uplink` produces its local
-Go DTOs without importing Yggdrasil code.
+Go DTOs without importing Yggdrasil code. Portable v2 has its own vendored
+`api/uplink-v2-openapi.yaml`, lock, and shared golden fixtures; its projection
+also remains independent of the local API contract.
 
 The server binds only to loopback after an explicit address check. GPU state
 and telemetry have no mutation routes; the sole mutation changes the current

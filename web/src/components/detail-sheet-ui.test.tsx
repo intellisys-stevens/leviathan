@@ -186,6 +186,75 @@ function deferred<T>() {
 }
 
 describe('detail sheet presentation', () => {
+  it('reloads an open GI history when its generation changes without changing its UUID', async () => {
+    const selection = computeSelection();
+    if (selection.kind !== 'compute_instance') throw new Error('Expected CI');
+    const loadHistory = vi.fn().mockResolvedValue(history());
+    const props = {
+      selection,
+      open: true,
+      onOpenChange: () => undefined,
+      loadHistory,
+      chartWindowMs: 30 * 60 * 1000,
+      retentionMs: 60 * 60 * 1000,
+      onChartWindowChange: () => undefined,
+    };
+    const view = render(<DetailSheet {...props} />);
+    await waitFor(() =>
+      expect(loadHistory).toHaveBeenCalledWith(
+        selection.gi.generation,
+        expect.any(Array),
+        '30m',
+      ),
+    );
+    const replacement = structuredClone(selection);
+    replacement.gi.generation = `${selection.gi.uuid}@plugin:replacement%2F2`;
+    view.rerender(<DetailSheet {...props} selection={replacement} />);
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(2));
+    expect(loadHistory).toHaveBeenLastCalledWith(
+      replacement.gi.generation,
+      expect.any(Array),
+      '30m',
+    );
+    expect(replacement.gi.uuid).toBe(selection.gi.uuid);
+    expect(
+      screen.getByRole('dialog', { name: 'GPU 0 · GI 3 · CI 0' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(replacement.gi.generation),
+    ).not.toBeInTheDocument();
+  });
+
+  it('loads replacement GPU history without renaming the selected GPU', async () => {
+    const selection = physicalSelection();
+    selection.gpu.generation = 'lab/GPU-synthetic-0@replacement';
+    const loadHistory = vi.fn().mockResolvedValue(history());
+    render(
+      <DetailSheet
+        selection={selection}
+        open
+        onOpenChange={() => undefined}
+        loadHistory={loadHistory}
+        chartWindowMs={30 * 60 * 1000}
+        retentionMs={60 * 60 * 1000}
+        onChartWindowChange={() => undefined}
+      />,
+    );
+    await waitFor(() =>
+      expect(loadHistory).toHaveBeenCalledWith(
+        'lab/GPU-synthetic-0@replacement',
+        expect.any(Array),
+        '30m',
+      ),
+    );
+    const dialog = await screen.findByRole('dialog');
+    expect(
+      within(dialog).getByRole('heading', { name: 'GPU 0 · Full GPU' }),
+    ).toBeInTheDocument();
+    expect(selection.gpu.uuid).toBe('GPU-synthetic-0');
+    expect(dialog).not.toHaveTextContent('lab/GPU-synthetic-0@replacement');
+  });
+
   it.each([physicalSelection, computeSelection])(
     'uses the physical GPU brand for physical and MIG inspection',
     async (createSelection) => {

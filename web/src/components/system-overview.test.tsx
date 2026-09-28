@@ -130,6 +130,35 @@ describe('whole-machine capacity', () => {
     });
   });
 
+  it('counts generic GPU capacity without claiming NVML is available', () => {
+    const data = snapshot();
+    data.capabilities.gpu = {
+      name: 'Lab GPU collector',
+      available: true,
+      status: 'available',
+    };
+    data.gpus = [
+      {
+        uuid: 'lab/device-1',
+        memory: { status: 'available', totalBytes: 100, usedBytes: 20 },
+        gpuInstances: [],
+      } as unknown as GPU,
+    ];
+    expect(gpuCapacity(data)).toMatchObject({
+      count: 1,
+      total: 100,
+      used: 20,
+      complete: true,
+    });
+    expect(data.capabilities.nvml.available).toBe(false);
+    data.capabilities.gpu.status = 'stale';
+    expect(gpuCapacity(data)).toMatchObject({
+      complete: false,
+      status: 'stale',
+      total: null,
+    });
+  });
+
   it('distinguishes partial storage and surfaces the fullest mount', () => {
     const data = snapshot();
     const storage = data.system.storage;

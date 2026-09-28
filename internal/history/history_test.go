@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 func TestBufferIsBoundedAndPreservesChronology(t *testing.T) {
@@ -314,6 +314,110 @@ func TestTwelveHourHistoryUsesWeightedTwoMinuteRollups(t *testing.T) {
 	}
 	if got, want := series.Points[0].Values["sm_activity"], 60.0; got != want {
 		t.Fatalf("weighted rollup mean = %v, want %v", got, want)
+	}
+}
+
+func TestLongHistoryKeepsSuccessfulSamplesAcrossSkippedPollingTicks(t *testing.T) {
+	for _, interval := range []time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second} {
+		t.Run(interval.String(), func(t *testing.T) {
+			buffer := New(12*time.Hour, interval)
+			base := time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)
+			// Reproduce the live collector's occasional skipped ticks: every
+			// recorded observation is available, including genuine zeroes.
+			for elapsed := time.Duration(0); elapsed < 4*time.Minute; elapsed += interval {
+				if elapsed%(30*time.Second) == 4*interval || elapsed%(30*time.Second) == 5*interval {
+					continue
+				}
+				value := float64(elapsed / (2 * time.Minute) * 40)
+				buffer.AddGPU(historySnapshot(base.Add(elapsed), 0, map[string]*float64{"GPU-a": &value}))
+			}
+			for _, test := range []struct {
+				window     time.Duration
+				resolution time.Duration
+			}{
+				{4 * time.Hour, 30 * time.Second},
+				{12 * time.Hour, 2 * time.Minute},
+			} {
+				t.Run(test.window.String(), func(t *testing.T) {
+					now := base.Add(4*time.Minute - time.Millisecond)
+					legacy := buffer.Query("GPU-a", []string{"sm_activity"}, test.window, now)
+					aligned := buffer.QueryAligned([]SeriesDescriptor{{Key: "gpu", Entity: "GPU-a", Metrics: []string{"sm_activity"}}}, test.window, 720, now)
+					wantPoints := int(4 * time.Minute / test.resolution)
+					if len(legacy.Points) != wantPoints || len(aligned.Points) != wantPoints {
+						t.Fatalf("point counts: legacy=%d aligned=%d, want %d", len(legacy.Points), len(aligned.Points), wantPoints)
+					}
+					for index, point := range aligned.Points {
+						wantTime := base.Add(time.Duration(index) * test.resolution)
+						wantValue := float64(wantTime.Sub(base) / (2 * time.Minute) * 40)
+						value, ok := point.Values["gpu"]["sm_activity"]
+						legacyValue, legacyOK := legacy.Points[index].Values["sm_activity"]
+						if !point.SampledAt.Equal(wantTime) || !legacy.Points[index].SampledAt.Equal(wantTime) || !ok || !legacyOK || value != wantValue || legacyValue != wantValue {
+							t.Fatalf("successful samples became a gap at %s: aligned=%+v legacy=%+v, want %v", wantTime, point, legacy.Points[index], wantValue)
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestLongAlignedHistoryCountsEachEntityOnceAcrossDescriptors(t *testing.T) {
+	buffer := New(12*time.Hour, time.Second)
+	base := time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)
+	for index := 0; index < 4*60; index++ {
+		at := base.Add(time.Duration(index) * time.Second)
+		system := availableHistorySystem(at)
+		system.CPU.Utilization = model.AvailableMetric(float64(index), "percent", model.SourceProcFS, model.ScopeHost, at)
+		buffer.AddSystem(model.Snapshot{SampledAt: at, System: system})
+	}
+	descriptors := []SeriesDescriptor{
+		{Key: "cpu", Entity: "@host", Metrics: []string{"cpu_utilization"}},
+		{Key: "memory", Entity: "@host", Metrics: []string{"memory_utilization"}},
+		{Key: "cpu-copy", Entity: "@host", Metrics: []string{"cpu_utilization"}},
+	}
+	for _, window := range []time.Duration{4 * time.Hour, 12 * time.Hour} {
+		t.Run(window.String(), func(t *testing.T) {
+			now := base.Add(4*time.Minute - time.Millisecond)
+			multiple := buffer.QueryAligned(descriptors, window, 720, now)
+			for _, descriptor := range descriptors {
+				single := buffer.QueryAligned([]SeriesDescriptor{descriptor}, window, 720, now)
+				if len(multiple.Points) != len(single.Points) || len(single.Points) == 0 {
+					t.Fatalf("point counts: multiple=%d single=%d", len(multiple.Points), len(single.Points))
+				}
+				for index, point := range single.Points {
+					want := point.Values[descriptor.Key]
+					got := multiple.Points[index].Values[descriptor.Key]
+					if len(want) == 0 || !reflect.DeepEqual(got, want) || !multiple.Points[index].SampledAt.Equal(point.SampledAt) {
+						t.Fatalf("descriptor %s lost values at %s: together=%+v alone=%+v", descriptor.Key, point.SampledAt, got, want)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestLongHistoryStillBreaksAfterCollectionSilence(t *testing.T) {
+	for _, window := range []time.Duration{4 * time.Hour, 12 * time.Hour} {
+		t.Run(window.String(), func(t *testing.T) {
+			buffer := New(12*time.Hour, 500*time.Millisecond)
+			base := time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)
+			for elapsed := time.Duration(0); elapsed < 6*time.Minute; elapsed += 500 * time.Millisecond {
+				if elapsed >= 2*time.Minute && elapsed < 3*time.Minute {
+					continue
+				}
+				buffer.AddGPU(historySnapshot(base.Add(elapsed), 0, map[string]*float64{"GPU-a": floatPointer(40)}))
+			}
+			series := buffer.Query("GPU-a", []string{"sm_activity"}, window, base.Add(6*time.Minute-time.Millisecond))
+			gap := false
+			for _, point := range series.Points {
+				if len(point.Values) == 0 {
+					gap = true
+				}
+			}
+			if !gap || series.Points[0].Values["sm_activity"] != 40 || series.Points[len(series.Points)-1].Values["sm_activity"] != 40 {
+				t.Fatalf("collection silence must separate available history: %+v", series.Points)
+			}
+		})
 	}
 }
 

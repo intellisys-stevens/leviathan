@@ -5,8 +5,8 @@ import {
   normalizeSnapshot,
   shareStableSnapshot,
   type SnapshotPayload,
-  useLeviathan,
-} from './use-leviathan';
+} from './snapshot';
+import { useLeviathan } from './use-leviathan';
 import { systemCapability, systemFixture } from './test/system-fixture';
 import { ownerFixture } from './test/owner-fixture';
 
@@ -108,17 +108,6 @@ describe('useLeviathan runtime settings', () => {
       async (input: string | URL | Request, init?: RequestInit) => {
         const url = requestURL(input);
         if (url === '/api/v1/snapshot') return jsonResponse(snapshot);
-        if (url === '/api/v1/settings' && init?.method === 'PATCH') {
-          if (typeof init.body !== 'string')
-            throw new Error('expected a JSON string body');
-          const body = JSON.parse(init.body) as {
-            samplingIntervalMs: number;
-          };
-          return jsonResponse({
-            ...initialSettings,
-            samplingIntervalMs: body.samplingIntervalMs,
-          });
-        }
         if (url === '/api/v1/settings') return jsonResponse(initialSettings);
         if (url === '/api/v1/version') return jsonResponse(buildInfo);
         if (url.startsWith('/api/v1/history?'))
@@ -170,21 +159,6 @@ describe('useLeviathan runtime settings', () => {
     expect(second.result.current.settings?.samplingIntervalMs).toBe(500);
 
     await act(async () => {
-      await first.result.current.updateSamplingInterval(2000);
-    });
-    expect(first.result.current.settings?.samplingIntervalMs).toBe(2000);
-    const patch = fetchMock.mock.calls.find(
-      ([url, init]) =>
-        requestURL(url) === '/api/v1/settings' &&
-        (init as RequestInit | undefined)?.method === 'PATCH',
-    );
-    expect(patch?.[1]).toMatchObject({
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{"samplingIntervalMs":2000}',
-    });
-
-    await act(async () => {
       await first.result.current.history(
         'GPU/a',
         ['temperature', 'power'],
@@ -234,46 +208,6 @@ describe('useLeviathan runtime settings', () => {
         { key: 'gpu:fixture', entity: 'GPU/fixture', metrics: ['temperature'] },
       ],
     });
-  });
-
-  it('echoes the optional remote CSRF token only on settings mutation', async () => {
-    const fetchMock = vi.fn(
-      async (input: string | URL | Request, init?: RequestInit) => {
-        const url = requestURL(input);
-        if (url === '/api/v1/snapshot') return jsonResponse(snapshot);
-        if (url === '/api/v1/version') return jsonResponse(buildInfo);
-        if (url === '/api/v1/settings' && init?.method === 'PATCH')
-          return jsonResponse(initialSettings);
-        if (url === '/api/v1/settings')
-          return new Response(JSON.stringify(initialSettings), {
-            status: 200,
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Leviathan-CSRF-Token': 'lvc_remote-token',
-            },
-          });
-        throw new Error(`unexpected request: ${url}`);
-      },
-    );
-    vi.stubGlobal('fetch', fetchMock);
-    const hook = renderHook(() => useLeviathan());
-    await waitFor(() => expect(hook.result.current.settings).not.toBeNull());
-    await act(async () => {
-      await hook.result.current.updateSamplingInterval(1000);
-    });
-    const patch = fetchMock.mock.calls.find(
-      ([input, init]) =>
-        requestURL(input) === '/api/v1/settings' && init?.method === 'PATCH',
-    );
-    expect(patch?.[1]?.headers).toEqual({
-      'Content-Type': 'application/json',
-      'X-Leviathan-CSRF-Token': 'lvc_remote-token',
-    });
-    const otherRequests = fetchMock.mock.calls.filter(
-      ([input]) => requestURL(input) !== '/api/v1/settings',
-    );
-    for (const [, init] of otherRequests)
-      expect(init?.headers ?? {}).not.toHaveProperty('X-Leviathan-CSRF-Token');
   });
 
   it('keeps newer streamed state when bootstrap requests finish late', async () => {
@@ -651,6 +585,30 @@ describe('useLeviathan runtime settings', () => {
     expect(updated.attribution).not.toBe(previous.attribution);
   });
 
+  it('preserves changes to optional generic GPU availability between snapshots', () => {
+    const previous = structuredClone(snapshot);
+    const next = structuredClone(snapshot);
+    next.capabilities.gpu = {
+      name: 'Lab GPU collector',
+      available: true,
+      status: 'available',
+    };
+    expect(shareStableSnapshot(previous, next).capabilities).toBe(
+      next.capabilities,
+    );
+    expect(shareStableSnapshot(next, structuredClone(next)).capabilities).toBe(
+      next.capabilities,
+    );
+    const stale = structuredClone(next);
+    stale.capabilities.gpu!.status = 'stale';
+    expect(shareStableSnapshot(next, stale).capabilities).toBe(
+      stale.capabilities,
+    );
+    expect(shareStableSnapshot(next, previous).capabilities).toBe(
+      previous.capabilities,
+    );
+  });
+
   it('reuses owner samples between independent polls without hiding freshness or status changes', () => {
     const previous: Snapshot = {
       ...snapshot,
@@ -706,6 +664,14 @@ describe('useLeviathan runtime settings', () => {
     const unjoined = shareStableSnapshot(attributed, removed);
     expect(unjoined.processes).not.toBe(attributed.processes);
     expect(unjoined.processes[0].workloadRef).toBeUndefined();
+  });
+
+  it('preserves custom metric source identifiers at the snapshot boundary', () => {
+    const payload = structuredClone(snapshot);
+    payload.system.cpu.utilization.source = 'lab-host-monitor';
+    expect(normalizeSnapshot(payload).system.cpu.utilization.source).toBe(
+      'lab-host-monitor',
+    );
   });
 
   it('normalizes nullable wire collections before snapshots are shared', async () => {

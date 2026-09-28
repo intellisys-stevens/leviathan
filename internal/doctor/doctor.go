@@ -14,9 +14,9 @@ import (
 	ndcgm "github.com/NVIDIA/go-dcgm/pkg/dcgm"
 	gonvml "github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/intellisys-stevens/leviathan/internal/config"
-	"github.com/intellisys-stevens/leviathan/internal/model"
 	gpuprocess "github.com/intellisys-stevens/leviathan/internal/process"
 	systemtelemetry "github.com/intellisys-stevens/leviathan/internal/system"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 type Report struct {

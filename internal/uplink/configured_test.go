@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 func TestConfiguredRunnerSubscribesOnceToCallerOwnedSource(t *testing.T) {
@@ -91,3 +91,25 @@ func (source *countingSource) Subscribe() (<-chan model.Snapshot, func()) {
 }
 
 var _ SnapshotSource = (*countingSource)(nil)
+
+func TestConfiguredEnrollmentDefaultsToV2AndRejectsV1(t *testing.T) {
+	const server = "https://yggdrasil.example.test"
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	token, err := newMachineToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = writeEnrollment(statePath, enrollmentState{Server: server, Token: token, Receipt: testEnrollmentReceipt(server, time.Now())}); err != nil {
+		t.Fatal(err)
+	}
+	source := &countingSource{events: make(chan model.Snapshot)}
+	for _, schema := range []string{"", SchemaV2} {
+		runner, err := NewConfiguredRunner(Configuration{Enabled: true, BaseURL: server, StateFile: statePath, Schema: schema}, source, model.BuildInfo{}, nil)
+		if err != nil || runner.sender.(*Client).schema != SchemaV2 {
+			t.Fatalf("enrolled runner schema %q: %v", schema, err)
+		}
+	}
+	if _, err = NewConfiguredRunner(Configuration{Enabled: true, BaseURL: server, StateFile: statePath, Schema: string(Schema)}, source, model.BuildInfo{}, nil); !errors.Is(err, ErrClientConfig) {
+		t.Fatalf("enrolled v1 constructor accepted: %v", err)
+	}
+}

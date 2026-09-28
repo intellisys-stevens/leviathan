@@ -162,6 +162,23 @@ describe('overview history', () => {
     expect(overviewTopologyKey(snapshot)).not.toBe(key);
   });
 
+  it('selects replacement GPU history without changing its display identity', () => {
+    const snapshot = fixture();
+    const original = buildOverviewEntities(snapshot)[0];
+    expect(original.historyEntity).toBe('GPU-a');
+    const initialTopology = overviewTopologyKey(snapshot);
+    snapshot.gpus[0].generation = 'lab/GPU-a@replacement';
+    const replacement = buildOverviewEntities(snapshot)[0];
+    expect(replacement).toEqual({
+      ...original,
+      historyEntity: 'lab/GPU-a@replacement',
+    });
+    expect(overviewTopologyKey(snapshot)).not.toBe(initialTopology);
+    expect(pointFromSnapshot(snapshot, replacement)).toEqual(
+      pointFromSnapshot(snapshot, original),
+    );
+  });
+
   it('uses SM activity for GI utilization and device activity for full GPUs', () => {
     const snapshot = fixture();
     const [gpu, gi] = buildOverviewEntities(snapshot);

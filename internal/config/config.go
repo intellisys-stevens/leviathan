@@ -22,6 +22,8 @@ const (
 )
 
 type UplinkConfig struct {
+	StateFile string        `toml:"state_file"`
+	Schema    string        `toml:"schema"`
 	Enabled   bool          `toml:"enabled"`
 	BaseURL   string        `toml:"base_url"`
 	TokenFile string        `toml:"token_file"`
@@ -33,26 +35,32 @@ type HealthConfig struct {
 	Directory string `toml:"directory"`
 }
 
+type GPUCapacityConfig struct {
+	Enabled bool `toml:"enabled"`
+}
+
 type Config struct {
-	Interval                  time.Duration `toml:"interval"`
-	ProfileInterval           time.Duration `toml:"profile_interval"`
-	ProcessInterval           time.Duration `toml:"process_interval"`
-	HistoryWindow             time.Duration `toml:"history_window"`
-	TopologyInterval          time.Duration `toml:"topology_interval"`
-	Provider                  string        `toml:"provider"`
-	DCGMAddress               string        `toml:"dcgm_address"`
-	ShowCommandLine           bool          `toml:"show_command_line"`
-	NoProfile                 bool          `toml:"no_profile"`
-	Listen                    string        `toml:"listen"`
-	NoColor                   bool          `toml:"no_color"`
-	ASCII                     bool          `toml:"ascii"`
-	Fixture                   string        `toml:"fixture"`
-	AttributionCheckpointPath string        `toml:"attribution_checkpoint_path"`
-	AttributionSocket         string        `toml:"attribution_socket"`
-	WorkloadTelemetry         bool          `toml:"workload_telemetry"`
-	Uplink                    UplinkConfig  `toml:"uplink"`
-	Health                    HealthConfig  `toml:"health"`
-	ConfigFile                string        `toml:"-"`
+	Plugins                   []PluginConfig    `toml:"plugins"`
+	Interval                  time.Duration     `toml:"interval"`
+	ProfileInterval           time.Duration     `toml:"profile_interval"`
+	ProcessInterval           time.Duration     `toml:"process_interval"`
+	HistoryWindow             time.Duration     `toml:"history_window"`
+	TopologyInterval          time.Duration     `toml:"topology_interval"`
+	Provider                  string            `toml:"provider"`
+	DCGMAddress               string            `toml:"dcgm_address"`
+	ShowCommandLine           bool              `toml:"show_command_line"`
+	NoProfile                 bool              `toml:"no_profile"`
+	Listen                    string            `toml:"listen"`
+	NoColor                   bool              `toml:"no_color"`
+	ASCII                     bool              `toml:"ascii"`
+	Fixture                   string            `toml:"fixture"`
+	AttributionCheckpointPath string            `toml:"attribution_checkpoint_path"`
+	AttributionSocket         string            `toml:"attribution_socket"`
+	WorkloadTelemetry         bool              `toml:"workload_telemetry"`
+	Uplink                    UplinkConfig      `toml:"uplink"`
+	Health                    HealthConfig      `toml:"health"`
+	GPUCapacity               GPUCapacityConfig `toml:"gpu_capacity"`
+	ConfigFile                string            `toml:"-"`
 }
 
 type fileDuration time.Duration
@@ -67,27 +75,31 @@ func (d *fileDuration) UnmarshalText(text []byte) error {
 }
 
 type fileConfig struct {
-	Interval                  fileDuration     `toml:"interval"`
-	ProfileInterval           fileDuration     `toml:"profile_interval"`
-	ProcessInterval           fileDuration     `toml:"process_interval"`
-	HistoryWindow             fileDuration     `toml:"history_window"`
-	TopologyInterval          fileDuration     `toml:"topology_interval"`
-	Provider                  string           `toml:"provider"`
-	DCGMAddress               string           `toml:"dcgm_address"`
-	ShowCommandLine           bool             `toml:"show_command_line"`
-	NoProfile                 bool             `toml:"no_profile"`
-	Listen                    string           `toml:"listen"`
-	NoColor                   bool             `toml:"no_color"`
-	ASCII                     bool             `toml:"ascii"`
-	Fixture                   string           `toml:"fixture"`
-	AttributionCheckpointPath string           `toml:"attribution_checkpoint_path"`
-	AttributionSocket         string           `toml:"attribution_socket"`
-	WorkloadTelemetry         bool             `toml:"workload_telemetry"`
-	Uplink                    fileUplinkConfig `toml:"uplink"`
-	Health                    HealthConfig     `toml:"health"`
+	Plugins                   []PluginConfig    `toml:"plugins"`
+	Interval                  fileDuration      `toml:"interval"`
+	ProfileInterval           fileDuration      `toml:"profile_interval"`
+	ProcessInterval           fileDuration      `toml:"process_interval"`
+	HistoryWindow             fileDuration      `toml:"history_window"`
+	TopologyInterval          fileDuration      `toml:"topology_interval"`
+	Provider                  string            `toml:"provider"`
+	DCGMAddress               string            `toml:"dcgm_address"`
+	ShowCommandLine           bool              `toml:"show_command_line"`
+	NoProfile                 bool              `toml:"no_profile"`
+	Listen                    string            `toml:"listen"`
+	NoColor                   bool              `toml:"no_color"`
+	ASCII                     bool              `toml:"ascii"`
+	Fixture                   string            `toml:"fixture"`
+	AttributionCheckpointPath string            `toml:"attribution_checkpoint_path"`
+	AttributionSocket         string            `toml:"attribution_socket"`
+	WorkloadTelemetry         bool              `toml:"workload_telemetry"`
+	Uplink                    fileUplinkConfig  `toml:"uplink"`
+	Health                    HealthConfig      `toml:"health"`
+	GPUCapacity               GPUCapacityConfig `toml:"gpu_capacity"`
 }
 
 type fileUplinkConfig struct {
+	StateFile string       `toml:"state_file"`
+	Schema    string       `toml:"schema"`
 	Enabled   bool         `toml:"enabled"`
 	BaseURL   string       `toml:"base_url"`
 	TokenFile string       `toml:"token_file"`
@@ -144,12 +156,13 @@ func ApplyEnv(cfg *Config) error {
 		}
 	}
 	bools := map[string]*bool{
-		"LEVIATHAN_SHOW_COMMAND_LINE":  &cfg.ShowCommandLine,
-		"LEVIATHAN_NO_PROFILE":         &cfg.NoProfile,
-		"LEVIATHAN_NO_COLOR":           &cfg.NoColor,
-		"LEVIATHAN_ASCII":              &cfg.ASCII,
-		"LEVIATHAN_HEALTH_ENABLED":     &cfg.Health.Enabled,
-		"LEVIATHAN_WORKLOAD_TELEMETRY": &cfg.WorkloadTelemetry,
+		"LEVIATHAN_SHOW_COMMAND_LINE":    &cfg.ShowCommandLine,
+		"LEVIATHAN_NO_PROFILE":           &cfg.NoProfile,
+		"LEVIATHAN_NO_COLOR":             &cfg.NoColor,
+		"LEVIATHAN_ASCII":                &cfg.ASCII,
+		"LEVIATHAN_HEALTH_ENABLED":       &cfg.Health.Enabled,
+		"LEVIATHAN_WORKLOAD_TELEMETRY":   &cfg.WorkloadTelemetry,
+		"LEVIATHAN_GPU_CAPACITY_ENABLED": &cfg.GPUCapacity.Enabled,
 	}
 	for name, target := range bools {
 		if raw, ok := os.LookupEnv(name); ok {
@@ -171,8 +184,9 @@ func Defaults() Config {
 		Interval: time.Second, ProfileInterval: 2 * time.Second, ProcessInterval: 2 * time.Second,
 		HistoryWindow: 12 * time.Hour, TopologyInterval: 10 * time.Second,
 		Provider: "auto", DCGMAddress: "127.0.0.1:5555", Listen: DefaultListen,
-		Uplink: UplinkConfig{Interval: DefaultUplinkInterval},
-		Health: HealthConfig{Enabled: true, Directory: DefaultHealthDirectory()},
+		Uplink:      UplinkConfig{Interval: DefaultUplinkInterval},
+		Health:      HealthConfig{Enabled: true, Directory: DefaultHealthDirectory()},
+		GPUCapacity: GPUCapacityConfig{Enabled: true},
 	}
 }
 
@@ -212,12 +226,14 @@ func LoadFile(path string, cfg *Config) error {
 		return err
 	}
 	decoded := fileConfig{
+		Plugins:  cfg.Plugins,
 		Interval: fileDuration(cfg.Interval), ProfileInterval: fileDuration(cfg.ProfileInterval), ProcessInterval: fileDuration(cfg.ProcessInterval),
 		HistoryWindow: fileDuration(cfg.HistoryWindow), TopologyInterval: fileDuration(cfg.TopologyInterval),
 		Provider: cfg.Provider, DCGMAddress: cfg.DCGMAddress, ShowCommandLine: cfg.ShowCommandLine, NoProfile: cfg.NoProfile,
 		Listen: cfg.Listen, NoColor: cfg.NoColor, ASCII: cfg.ASCII, Fixture: cfg.Fixture, AttributionSocket: cfg.AttributionSocket, AttributionCheckpointPath: cfg.AttributionCheckpointPath, WorkloadTelemetry: cfg.WorkloadTelemetry,
-		Uplink: fileUplinkConfig{Enabled: cfg.Uplink.Enabled, BaseURL: cfg.Uplink.BaseURL, TokenFile: cfg.Uplink.TokenFile, Interval: fileDuration(cfg.Uplink.Interval)},
-		Health: cfg.Health,
+		Uplink:      fileUplinkConfig{StateFile: cfg.Uplink.StateFile, Schema: cfg.Uplink.Schema, Enabled: cfg.Uplink.Enabled, BaseURL: cfg.Uplink.BaseURL, TokenFile: cfg.Uplink.TokenFile, Interval: fileDuration(cfg.Uplink.Interval)},
+		Health:      cfg.Health,
+		GPUCapacity: cfg.GPUCapacity,
 	}
 	decoder := toml.NewDecoder(bytes.NewReader(data)).DisallowUnknownFields()
 	if err := decoder.Decode(&decoded); err != nil {
@@ -229,17 +245,25 @@ func LoadFile(path string, cfg *Config) error {
 	cfg.ShowCommandLine, cfg.NoProfile, cfg.Listen = decoded.ShowCommandLine, decoded.NoProfile, decoded.Listen
 	cfg.NoColor, cfg.ASCII, cfg.Fixture, cfg.AttributionSocket = decoded.NoColor, decoded.ASCII, decoded.Fixture, decoded.AttributionSocket
 	cfg.Uplink = UplinkConfig{
-		Enabled: decoded.Uplink.Enabled, BaseURL: decoded.Uplink.BaseURL, TokenFile: decoded.Uplink.TokenFile,
+		StateFile: decoded.Uplink.StateFile, Schema: decoded.Uplink.Schema, Enabled: decoded.Uplink.Enabled, BaseURL: decoded.Uplink.BaseURL, TokenFile: decoded.Uplink.TokenFile,
 		Interval: time.Duration(decoded.Uplink.Interval),
+	}
+	if cfg.Uplink.StateFile != "" && cfg.Uplink.Schema == "" {
+		cfg.Uplink.Schema = uplink.SchemaV2
 	}
 	cfg.AttributionCheckpointPath = decoded.AttributionCheckpointPath
 	cfg.WorkloadTelemetry = decoded.WorkloadTelemetry
 	cfg.Health = decoded.Health
+	cfg.GPUCapacity = decoded.GPUCapacity
+	cfg.Plugins = decoded.Plugins
 	cfg.ConfigFile = path
 	return nil
 }
 
 func Validate(cfg Config) error {
+	if err := validatePlugins(cfg); err != nil {
+		return err
+	}
 	if path := cfg.AttributionCheckpointPath; path != "" {
 		if cfg.AttributionSocket == "" {
 			return fmt.Errorf("attribution checkpoint requires an attribution socket")
@@ -296,11 +320,23 @@ func Validate(cfg Config) error {
 			return fmt.Errorf("uplink token file must be an absolute clean path")
 		}
 	}
+	if cfg.Uplink.Schema != "" && cfg.Uplink.Schema != "uplink-v1" && cfg.Uplink.Schema != "uplink-v2" {
+		return fmt.Errorf("uplink schema must be uplink-v1 or uplink-v2")
+	}
+	if cfg.Uplink.StateFile != "" && (!filepath.IsAbs(cfg.Uplink.StateFile) || filepath.Clean(cfg.Uplink.StateFile) != cfg.Uplink.StateFile) {
+		return fmt.Errorf("uplink state file must be an absolute clean path")
+	}
+	if cfg.Uplink.StateFile != "" && cfg.Uplink.Schema != "" && cfg.Uplink.Schema != uplink.SchemaV2 {
+		return fmt.Errorf("enrollment state requires uplink-v2")
+	}
+	if cfg.Uplink.StateFile != "" && cfg.Uplink.TokenFile != "" {
+		return fmt.Errorf("configure only one uplink state_file or token_file")
+	}
 	if cfg.Uplink.Enabled {
 		if cfg.Uplink.BaseURL == "" {
 			return fmt.Errorf("uplink base URL is required when uplink is enabled")
 		}
-		if cfg.Uplink.TokenFile == "" {
+		if cfg.Uplink.TokenFile == "" && cfg.Uplink.StateFile == "" {
 			return fmt.Errorf("uplink token file is required when uplink is enabled")
 		}
 	}

@@ -1,6 +1,7 @@
 import {
   MOTHERBOARD_COLORS,
   motherboardGlowIntensity,
+  storageActivityIntensity,
   type MotherboardAppearance,
   type MotherboardCategoryId,
 } from './motherboard-appearance';
@@ -43,6 +44,20 @@ export function MotherboardFallback({
         stroke="#517b82"
         strokeWidth="2"
       />
+      {[
+        { width: 9, opacity: 0.1 },
+        { width: 2, opacity: 0.6 },
+      ].map(({ width, opacity }) => (
+        <path
+          key={width}
+          d="M80 60H493L517 84V543L493 567H104L80 543Z"
+          fill="none"
+          stroke={colors.accent}
+          strokeWidth={width}
+          strokeLinejoin="round"
+          opacity={opacity * (theme === 'dark' ? 1 : 0.65)}
+        />
+      ))}
       <g fill="none" stroke="#537f84" strokeWidth="1" opacity=".6">
         {Array.from({ length: 11 }, (_, i) => (
           <g key={i}>
@@ -206,7 +221,12 @@ export function MotherboardFallback({
           </g>
         ))}
       </g>
-      <g data-region-id="storage">
+      <g
+        data-region-id="storage"
+        data-bytes-per-second={
+          appearance.storageBytesPerSecond ?? 'unavailable'
+        }
+      >
         <rect
           x="256"
           y="411"
@@ -228,6 +248,17 @@ export function MotherboardFallback({
             stroke="#59666a"
           />
         ))}
+        <rect
+          x="260"
+          y="417"
+          width="127"
+          height="39"
+          rx="3"
+          fill={colors.accent}
+          opacity={
+            storageActivityIntensity(appearance.storageBytesPerSecond) * 0.35
+          }
+        />
         <circle cx="414" cy="437" r="5" fill="#b7c1c2" />
         <path d="M411 437h6" stroke="#354b52" strokeWidth="2" />
         <text

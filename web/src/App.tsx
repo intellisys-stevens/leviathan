@@ -30,9 +30,11 @@ import {
 } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { DiagnosticsPanel } from './components/diagnostics-panel';
+import { PluginStatusPanel } from './components/plugin-status-panel';
 import { AmbientSnow } from './components/ambient-snow';
 import { ChartWindowControl } from './components/chart-window-control';
 import { GPUCard } from './components/gpu-card';
+import { GPUCapacityPanel } from './components/gpu-capacity-panel';
 import { buildGPUAllocationView } from './gpu-allocation';
 import { PerimeterLight } from './components/perimeter-light';
 import { PeopleView } from './components/people-view';
@@ -377,8 +379,8 @@ function GPUGrid({
       {snapshot.gpus.length === 0 ? (
         <div className="frost-panel border border-dashed border-border bg-card p-6 text-center lg:col-span-2">
           <p className="text-[15px] font-medium">
-            {snapshot.capabilities.nvml.available
-              ? 'No NVIDIA GPUs detected'
+            {(snapshot.capabilities.gpu ?? snapshot.capabilities.nvml).available
+              ? 'No GPUs detected'
               : 'GPU discovery unavailable'}
           </p>
         </div>
@@ -452,21 +454,15 @@ export function App() {
   const [displayCadenceMs, setDisplayCadenceMs] =
     useState(storedDisplayCadence);
   const leviathan = useLeviathan(displayCadenceMs);
+  const { snapshot, connection, history, alignedHistory, settings, buildInfo } =
+    leviathan;
   const {
-    snapshot,
-    connection,
-    error: legacyError,
-    history,
-    alignedHistory,
-    settings,
-    buildInfo,
+    snapshotError,
+    streamError,
+    settingsError,
+    retrySnapshot,
+    retrySettings,
   } = leviathan;
-  const snapshotError =
-    leviathan.snapshotError ?? (!snapshot ? legacyError : null);
-  const streamError = leviathan.streamError ?? (snapshot ? legacyError : null);
-  const settingsError = leviathan.settingsError ?? null;
-  const retrySnapshot = leviathan.retrySnapshot ?? (() => undefined);
-  const retrySettings = leviathan.retrySettings ?? (() => undefined);
   const [initialHash] = useState(() => window.location.hash);
   const pendingOperationsFocusRef = useRef<OperationsFocus | null>(
     operationsFocusForHash(initialHash),
@@ -863,6 +859,7 @@ export function App() {
             <div className="space-y-6">
               <ViewIntro view={activeDefinition} headingRef={viewHeadingRef} />
               <HealthStatusPanel snapshot={null} />
+              <PluginStatusPanel />
             </div>
           ) : (
             <WorkbenchLoading
@@ -956,6 +953,7 @@ export function App() {
                   >
                     GPUs
                   </h2>
+                  <GPUCapacityPanel hostKey={snapshot.host.hostname} />
                   <GPUGrid
                     theme={theme}
                     snapshot={snapshot}
@@ -1007,6 +1005,7 @@ export function App() {
               <div className="mt-6 space-y-5">
                 <HealthStatusPanel snapshot={snapshot} />
                 <DiagnosticsPanel diagnostics={statusDiagnostics} />
+                <PluginStatusPanel />
               </div>
             ) : null}
           </div>

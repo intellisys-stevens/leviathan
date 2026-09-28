@@ -12,8 +12,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/intellisys-stevens/leviathan/internal/config"
 	"github.com/intellisys-stevens/leviathan/internal/history"
-	"github.com/intellisys-stevens/leviathan/internal/model"
 	"github.com/intellisys-stevens/leviathan/internal/render"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 type DataSource interface {

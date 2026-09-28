@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 type testSource struct{ observation Observation }
@@ -438,5 +438,17 @@ func TestGPUHealthReflectsUnreadableDevicesButIgnoresOptionalProfiling(t *testin
 				t.Fatalf("state=%s want %s", got, test.want)
 			}
 		})
+	}
+}
+
+func TestGenericGPUHealthDoesNotRequireNVML(t *testing.T) {
+	at := time.Now().UTC()
+	snapshot := model.Snapshot{SampledAt: at, Capabilities: model.Capabilities{GPU: &model.ProviderState{Name: "Example sensor", Available: true, Status: model.StatusAvailable}}}
+	if got := GPUComponent(snapshot); got.State != Operational {
+		t.Fatalf("generic GPU health = %+v", got)
+	}
+	snapshot.Capabilities.GPU.Status = model.StatusStale
+	if got := GPUComponent(snapshot); got.State == Operational {
+		t.Fatalf("stale generic GPU reported healthy: %+v", got)
 	}
 }

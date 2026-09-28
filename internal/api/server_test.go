@@ -2,10 +2,12 @@ package api
 
 import (
 	"bufio"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -17,7 +19,7 @@ import (
 	"time"
 
 	"github.com/intellisys-stevens/leviathan/internal/history"
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 type stubSource struct {
@@ -187,6 +189,27 @@ func TestHealthReflectsIndependentTelemetryDomains(t *testing.T) {
 				t.Fatalf("health = %+v err=%v", body, err)
 			}
 		})
+	}
+}
+
+func TestHealthUsesGenericGPUCapability(t *testing.T) {
+	source := newStubSource()
+	source.snapshot.Capabilities.System = model.ProviderState{Available: true, Status: model.StatusAvailable}
+	source.snapshot.Capabilities.NVML = model.ProviderState{Status: model.StatusUnsupported}
+	source.snapshot.Capabilities.GPU = &model.ProviderState{Name: "external GPU", Available: true, Status: model.StatusAvailable}
+	response := httptest.NewRecorder()
+	newTestServer(source, nil).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	var body struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || response.Code != http.StatusOK || body.Status != "ok" {
+		t.Fatalf("external GPU health: code=%d body=%s err=%v", response.Code, response.Body.String(), err)
+	}
+	source.snapshot.Capabilities.GPU.Status = model.StatusStale
+	response = httptest.NewRecorder()
+	newTestServer(source, nil).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body.Status != "degraded" {
+		t.Fatalf("stale external GPU health: body=%s err=%v", response.Body.String(), err)
 	}
 }
 
@@ -748,5 +771,48 @@ func TestSnapshotOmitsOrphanedProcessWorkloadReferenceWithoutMutatingSource(t *t
 	}
 	if source.snapshot.Processes[0].WorkloadRef == "" {
 		t.Fatal("wire normalization mutated the source snapshot")
+	}
+}
+
+func TestAlignedHistoryAcceptsBoundedPluginGenerationKeys(t *testing.T) {
+	source := newStubSource()
+	server := newTestServer(source, nil)
+	entity := "example/" + strings.Repeat("r", 512) + "@plugin:" + strings.Repeat("%2F", 4096)
+	input := history.AlignedRequest{Window: "1m", MaxPoints: 50, Series: []history.SeriesDescriptor{{Key: "gi:" + entity, Entity: entity, Metrics: []string{"sm_activity"}}}}
+	body, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/history/aligned", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || len(source.alignedRequest) != 1 || source.alignedRequest[0].Entity != entity {
+		t.Fatalf("plugin generation rejected: code=%d body=%s", response.Code, response.Body.String())
+	}
+	// Multiple valid long keys stay in one request: splitting independently
+	// downsampled responses could introduce false gaps when merging them.
+	for i := range 20 {
+		input.Series = append(input.Series, history.SeriesDescriptor{Key: fmt.Sprintf("%d:%s", i, entity), Entity: entity, Metrics: []string{"sm_activity"}})
+	}
+	body, err = json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/history/aligned", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if len(body) <= 256<<10 || response.Code != http.StatusOK || len(source.alignedRequest) != len(input.Series) {
+		t.Fatalf("valid multi-resource request rejected: bytes=%d code=%d", len(body), response.Code)
+	}
+	input.Series[0].Entity = strings.Repeat("x", maxAlignedEntityLength+1)
+	if _, message := server.validateAlignedHistory(input); message == "" {
+		t.Fatal("unbounded entity accepted")
+	}
+	input.Series[0].Entity = entity
+	input.Series[0].Key = strings.Repeat("x", maxAlignedKeyLength+1)
+	if _, message := server.validateAlignedHistory(input); message == "" {
+		t.Fatal("unbounded key accepted")
 	}
 }

@@ -12,7 +12,8 @@ command -v "$helm_command" >/dev/null 2>&1 || {
 "$helm_command" lint "$chart" --kube-version 1.34.0 >/dev/null
 rendered=$(mktemp)
 workload_rendered=$(mktemp)
-trap 'rm -f -- "$rendered" "$workload_rendered"' EXIT
+capacity_disabled=$(mktemp)
+trap 'rm -f -- "$rendered" "$workload_rendered" "$capacity_disabled"' EXIT
 "$helm_command" template synthetic "$chart" --namespace monitoring --kube-version 1.34.0 \
   --set-json 'workspaceNamespaces=["workspace-one","workspace-two"]' >"$rendered"
 
@@ -24,7 +25,7 @@ if grep -Eni 'verbs:[[:space:]]*\[[^]]*(create|update|patch|delete|bind|escalate
   printf 'bridge chart grants mutating or wildcard RBAC verbs\n' >&2
   exit 1
 fi
-if grep -Eni 'resources:[[:space:]]*\[[^]]*(secrets|pods|nodes|serviceaccounts|roles|bindings|deployments|daemonsets|\*)' "$rendered"; then
+if grep -Eni 'resources:[[:space:]]*\[[^]]*(secrets|pods|serviceaccounts|roles|bindings|deployments|daemonsets|\*)' "$rendered"; then
   printf 'bridge chart grants unrelated or wildcard resources\n' >&2
   exit 1
 fi
@@ -32,22 +33,29 @@ if grep -En '^[[:space:]]*nonResourceURLs:' "$rendered"; then
   printf 'bridge chart grants non-resource URL access\n' >&2
   exit 1
 fi
-if grep -E '^[[:space:]]*apiGroups:[[:space:]]*\[' "$rendered" | grep -Ev '^[[:space:]]*- apiGroups: \["resource.k8s.io"\]$'; then
+if grep -E '^[[:space:]]*apiGroups:[[:space:]]*\[' "$rendered" | grep -Ev '^[[:space:]]*- apiGroups: \["(resource.k8s.io)?"\]$'; then
   printf 'bridge chart grants an unexpected API group\n' >&2
   exit 1
 fi
-if grep -E '^[[:space:]]*resources:[[:space:]]*\[' "$rendered" | grep -Ev '^[[:space:]]+resources: \["(resourceslices|resourceclaims)"\]$'; then
+if grep -E '^[[:space:]]*resources:[[:space:]]*\[' "$rendered" | grep -Ev '^[[:space:]]+resources: \["(resourceslices|resourceclaims|deviceclasses|nodes)"\]$'; then
   printf 'bridge chart grants an unexpected Kubernetes resource\n' >&2
   exit 1
 fi
-if grep -E '^[[:space:]]*verbs:[[:space:]]*\[' "$rendered" | grep -Ev '^[[:space:]]+verbs: \["get", "list", "watch"\]$'; then
+if grep -E '^[[:space:]]*verbs:[[:space:]]*\[' "$rendered" | grep -Ev '^[[:space:]]+verbs: \["get"(, "list", "watch")?\]$'; then
   printf 'bridge chart grants verbs outside get/list/watch\n' >&2
   exit 1
 fi
 [[ $(grep -Ec '^kind: ClusterRole$' "$rendered") -eq 1 ]]
 [[ $(grep -Ec '^kind: Role$' "$rendered") -eq 2 ]]
 [[ $(grep -Ec 'resources: \["resourceslices"\]' "$rendered") -eq 1 ]]
-[[ $(grep -Ec 'resources: \["resourceclaims"\]' "$rendered") -eq 2 ]]
+[[ $(grep -Ec 'resources: \["resourceclaims"\]' "$rendered") -eq 3 ]]
+[[ $(grep -Ec 'resources: \["deviceclasses"\]' "$rendered") -eq 1 ]]
+[[ $(grep -Ec 'resources: \["nodes"\]' "$rendered") -eq 1 ]]
+grep -Eq -- '--gpu-capacity=true' "$rendered"
+if ! awk '/^kind:/ {kind=$2} /resources: \["nodes"\]/ {if(kind!="ClusterRole") exit 1; getline; if($0 !~ /verbs: \["get"\]/) exit 1}' "$rendered"; then
+  printf 'capacity node access must remain read-only get access\n' >&2
+  exit 1
+fi
 grep -Eq 'readOnlyRootFilesystem: true' "$rendered"
 grep -Eq 'allowPrivilegeEscalation: false' "$rendered"
 grep -Eq 'type: RuntimeDefault' "$rendered"
@@ -76,17 +84,17 @@ if "$helm_command" template synthetic "$chart" --namespace monitoring --kube-ver
 fi
 
 # Pod inventory is an explicit namespace-scoped opt-in. The default rendering
-# above continues to reject every Pod permission and every unrelated resource.
+# above rejects every Pod permission and limits capacity access to DRA reads.
 "$helm_command" template synthetic "$chart" --namespace monitoring --kube-version 1.34.0 \
   --set-json 'workspaceNamespaces=["workspace-one","workspace-two"]' \
   --set workloadInventory.enabled=true >"$workload_rendered"
 [[ $(grep -Ec -- '--workload-inventory' "$workload_rendered") -eq 1 ]]
 [[ $(grep -Ec 'resources: \["pods"\]' "$workload_rendered") -eq 2 ]]
-if grep -E '^[[:space:]]*resources:[[:space:]]*\[' "$workload_rendered" | grep -Ev '^[[:space:]]+resources: \["(resourceslices|resourceclaims|pods)"\]$'; then
+if grep -E '^[[:space:]]*resources:[[:space:]]*\[' "$workload_rendered" | grep -Ev '^[[:space:]]+resources: \["(resourceslices|resourceclaims|deviceclasses|nodes|pods)"\]$'; then
   printf 'workload opt-in grants resources outside the metadata inventory\n' >&2
   exit 1
 fi
-if grep -E '^[[:space:]]*verbs:[[:space:]]*\[' "$workload_rendered" | grep -Ev '^[[:space:]]+verbs: \["get", "list", "watch"\]$'; then
+if grep -E '^[[:space:]]*verbs:[[:space:]]*\[' "$workload_rendered" | grep -Ev '^[[:space:]]+verbs: \["get"(, "list", "watch")?\]$'; then
   printf 'workload opt-in grants non-read verbs\n' >&2
   exit 1
 fi
@@ -104,4 +112,23 @@ if "$helm_command" template synthetic "$chart" --namespace monitoring --kube-ver
   exit 1
 fi
 
-printf 'verified Helm chart: least-privilege default and optional Pod metadata RBAC\n'
+# Disabling capacity restores the original namespace-only claim permissions.
+"$helm_command" template synthetic "$chart" --namespace monitoring --kube-version 1.34.0 \
+  --set-json 'workspaceNamespaces=["workspace-one","workspace-two"]' \
+  --set gpuCapacity.enabled=false >"$capacity_disabled"
+grep -Eq -- '--gpu-capacity=false' "$capacity_disabled"
+[[ $(grep -Ec 'resources: \["resourceclaims"\]' "$capacity_disabled") -eq 2 ]]
+if grep -Eq 'resources: \["(deviceclasses|nodes)"\]' "$capacity_disabled"; then
+  printf 'disabled capacity retained extra permissions\n' >&2
+  exit 1
+fi
+if ! awk '/^kind:/ {kind=$2} /resources: \["resourceclaims"\]/ {if(kind!="Role") exit 1}' "$capacity_disabled"; then
+  printf 'disabled capacity retained cluster-wide claim permissions\n' >&2
+  exit 1
+fi
+if "$helm_command" template synthetic "$chart" --set-string gpuCapacity.enabled=invalid >/dev/null 2>&1; then
+  printf 'capacity accepted a non-boolean opt-out setting\n' >&2
+  exit 1
+fi
+
+printf 'verified Helm chart: read-only capacity defaults, explicit opt-out, and optional Pod metadata RBAC\n'

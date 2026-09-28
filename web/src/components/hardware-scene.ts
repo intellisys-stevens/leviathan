@@ -32,6 +32,8 @@ export type HardwareSceneModel = {
   update: (deltaMs: number) => boolean | void;
   isTransitioning: () => boolean;
   hasAmbientActivity: () => boolean;
+  getParticleDemand?: () => number;
+  setParticleBudget?: (maximum: number) => void;
   getActivityState?: () => unknown;
   dispose: () => void;
 };

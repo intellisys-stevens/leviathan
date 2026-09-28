@@ -114,7 +114,32 @@ published. Verify both native archives, checksums, attestations, SBOMs, the
 configuration, and backups until host telemetry and Yggdrasil receipts have
 been observed in the deployment.
 
-## v0.4.1 patch release
+## Unreleased Resources and GPU capacity changes
+
+These source changes are not part of the published v0.4.1 release. Assign the
+next release version during release preparation, update the metadata together,
+and regenerate API bindings and the embedded dashboard. Never reuse the
+published v0.4.1 tag.
+
+Validate DRA capacity against complete ResourceSlices and all-namespace claims,
+including native/MIG overlap and reservations with no running workspace. The
+source chart enables read-only capacity access; verify that
+`gpuCapacity.enabled=false` removes the additional cluster-wide permissions.
+Check the unavailable state against older bridges and installations without DRA.
+The capacity endpoint remains separate from telemetry and `uplink-v1`.
+
+Run browser regressions in both themes, including reduced motion, responsive
+hardware controls, and capacity refresh recovery. Profile dense live chart hover
+against the same production fixture before comparing latency. Require passing
+CI and a non-publishing release dry run on the final release commit.
+
+Use the [performance checks](performance.md) to repeat the production-tooltip
+and capacity measurements on the release source.
+
+## Historical v0.4.1 patch release
+
+Published on September 7, 2026. The following records that release's procedure;
+do not repeat its tag commands for new changes.
 
 Prepare the `0.4.1` OpenAPI information version, dashboard and lockfile, Helm
 chart, Kubernetes example, CI dry-run fixtures, changelog, and release-verifier

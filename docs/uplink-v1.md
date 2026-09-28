@@ -10,6 +10,9 @@ open the authorized machine view at the central Yggdrasil HTTPS origin. The
 browser never connects to the Jetstream VM's public IP, and enabling this
 uploader does not expose Leviathan's loopback API or embedded HTML.
 
+For automatic enrollment and renewal, use [the join workflow](enrollment.md).
+The manual token-file configuration below remains supported.
+
 ## Configuration
 
 The default interval is 15 seconds and the accepted range is one second through
@@ -73,8 +76,8 @@ narrow range.
 ## Wire and retry behavior
 
 The agent sends `POST /api/uplink/v1/snapshots` with a five-second request
-timeout and an exact 8 MiB maximum encoded body. Redirects, cookies, ambient
-HTTP proxies, and response-body error details are rejected or discarded.
+timeout and an exact 8 MiB maximum encoded body. Redirects, cookies, and response-body error details are rejected or discarded.
+`HTTPS_PROXY` and `NO_PROXY` are supported; TLS verifies the configured origin.
 
 Each process start creates a random 128-bit stream ID and sequences logical
 uploads from one. A retry of the same observation retains the same stream ID and

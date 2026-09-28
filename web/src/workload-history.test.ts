@@ -122,6 +122,22 @@ function person(
 }
 
 describe('workload history mapping', () => {
+  it('selects replacement GPU history while preserving assignment keys and labels', () => {
+    const { gpu } = topology();
+    const owner = person('owner-a', 'alice', [{ kind: 'physical_gpu', gpu }]);
+    const [original] = buildWorkloadTelemetryEntities([owner], owner.key);
+    gpu.generation = 'lab/GPU-shared@replacement';
+    const [replacement] = buildWorkloadTelemetryEntities([owner], owner.key);
+    expect(replacement).toEqual({
+      ...original,
+      entity: 'lab/GPU-shared@replacement',
+    });
+    expect(workloadHistoryDescriptors([replacement])[0].entity).toBe(
+      'lab/GPU-shared@replacement',
+    );
+    expect(replacement.source.uuid).toBe('GPU-shared');
+  });
+
   it('deduplicates sibling CIs to their parent GI and marks cross-owner sharing', () => {
     const { selections } = topology();
     const people = [

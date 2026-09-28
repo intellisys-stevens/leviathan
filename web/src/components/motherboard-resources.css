@@ -24,7 +24,7 @@
   font-weight: 600;
 }
 .motherboard-panel-heading svg,
-.motherboard-category-button svg {
+.motherboard-category-title svg {
   width: 16px;
   height: 16px;
   flex: none;
@@ -95,35 +95,28 @@
 }
 .motherboard-category-heading h2 {
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
 }
-.motherboard-category-button {
+.motherboard-category-title {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-width: 44px;
-  min-height: 44px;
+  min-width: 0;
+  min-height: 36px;
   max-width: 100%;
-  padding: 4px 8px;
-  margin-left: -8px;
-  border-radius: 6px;
+  padding: 4px 0;
   color: var(--foreground);
   text-align: left;
   font-size: 0.9375rem;
   font-weight: 600;
-  cursor: pointer;
   scroll-margin-top: 9rem;
-  transition:
-    background-color 180ms,
-    color 180ms;
 }
-.motherboard-category-button[aria-pressed='true'],
-.motherboard-category[data-highlighted='true'] .motherboard-category-button,
 .motherboard-about > summary:hover {
   color: var(--primary);
   background: color-mix(in oklch, var(--primary) 9%, transparent);
 }
 .motherboard-resources button:focus-visible,
+.motherboard-category-title:focus-visible,
 .motherboard-about > summary:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 3px;
@@ -279,16 +272,25 @@
 @media (min-width: 1024px) {
   .motherboard-layout {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+  }
+  .motherboard-scene {
+    display: flex;
+    align-items: center;
+    padding-block: 16px;
+  }
+  .motherboard-scene > .hardware-board-view {
+    width: 100%;
   }
   .motherboard-details {
     border-left: 1px solid var(--border);
   }
   .motherboard-resources .hardware-board-viewport {
-    height: 460px;
+    height: clamp(320px, 46vw, 460px);
   }
 }
 @media (max-width: 767px) {
-  .motherboard-category-button {
+  .motherboard-category-title {
     scroll-margin-top: 5rem;
   }
 }
@@ -309,7 +311,7 @@
   .motherboard-about > p {
     border-color: CanvasText;
   }
-  .motherboard-category-button[aria-pressed='true'] {
+  .motherboard-category-title:focus-visible {
     outline: 2px solid Highlight;
     outline-offset: -2px;
   }

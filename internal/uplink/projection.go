@@ -8,11 +8,12 @@ import (
 	"io"
 	"math"
 	"path"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/intellisys-stevens/leviathan/internal/model"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 const (
@@ -82,6 +83,17 @@ func validStreamID(value string) bool {
 // Project constructs an independent, deeply copied, sanitized wire envelope.
 // sequence is the stream-local upload sequence, not the collector sequence.
 func Project(snapshot model.Snapshot, build model.BuildInfo, streamID string, sequence uint64) (Envelope, error) {
+	return project(snapshot, build, streamID, sequence, projectionPolicy{})
+}
+
+// The v2 transport shares the sanitized host/GPU structure but permits portable
+// provenance and metric names. V1 retains its independently locked vocabulary.
+type projectionPolicy struct {
+	portable         bool
+	remainingMetrics *int
+}
+
+func project(snapshot model.Snapshot, build model.BuildInfo, streamID string, sequence uint64, policy projectionPolicy) (Envelope, error) {
 	if !validStreamID(streamID) {
 		return Envelope{}, ErrInvalidStreamID
 	}
@@ -91,7 +103,17 @@ func Project(snapshot model.Snapshot, build model.BuildInfo, streamID string, se
 	if snapshot.SampledAt.IsZero() {
 		return Envelope{}, ErrInvalidSnapshot
 	}
+	if !policy.systemRepresentable(snapshot.System) {
+		if policy.portable {
+			return Envelope{}, ErrInvalidSnapshot
+		}
+		return Envelope{}, ErrUnsupportedObservation
+	}
 
+	if policy.portable {
+		remainingMetrics := 32768
+		policy.remainingMetrics = &remainingMetrics
+	}
 	envelope := Envelope{
 		Schema:    Schema,
 		StreamID:  streamID,
@@ -107,16 +129,19 @@ func Project(snapshot model.Snapshot, build model.BuildInfo, streamID string, se
 			OS:       boundedPrintable(snapshot.Host.OS, maximumIdentityFieldBytes),
 			Arch:     boundedPrintable(snapshot.Host.Arch, maximumIdentityFieldBytes),
 		},
-		System: projectSystem(snapshot.System),
-		GPUs:   projectGPUs(snapshot.GPUs),
+		System: policy.projectSystem(snapshot.System),
+		GPUs:   policy.projectGPUs(snapshot.GPUs),
 	}
-	envelope.Health = projectHealth(snapshot)
+	envelope.Health = projectHealth(snapshot, len(envelope.GPUs))
 	return envelope, nil
 }
 
-func projectSystem(system model.System) System {
+func (policy projectionPolicy) projectSystem(system model.System) System {
 	filesystems := make([]Filesystem, 0, min(len(system.Storage.Filesystems), maximumFilesystems))
 	for _, filesystem := range system.Storage.Filesystems {
+		if policy.source(filesystem.Source) == "" || policy.scope(filesystem.Scope) == "" {
+			continue
+		}
 		if len(filesystems) == maximumFilesystems {
 			break
 		}
@@ -135,8 +160,8 @@ func projectSystem(system model.System) System {
 			TotalBytes:     copyUint64(filesystem.TotalBytes),
 			UsedBytes:      copyUint64(filesystem.UsedBytes),
 			AvailableBytes: copyUint64(filesystem.AvailableBytes),
-			Source:         string(model.SourceStatFS),
-			Scope:          string(model.ScopeHost),
+			Source:         string(filesystem.Source),
+			Scope:          policy.scope(filesystem.Scope),
 			SampledAt:      filesystem.SampledAt.UTC(),
 			Status:         MetricStatus(filesystem.Status),
 		})
@@ -146,11 +171,11 @@ func projectSystem(system model.System) System {
 		CPU: CPU{
 			Model:             boundedPrintable(system.CPU.Model, maximumIdentityFieldBytes),
 			LogicalProcessors: system.CPU.LogicalProcessors,
-			Utilization:       projectMetric(system.CPU.Utilization),
-			Load1:             projectMetric(system.CPU.Load1),
-			Load5:             projectMetric(system.CPU.Load5),
-			Load15:            projectMetric(system.CPU.Load15),
-			Source:            safeMetricSource(system.CPU.Source),
+			Utilization:       policy.projectMetric(system.CPU.Utilization),
+			Load1:             policy.projectMetric(system.CPU.Load1),
+			Load5:             policy.projectMetric(system.CPU.Load5),
+			Load15:            policy.projectMetric(system.CPU.Load15),
+			Source:            policy.source(system.CPU.Source),
 			SampledAt:         system.CPU.SampledAt.UTC(),
 			Status:            MetricStatus(system.CPU.Status),
 		},
@@ -158,9 +183,9 @@ func projectSystem(system model.System) System {
 			TotalBytes:     copyUint64(system.Memory.TotalBytes),
 			UsedBytes:      copyUint64(system.Memory.UsedBytes),
 			AvailableBytes: copyUint64(system.Memory.AvailableBytes),
-			Utilization:    projectMetric(system.Memory.Utilization),
-			Source:         safeMetricSource(system.Memory.Source),
-			Scope:          safeMetricScope(system.Memory.Scope),
+			Utilization:    policy.projectMetric(system.Memory.Utilization),
+			Source:         policy.source(system.Memory.Source),
+			Scope:          policy.scope(system.Memory.Scope),
 			SampledAt:      system.Memory.SampledAt.UTC(),
 			Status:         MetricStatus(system.Memory.Status),
 		},
@@ -168,11 +193,11 @@ func projectSystem(system model.System) System {
 			TotalBytes:          copyUint64(system.Storage.TotalBytes),
 			UsedBytes:           copyUint64(system.Storage.UsedBytes),
 			AvailableBytes:      copyUint64(system.Storage.AvailableBytes),
-			ReadBytesPerSecond:  projectMetric(system.Storage.ReadBytesPerSecond),
-			WriteBytesPerSecond: projectMetric(system.Storage.WriteBytesPerSecond),
+			ReadBytesPerSecond:  policy.projectMetric(system.Storage.ReadBytesPerSecond),
+			WriteBytesPerSecond: policy.projectMetric(system.Storage.WriteBytesPerSecond),
 			Filesystems:         filesystems,
-			Source:              string(model.SourceStatFS),
-			Scope:               string(model.ScopeHost),
+			Source:              string(system.Storage.Source),
+			Scope:               policy.scope(system.Storage.Scope),
 			SampledAt:           system.Storage.SampledAt.UTC(),
 			Status:              MetricStatus(system.Storage.Status),
 		},
@@ -181,54 +206,70 @@ func projectSystem(system model.System) System {
 	}
 }
 
-func projectGPUs(source []model.GPU) []GPU {
+func (policy projectionPolicy) projectGPUs(source []model.GPU) []GPU {
 	result := make([]GPU, 0, min(len(source), maximumGPUs))
+	admitted := make([]model.GPU, 0, cap(result))
+	// Reserve measured physical-device metrics before a large partition tree
+	// consumes the shared v2 budget. Every admitted device retains its evidence.
 	for _, gpu := range source {
+		if !policy.memoryRepresentable(gpu.Memory) || (policy.portable && portableIdentifier(gpu.UUID, maximumIdentityFieldBytes) == "") {
+			continue
+		}
 		if len(result) == maximumGPUs {
 			break
 		}
-		instances := make([]GPUInstance, 0, len(gpu.GPUInstances))
+		result = append(result, GPU{
+			UUID: boundedPrintable(gpu.UUID, maximumIdentityFieldBytes), Index: gpu.Index,
+			Name:       boundedPrintable(gpu.Name, maximumIdentityFieldBytes),
+			MIGEnabled: gpu.MIGEnabled, MaxMIGDevices: gpu.MaxMIGDevices,
+			Memory: policy.projectGPUMemory(gpu.Memory), Metrics: policy.projectMetricSet(gpu.Metrics),
+			GPUInstances: []GPUInstance{},
+		})
+		admitted = append(admitted, gpu)
+	}
+	remainingPartitions := 4096
+	for index, gpu := range admitted {
 		for _, instance := range gpu.GPUInstances {
-			computeInstances := make([]ComputeInstance, 0, len(instance.ComputeInstances))
+			if policy.portable && remainingPartitions == 0 {
+				break
+			}
+			if !policy.memoryRepresentable(instance.Memory) || (policy.portable && portableIdentifier(instance.UUID, maximumIdentityFieldBytes) == "") {
+				continue
+			}
+			remainingPartitions--
+			projected := GPUInstance{
+				UUID: boundedPrintable(instance.UUID, maximumIdentityFieldBytes), ID: instance.ID,
+				Profile: boundedPrintable(instance.Profile, maximumIdentityFieldBytes),
+				Memory:  policy.projectGPUMemory(instance.Memory), Metrics: policy.projectMetricSet(instance.Metrics),
+				ComputeInstances: []ComputeInstance{},
+			}
 			for _, compute := range instance.ComputeInstances {
-				computeInstances = append(computeInstances, ComputeInstance{
-					UUID:    boundedPrintable(compute.UUID, maximumIdentityFieldBytes),
-					ID:      compute.ID,
+				if policy.portable && remainingPartitions == 0 {
+					break
+				}
+				if !policy.memoryRepresentable(compute.Memory) || (policy.portable && portableIdentifier(compute.UUID, maximumIdentityFieldBytes) == "") {
+					continue
+				}
+				remainingPartitions--
+				projected.ComputeInstances = append(projected.ComputeInstances, ComputeInstance{
+					UUID: boundedPrintable(compute.UUID, maximumIdentityFieldBytes), ID: compute.ID,
 					Profile: boundedPrintable(compute.Profile, maximumIdentityFieldBytes),
-					Memory:  projectGPUMemory(compute.Memory, model.ScopeComputeInstance),
-					Metrics: projectMetricSet(compute.Metrics, model.ScopeComputeInstance),
+					Memory:  policy.projectGPUMemory(compute.Memory), Metrics: policy.projectMetricSet(compute.Metrics),
 				})
 			}
-			instances = append(instances, GPUInstance{
-				UUID:             boundedPrintable(instance.UUID, maximumIdentityFieldBytes),
-				ID:               instance.ID,
-				Profile:          boundedPrintable(instance.Profile, maximumIdentityFieldBytes),
-				Memory:           projectGPUMemory(instance.Memory, model.ScopeGPUInstance),
-				Metrics:          projectMetricSet(instance.Metrics, model.ScopeGPUInstance),
-				ComputeInstances: computeInstances,
-			})
+			result[index].GPUInstances = append(result[index].GPUInstances, projected)
 		}
-		result = append(result, GPU{
-			UUID:          boundedPrintable(gpu.UUID, maximumIdentityFieldBytes),
-			Index:         gpu.Index,
-			Name:          boundedPrintable(gpu.Name, maximumIdentityFieldBytes),
-			MIGEnabled:    gpu.MIGEnabled,
-			MaxMIGDevices: gpu.MaxMIGDevices,
-			Memory:        projectGPUMemory(gpu.Memory, model.ScopePhysicalGPU),
-			Metrics:       projectMetricSet(gpu.Metrics, model.ScopePhysicalGPU),
-			GPUInstances:  instances,
-		})
 	}
 	return result
 }
 
-func projectGPUMemory(memory model.Memory, scope model.MetricScope) Memory {
+func (policy projectionPolicy) projectGPUMemory(memory model.Memory) Memory {
 	return Memory{
 		TotalBytes:     copyUint64(memory.TotalBytes),
 		UsedBytes:      copyUint64(memory.UsedBytes),
 		AvailableBytes: copyUint64(memory.FreeBytes),
-		Source:         safeMetricSource(memory.Source),
-		Scope:          safeMetricScope(scope),
+		Source:         policy.source(memory.Source),
+		Scope:          policy.scope(memory.Scope),
 		SampledAt:      memory.SampledAt.UTC(),
 		Status:         MetricStatus(memory.Status),
 	}
@@ -242,19 +283,29 @@ var safeGPUMetrics = map[string]struct{}{
 	"pcie_tx_bytes_per_second": {}, "pcie_rx_bytes_per_second": {},
 }
 
-func projectMetricSet(source model.MetricSet, scope model.MetricScope) MetricSet {
+func (policy projectionPolicy) projectMetricSet(source model.MetricSet) MetricSet {
 	result := make(MetricSet)
-	for name, metric := range source {
-		if _, ok := safeGPUMetrics[name]; ok {
-			projected := projectMetric(metric)
-			projected.Scope = safeMetricScope(scope)
-			result[name] = projected
+	names := make([]string, 0, len(source))
+	for name := range source {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		if policy.remainingMetrics != nil && *policy.remainingMetrics == 0 {
+			break
+		}
+		metric := source[name]
+		if policy.metricName(name) && policy.metricRepresentable(metric) {
+			result[name] = policy.projectMetric(metric)
+			if policy.remainingMetrics != nil {
+				*policy.remainingMetrics--
+			}
 		}
 	}
 	return result
 }
 
-func projectMetric(metric model.Metric) Metric {
+func (policy projectionPolicy) projectMetric(metric model.Metric) Metric {
 	value := copyFloat64(metric.Value)
 	status := string(metric.Status)
 	if value != nil && (math.IsNaN(*value) || math.IsInf(*value, 0)) {
@@ -263,9 +314,9 @@ func projectMetric(metric model.Metric) Metric {
 	}
 	return Metric{
 		Value:     value,
-		Unit:      safeMetricUnit(metric.Unit),
-		Source:    safeMetricSource(metric.Source),
-		Scope:     safeMetricScope(metric.Scope),
+		Unit:      policy.unit(metric.Unit),
+		Source:    policy.source(metric.Source),
+		Scope:     policy.scope(metric.Scope),
 		SampledAt: metric.SampledAt.UTC(),
 		Status:    MetricStatus(status),
 	}
@@ -298,16 +349,19 @@ func safeMetricScope(scope model.MetricScope) string {
 	}
 }
 
-func projectHealth(snapshot model.Snapshot) Health {
+func projectHealth(snapshot model.Snapshot, representedGPUs int) Health {
 	system := DomainHealth{Status: healthForMetricStatus(snapshot.System.Status), SampledAt: snapshot.System.SampledAt.UTC()}
 	if system.SampledAt.IsZero() {
 		system.SampledAt = snapshot.SampledAt.UTC()
 	}
 	gpu := DomainHealth{Status: HealthUnavailable, SampledAt: snapshot.SampledAt.UTC()}
-	if len(snapshot.GPUs) > 0 {
+	if representedGPUs > 0 {
 		gpu.Status = HealthOK
-		if snapshot.Capabilities.NVML.Status == model.StatusStale || snapshot.Capabilities.NVML.Status == model.StatusError ||
-			snapshot.Capabilities.NVML.Status == model.StatusPermissionDenied {
+		state := snapshot.Capabilities.NVML
+		if snapshot.Capabilities.GPU != nil {
+			state = *snapshot.Capabilities.GPU
+		}
+		if state.Status == model.StatusStale || state.Status == model.StatusError || state.Status == model.StatusPermissionDenied {
 			gpu.Status = HealthDegraded
 		}
 	}

@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/intellisys-stevens/leviathan/internal/history"
-	"github.com/intellisys-stevens/leviathan/internal/model"
 	"github.com/intellisys-stevens/leviathan/internal/provider"
 	"github.com/intellisys-stevens/leviathan/internal/provider/fake"
+	"github.com/intellisys-stevens/leviathan/model"
 )
 
 type workloadSamplerStub struct {

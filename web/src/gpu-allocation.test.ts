@@ -195,6 +195,31 @@ describe('observed GPU assignment capacity', () => {
       });
     },
   );
+  it('uses generic GPU availability independently of NVML availability', () => {
+    const data = snapshot();
+    data.capabilities.nvml = {
+      name: 'NVML',
+      available: false,
+      status: 'unsupported',
+    };
+    data.capabilities.gpu = {
+      name: 'Lab GPU collector',
+      available: true,
+      status: 'available',
+    };
+    expect(buildGPUAllocationView(data)).toMatchObject({
+      status: 'available',
+      unassigned: 3,
+    });
+    data.capabilities.nvml.available = true;
+    data.capabilities.nvml.status = 'available';
+    data.capabilities.gpu.status = 'stale';
+    expect(buildGPUAllocationView(data)).toMatchObject({
+      status: 'unknown',
+      unassigned: null,
+    });
+  });
+
   it('withholds counts without attribution, observation time, fresh connection, or GPU collection', () => {
     const data = snapshot();
     expect(buildGPUAllocationView(data, { stale: true })).toMatchObject({

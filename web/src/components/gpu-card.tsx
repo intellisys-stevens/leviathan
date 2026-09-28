@@ -305,6 +305,7 @@ function GPUCardComponent({
             aria-label={`Open GPU ${gpu.index} physical GPU details`}
             onClick={() => onSelect({ kind: 'physical_gpu', gpu })}
           >
+            <span>Details</span>
             <ChevronRight className="size-4" aria-hidden="true" />
           </button>
         </div>

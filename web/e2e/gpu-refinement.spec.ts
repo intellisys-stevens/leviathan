@@ -448,6 +448,10 @@ async function chipAppearance(view: Locator, id: string) {
 }
 function idleSnapshot() {
   const idle = structuredClone(snapshot);
+  idle.system.cpu.utilization.value = 0;
+  idle.system.memory.utilization.value = 0;
+  idle.system.storage.readBytesPerSecond.value = 0;
+  idle.system.storage.writeBytesPerSecond.value = 0;
   for (const gpu of idle.gpus) {
     gpu.metrics.sm_activity.value = 0;
     for (const gi of gpu.gpuInstances) gi.metrics.sm_activity.value = 0;
@@ -1681,7 +1685,7 @@ test('fresh positive activity animates only visible live chips and stops for zer
   await expectNoWebGLDraws(page);
 });
 
-test('sibling CIs share GI activity while reservations and unknown assignments never animate as active resources', async ({
+test('sibling CIs share measured GI activity independently of reservation and attribution state', async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -1739,21 +1743,27 @@ test('sibling CIs share GI activity while reservations and unknown assignments n
   expect((await chipAppearance(view, 'MIG-refinement-0')).particleCount).toBe(
     0,
   );
+  expect((await chipAppearance(view, 'MIG-refinement-0')).activity).toBe(38);
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await expect
     .poll(async () => (await chipAppearance(view, sibling.uuid)).particleCount)
     .toBeGreaterThan(0);
-  expect((await chipAppearance(view, 'MIG-refinement-0')).particleCount).toBe(
-    0,
-  );
+  await expect
+    .poll(
+      async () =>
+        (await chipAppearance(view, 'MIG-refinement-0')).particleCount,
+    )
+    .toBeGreaterThan(0);
   current.sequence++;
   current.attribution!.status = 'stale';
   await sendSnapshot(page, current);
   await expect
     .poll(async () => (await chipAppearance(view, sibling.uuid)).state)
     .toBe('unknown');
-  expect((await chipAppearance(view, sibling.uuid)).particleCount).toBe(0);
-  await expectNoWebGLDraws(page);
+  expect((await chipAppearance(view, sibling.uuid)).activity).toBe(38);
+  expect(
+    (await chipAppearance(view, sibling.uuid)).particleCount,
+  ).toBeGreaterThan(0);
 });
 
 test('a silent stream expires activity and transport reopening cannot revive old telemetry', async ({
@@ -1843,7 +1853,7 @@ test('keyboard focus frames remain above zoomed motherboard and GPU geometry', a
         ? await readyMotherboard(page)
         : await readyBoard(page, 1);
     if (kind === 'motherboard') {
-      await view.getByRole('button', { name: 'Focus selected' }).click();
+      await view.getByRole('button', { name: 'Focus board' }).click();
     }
     await enableInteraction(view);
     await view.getByRole('button', { name: 'Zoom in', exact: true }).click();
@@ -1908,21 +1918,15 @@ test('motherboard keeps all host facts visible and links selection without movin
   for (const id of ['cpu', 'memory', 'storage']) {
     await expect(page.locator(`#resource-${id}`)).toBeVisible();
   }
-  await expect(page.locator('#resource-cpu')).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  await expect(page.locator('#resource-cpu')).toHaveJSProperty('tagName', 'H2');
   await page.locator('#resource-memory').click();
-  await expect(page.locator('#resource-memory')).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  await expect(
+    page.locator('.motherboard-category[data-category="cpu"]'),
+  ).toHaveAttribute('data-selected', 'true');
   await expectCameraNear(view, camera);
   await view.scrollIntoViewIfNeeded();
-  await view
-    .getByRole('button', { name: 'Focus selected', exact: true })
-    .click();
-  await expect(view).toHaveAttribute('data-focus', 'memory');
+  await view.getByRole('button', { name: 'Focus board', exact: true }).click();
+  await expect(view).toHaveAttribute('data-focus', 'cpu');
   await expect(view).not.toHaveAttribute('data-camera', camera);
   const selectedCamera = (await view.getAttribute('data-camera'))!;
   const gpu = await readyBoard(page, 0);
@@ -1938,10 +1942,9 @@ test('motherboard keeps all host facts visible and links selection without movin
   )) {
     expect(restoredMotherboard[key]).toBeCloseTo(value, 8);
   }
-  await expect(page.locator('#resource-memory')).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  await expect(
+    page.locator('.motherboard-category[data-category="cpu"]'),
+  ).toHaveAttribute('data-selected', 'true');
   await readyBoard(page, 0);
   const restoredGPU = JSON.parse((await gpu.getAttribute('data-camera'))!);
   for (const [key, value] of Object.entries(
@@ -1955,10 +1958,9 @@ test('motherboard keeps all host facts visible and links selection without movin
     .getByRole('button', { name: 'Inspect Storage resources', exact: true })
     .click();
   await expect(page.locator('#resource-storage')).toBeFocused();
-  await expect(page.locator('#resource-storage')).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  await expect(
+    page.locator('.motherboard-category[data-category="storage"]'),
+  ).toHaveAttribute('data-selected', 'true');
 });
 
 test('motherboard glow reflects measured CPU and memory occupancy while unavailable stays neutral', async ({
@@ -2033,10 +2035,9 @@ test('motherboard picking follows rotation and zoom and ignores drag gestures', 
   const target = await projectedChip(view, 'memory');
   const rect = (await viewport.boundingBox())!;
   await page.mouse.click(rect.x + target.x, rect.y + target.y);
-  await expect(page.locator('#resource-memory')).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  await expect(
+    page.locator('.motherboard-category[data-category="memory"]'),
+  ).toHaveAttribute('data-selected', 'true');
   await view.scrollIntoViewIfNeeded();
   const cpu = await projectedChip(view, 'cpu');
   const box = (await viewport.boundingBox())!;
@@ -2044,10 +2045,9 @@ test('motherboard picking follows rotation and zoom and ignores drag gestures', 
   await page.mouse.down();
   await page.mouse.move(box.x + cpu.x + 35, box.y + cpu.y + 15, { steps: 6 });
   await page.mouse.up();
-  await expect(page.locator('#resource-memory')).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  await expect(
+    page.locator('.motherboard-category[data-category="memory"]'),
+  ).toHaveAttribute('data-selected', 'true');
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
@@ -2108,10 +2108,11 @@ test('motherboard stays readable from 320 to 1440 pixels and preserves fallback 
   const view = page.locator('.motherboard-resources .hardware-board-view');
   await expect(view).toHaveAttribute('data-render-mode', 'fallback');
   await page.locator('#resource-storage').click();
-  await expect(page.locator('#resource-storage')).toHaveAttribute(
-    'aria-pressed',
-    'true',
+  await expect(page.locator('#resource-storage')).toHaveJSProperty(
+    'tagName',
+    'H2',
   );
+  await expect(page.locator('#resource-storage')).toBeVisible();
   await expect(page.locator('.motherboard-resources svg')).not.toHaveCount(0);
 });
 
