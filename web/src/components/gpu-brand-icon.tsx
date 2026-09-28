@@ -13,7 +13,7 @@ export function GPUBrandIcon({
   gpus,
   className = '',
   size = 24,
-  absoluteStrokeWidth,
+  nonScalingStroke,
   ...props
 }: Omit<ComponentProps<LucideIcon>, 'children'> & GPUBrandSource) {
   const brand = gpus ? resolveGPUCollectionBrand(gpus) : resolveGPUBrand(gpu);
@@ -27,7 +27,7 @@ export function GPUBrandIcon({
         {...accessibility}
         {...props}
         size={size}
-        absoluteStrokeWidth={absoluteStrokeWidth}
+        nonScalingStroke={nonScalingStroke}
         className={iconClass}
         data-gpu-brand={brand}
         focusable="false"

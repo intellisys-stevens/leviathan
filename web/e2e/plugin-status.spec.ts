@@ -75,6 +75,27 @@ test('plugin capabilities and freshness remain readable in Status', async ({
   await panel.scrollIntoViewIfNeeded();
   await panel.getByRole('button', { name: 'Refresh plugins' }).click();
   await expect(panel.getByRole('status')).toHaveCount(0);
+  const refreshButton = panel.getByRole('button', { name: 'Refresh plugins' });
+  await expect(refreshButton).toBeEnabled();
+  // Inspect the rendered state at re-enablement, before a transition can finish.
+  // Disabled controls may be muted; an enabled control must be readable at once.
+  const enabledOpacity = await refreshButton.evaluate(async (element) => {
+    const button = element as HTMLButtonElement;
+    button.disabled = true;
+    await Promise.all(
+      button
+        .getAnimations()
+        .filter(
+          (animation) =>
+            animation instanceof CSSTransition &&
+            animation.transitionProperty === 'opacity',
+        )
+        .map((animation) => animation.finished),
+    );
+    button.disabled = false;
+    return getComputedStyle(button).opacity;
+  });
+  expect(enabledOpacity).toBe('1');
   await panel.screenshot({
     path: info.outputPath('plugins.png'),
     style:

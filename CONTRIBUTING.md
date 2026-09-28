@@ -66,9 +66,14 @@ job fails if a selected job fails, is cancelled, or unexpectedly skips.
 
 Main-branch pushes, manual runs, and the weekly schedule run every lane, including
 dependency audits, license checks, and full-history secret scanning. Brokkr
-routing retains its trusted-source check and hosted rerun fallback. Hardware-GPU
-browser experiments remain separate, explicit manual runs. Release validation
-retains signing, provenance, archive, and dependency checks.
+routing uses repository-scoped Brokkr services for same-repository jobs and
+reruns when `BROKKR_ENABLED=true`; fork PRs remain hosted. To use hosted
+runners, disable that repository variable before starting a fresh run. Each
+Brokkr service supplies a separate `PLAYWRIGHT_PORT`, and CI starts its own
+server. The four software-rendered browser projects use independent hosted
+runners. Native NVIDIA browser experiments remain separate, explicit manual
+runs. Release validation retains signing, provenance, archive, and dependency
+checks.
 
 Use synthetic fixtures and report the platform, hardware path, and checks actually
 run. See [AGENTS.md](AGENTS.md) for the source map and

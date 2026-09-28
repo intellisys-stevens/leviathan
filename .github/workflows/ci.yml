@@ -51,7 +51,7 @@ jobs:
 
   secrets:
     needs: changes
-    runs-on: ${{ vars.BROKKR_ENABLED == 'true' && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && fromJSON(format('["self-hosted","linux","x64","brokkr","brokkr-{0}-{1}-ci-secrets"]', github.run_id, github.run_attempt)) || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.BROKKR_ENABLED == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","brokkr"]') || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -78,7 +78,7 @@ jobs:
   frontend:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
-    runs-on: ${{ vars.BROKKR_ENABLED == 'true' && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && fromJSON(format('["self-hosted","linux","x64","brokkr","brokkr-{0}-{1}-ci-frontend"]', github.run_id, github.run_attempt)) || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.BROKKR_ENABLED == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","brokkr"]') || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -92,7 +92,7 @@ jobs:
         working-directory: web
       - run: npm run format -- --check
         working-directory: web
-      - run: npm test
+      - run: npm test -- --maxWorkers=1 ${{ runner.environment == 'self-hosted' && '--testTimeout=15000' || '' }}
         working-directory: web
       - run: npm run generate:api
         working-directory: web
@@ -112,8 +112,9 @@ jobs:
           - chromium-desktop-light
           - chromium-narrow-dark
           - chromium-narrow-light
-    # Brokkr is primary for trusted first attempts; every rerun uses GitHub.
-    runs-on: ${{ vars.BROKKR_ENABLED == 'true' && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && fromJSON(format('["self-hosted","linux","x64","brokkr","brokkr-{0}-{1}-ci-frontend-browser-{2}"]', github.run_id, github.run_attempt, matrix.project)) || 'ubuntu-24.04' }}
+    # Concurrent software-rendered tests timed out on the shared Brokkr host.
+    # Keep all four projects independent; native NVIDIA coverage is manual.
+    runs-on: ubuntu-24.04
     # The full desktop suite takes about 27 minutes with software graphics.
     # Leave room for cold runner setup and retaining failure artifacts.
     timeout-minutes: 45
@@ -127,15 +128,8 @@ jobs:
       - run: npm ci
         working-directory: web
       - name: Install Chromium for dashboard regressions
-        if: runner.environment != 'self-hosted'
         run: npx playwright install --with-deps chromium
         working-directory: web
-      - name: Install Chromium in the prepared guest
-        if: runner.environment == 'self-hosted'
-        run: npx playwright install chromium
-        working-directory: web
-      # Keep software-rendered GPU scenes from competing on the same runner.
-      # Every existing project and assertion still runs on its own native host.
       - name: Run dashboard browser regressions
         run: npm run test:e2e -- --project="${{ matrix.project }}" --workers=1
         working-directory: web
@@ -151,10 +145,13 @@ jobs:
   go:
     needs: changes
     if: needs.changes.outputs.go == 'true'
-    runs-on: ${{ vars.BROKKR_ENABLED == 'true' && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && fromJSON(format('["self-hosted","linux","x64","brokkr","brokkr-{0}-{1}-ci-go"]', github.run_id, github.run_attempt)) || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.BROKKR_ENABLED == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","brokkr"]') || 'ubuntu-24.04' }}
     env:
       CGO_CFLAGS: -Wno-deprecated-declarations
     steps:
+      - name: Limit Go parallelism on Brokkr
+        if: runner.environment == 'self-hosted'
+        run: printf '%s\n' 'GOMAXPROCS=1' 'GOFLAGS=-p=1' >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
@@ -309,14 +306,14 @@ jobs:
   distribution-validation:
     needs: changes
     if: needs.changes.outputs.distribution == 'true'
-    runs-on: ${{ vars.BROKKR_ENABLED == 'true' && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && fromJSON(format('["self-hosted","linux","x64","brokkr","brokkr-{0}-{1}-ci-distribution-validation"]', github.run_id, github.run_attempt)) || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.BROKKR_ENABLED == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","brokkr"]') || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v7
       - uses: azure/setup-helm@v5
         with:
           version: v3.18.6
-      - name: Install ShellCheck outside the prepared Brokkr guest
-        if: runner.environment != 'self-hosted' || !startsWith(runner.name, 'brokkr-')
+      - name: Install ShellCheck on GitHub-hosted runners
+        if: runner.environment != 'self-hosted'
         run: |
           sudo apt-get update
           sudo apt-get install --yes shellcheck
@@ -361,10 +358,13 @@ jobs:
             architecture: amd64
           - runner: ubuntu-24.04-arm
             architecture: arm64
-    runs-on: ${{ vars.BROKKR_ENABLED == 'true' && github.run_attempt == '1' && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref_type == 'branch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository)) && matrix.runner == 'ubuntu-24.04' && matrix.architecture == 'amd64' && fromJSON(format('["self-hosted","linux","x64","brokkr","brokkr-{0}-{1}-ci-release-archive-dry-run-amd64"]', github.run_id, github.run_attempt)) || matrix.runner }}
+    runs-on: ${{ vars.BROKKR_ENABLED == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && matrix.runner == 'ubuntu-24.04' && matrix.architecture == 'amd64' && fromJSON('["self-hosted","linux","x64","brokkr"]') || matrix.runner }}
     env:
       CGO_CFLAGS: -Wno-deprecated-declarations
     steps:
+      - name: Limit Go parallelism on Brokkr
+        if: runner.environment == 'self-hosted'
+        run: printf '%s\n' 'GOMAXPROCS=1' 'GOFLAGS=-p=1' >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0

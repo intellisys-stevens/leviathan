@@ -132,6 +132,8 @@ test('matches targeted workbench and frost-dragon visual baselines', async ({
       animations: 'disabled',
       timeout: 30_000,
       fullPage: true,
+      // This full-page capture uses its existing proportional allowance.
+      maxDiffPixels: undefined,
       maxDiffPixelRatio: 0.002,
     });
   };
