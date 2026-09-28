@@ -828,7 +828,7 @@ export default function DetailSheet({
   const source = physical ? gpu : selection.gi;
   const historyEntity = physical
     ? gpu.generation || gpu.uuid
-    : selection.gi.uuid;
+    : selection.gi.generation || selection.gi.uuid;
   const liveMetrics = physical ? physicalLiveMetrics : instanceLiveMetrics;
   const chartMetrics = physical ? physicalChartMetrics : instanceChartMetrics;
   const historyMetrics = physical
