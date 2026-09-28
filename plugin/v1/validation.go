@@ -21,7 +21,11 @@ func (o Observation) ValidateAt(now time.Time) error {
 	if o.ObservedAt.After(now.Add(5 * time.Second)) {
 		return errors.New("plugin observation is from the future")
 	}
-	budget := 32768
+	// A legal 4 MiB response can contain far more than 32768 reflected fields
+	// (4096 process records alone do). Derive this traversal safeguard from
+	// the wire bound, allowing a pointer and value visit per serialized byte.
+	// Collection and metric-map limits independently bound each payload.
+	budget := 2 * MaxDocumentBytes
 	return validateValue(reflect.ValueOf(o), now, &budget)
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"net"
 	"net/http"
@@ -254,5 +255,51 @@ func TestRestartRevalidatesManifestAndRejectsInvalidContentType(t *testing.T) {
 	mu.Unlock()
 	if _, err := client.Read(context.Background(), GPU, now); err == nil {
 		t.Fatal("accepted non-JSON media type")
+	}
+}
+
+func TestValidationAcceptsBoundedLargeHostObservations(t *testing.T) {
+	now := time.Now().UTC()
+	processes := Observation{InstanceID: "processes", SessionID: "session", Capability: Processes, Revision: 1, ObservedAt: now, Status: "available", Processes: &ProcessData{Capability: model.ProviderState{Name: "proc", Status: model.StatusAvailable, Available: true}}}
+	for index := 0; index < 4096; index++ {
+		processes.Processes.Processes = append(processes.Processes.Processes, ProcessRecord{Process: model.Process{PID: uint32(index + 1), User: "user", Executable: "worker", StartTime: &now, Status: model.StatusAvailable}, ScopeRef: fmt.Sprintf("scope-%d", index)})
+	}
+	if err := processes.ValidateAt(now); err != nil {
+		t.Fatalf("4096 bounded process records rejected: %v", err)
+	}
+	data, err := json.Marshal(processes)
+	if err != nil || len(data) > MaxDocumentBytes {
+		t.Fatalf("process fixture exceeds wire contract: bytes=%d err=%v", len(data), err)
+	}
+	processes.Processes.Processes = append(processes.Processes.Processes, ProcessRecord{Process: model.Process{PID: 5000, Status: model.StatusAvailable}})
+	if processes.ValidateAt(now) == nil {
+		t.Fatal("process cardinality bound lost")
+	}
+	topology := gpuObservation(now)
+	topology.GPU.GPUs = nil
+	metrics := func(scope model.MetricScope) model.MetricSet {
+		values := model.MetricSet{}
+		for _, name := range []string{"gpu_activity", "sm_activity", "sm_occupancy", "tensor_activity", "dram_activity", "memory_activity"} {
+			values[name] = model.AvailableMetric(25, "percent", model.SourceNVMLGPM, scope, now)
+		}
+		return values
+	}
+	for device := 0; device < 8; device++ {
+		gpu := model.GPU{UUID: fmt.Sprintf("GPU-%d", device), MIGEnabled: true, Metrics: metrics(model.ScopePhysicalGPU)}
+		for instance := 0; instance < 7; instance++ {
+			gi := model.GPUInstance{UUID: fmt.Sprintf("GI-%d-%d", device, instance), ID: uint32(instance), Metrics: metrics(model.ScopeGPUInstance)}
+			for compute := 0; compute < 7; compute++ {
+				gi.ComputeInstances = append(gi.ComputeInstances, model.ComputeInstance{UUID: fmt.Sprintf("CI-%d-%d-%d", device, instance, compute), ID: uint32(compute), Metrics: metrics(model.ScopeComputeInstance)})
+			}
+			gpu.GPUInstances = append(gpu.GPUInstances, gi)
+		}
+		topology.GPU.GPUs = append(topology.GPU.GPUs, gpu)
+	}
+	if err = topology.ValidateAt(now); err != nil {
+		t.Fatalf("8-GPU bounded MIG topology rejected: %v", err)
+	}
+	data, err = json.Marshal(topology)
+	if err != nil || len(data) > MaxDocumentBytes {
+		t.Fatalf("topology fixture exceeds wire contract: bytes=%d err=%v", len(data), err)
 	}
 }
