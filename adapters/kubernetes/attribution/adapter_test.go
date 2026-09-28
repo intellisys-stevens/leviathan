@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"path/filepath"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -81,5 +83,58 @@ func TestAdapterOpenBoundsInitialRequestAndCloseStopsWorker(t *testing.T) {
 	}
 	if observed := adapter.Observe(model.Snapshot{}); observed.Attribution.Status != model.AttributionUnavailable {
 		t.Fatalf("missing inventory = %+v", observed.Attribution)
+	}
+}
+
+func TestAdapterPreservesLegacyDynamicResolution(t *testing.T) {
+	for _, mode := range []string{"current", "checkpoint unavailable", "checkpoint disabled", "stale bridge", "UUID replacement"} {
+		t.Run(mode, func(t *testing.T) {
+			document, snapshot, checkpoint := dynamicFixture(t)
+			now := document.SourceObservedAt
+			client, err := NewClient(testOptions(filepath.Join(t.TempDir(), "absent.sock"), &now))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+			client.document = &document.Document
+			client.modern = &document
+			client.receivedAt = now
+			legacy := NewProvider(&topologyStub{snapshot: snapshot}, client)
+			adapter := NewAdapter(client, "")
+			if mode != "checkpoint disabled" {
+				if mode == "checkpoint unavailable" {
+					checkpoint.Reason = "checkpoint_unavailable"
+				}
+				legacy.checkpoint = NewCheckpointReader("unused")
+				legacy.checkpoint.current = checkpoint
+				adapter.checkpoint = NewCheckpointReader("unused")
+				adapter.checkpoint.current = checkpoint
+			}
+			if mode == "stale bridge" {
+				now = now.Add(30 * time.Second)
+			}
+			old, err := legacy.Sample(context.Background(), now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			current := adapter.Observe(snapshot)
+			if !reflect.DeepEqual(current.Attribution, old.Attribution) {
+				t.Fatalf("adapter changed legacy coverage: new=%+v old=%+v", current.Attribution, old.Attribution)
+			}
+			if mode == "UUID replacement" {
+				snapshot.GPUs[3].GPUInstances[0].ComputeInstances[0].UUID = "MIG-replacement"
+				old, err = legacy.Sample(context.Background(), now)
+				if err != nil {
+					t.Fatal(err)
+				}
+				current = adapter.Observe(snapshot)
+				if !reflect.DeepEqual(current.Attribution, old.Attribution) || len(current.Attribution.Assignments) != 2 {
+					t.Fatalf("replacement pin was lost: new=%+v old=%+v", current.Attribution, old.Attribution)
+				}
+			}
+			if current.Attribution.ObservedAt != nil && !current.Attribution.ObservedAt.Equal(document.SourceObservedAt) {
+				t.Fatal("source timestamp changed")
+			}
+		})
 	}
 }

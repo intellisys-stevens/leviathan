@@ -80,28 +80,24 @@ func (a *Adapter) ObserveWithScopes(snapshot model.Snapshot) (model.Snapshot, ma
 	if a.checkpoint != nil {
 		cp = a.checkpoint.Current(at)
 	}
-	a.resolver.resolve(&value, modern, snapshot, cp)
 	after, _, next := a.client.inventory(at)
 	if a.checkpoint != nil {
 		nextCP := a.checkpoint.Current(at)
-		if nextCP.Revision != cp.Revision || nextCP.Reason != "" {
-			if value.Status != model.AttributionUnavailable {
-				value.Status = model.AttributionStale
-			}
-			value.Resolution = &model.AttributionResolution{Status: "unknown", ReasonCodes: []string{"binding_mismatch"}, Workloads: []model.WorkloadAssignmentResolution{}}
+		if nextCP.Revision != cp.Revision {
+			cp.Reason = "binding_mismatch"
+		}
+		if nextCP.Reason != "" {
+			cp.Reason = nextCP.Reason
 		}
 	}
 	if refreshToken(next, checkpointObservation{}) != refreshToken(modern, checkpointObservation{}) || after.Status != initialStatus {
 		if value.Status != model.AttributionUnavailable {
 			value.Status = model.AttributionStale
 		}
-		if value.Resolution == nil {
-			resolution := CompleteResolution()
-			value.Resolution = &resolution
-		}
-		value.Resolution.Status = "unknown"
-		value.Resolution.ReasonCodes = uniqueReason(value.Resolution.ReasonCodes, "source_changed")
 	}
+	// Resolve only after checking the source revisions, so a mixed checkpoint
+	// cannot leave dynamic assignments in an otherwise stale result.
+	a.resolver.resolve(&value, modern, snapshot, cp)
 	snapshot.Processes = append([]model.Process(nil), snapshot.Processes...)
 	for index := range snapshot.Processes {
 		snapshot.Processes[index].WorkloadRef = processScopes[snapshot.Processes[index].ScopeRef]
