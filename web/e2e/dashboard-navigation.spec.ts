@@ -13,7 +13,7 @@ import {
   moveCommands,
 } from './fixtures/dashboard';
 
-configureDashboardTests();
+configureDashboardTests({ cpuCompositing: true });
 
 test('uses visible legend values without floating tooltips on mobile', async ({
   page,
