@@ -12,7 +12,7 @@ import {
   moveCommands,
 } from './fixtures/dashboard';
 
-configureDashboardTests();
+configureDashboardTests({ cpuCompositing: true });
 
 test('renders healthy aligned history as one continuous path per series', async ({
   page,
