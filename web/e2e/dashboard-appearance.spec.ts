@@ -9,7 +9,7 @@ import {
   canvasFramesAreStable,
 } from './fixtures/dashboard';
 
-configureDashboardTests();
+configureDashboardTests({ cpuCompositing: true });
 
 test('renders frost-dragon branding with glass, aurora, and ambient snow layers', async ({
   page,
