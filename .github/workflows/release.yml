@@ -250,7 +250,7 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           sbom-path: dist/leviathan-kubernetes-bridge_${{ needs.release-metadata.outputs.version }}_linux_arm64.spdx.json
           push-to-registry: true
-      - uses: sigstore/cosign-installer@v4.1.2
+      - uses: sigstore/cosign-installer@v4.1.3
       - name: Sign bridge image with GitHub OIDC
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
@@ -278,7 +278,7 @@ jobs:
       - uses: azure/setup-helm@v5
         with:
           version: v3.18.6
-      - uses: sigstore/cosign-installer@v4.1.2
+      - uses: sigstore/cosign-installer@v4.1.3
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io
